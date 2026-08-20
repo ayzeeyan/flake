@@ -1,5 +1,8 @@
 //! `flake` — the command-line interface for the Flake programming language.
 
+mod repl;
+mod report;
+
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -9,8 +12,6 @@ use clap::{Parser, Subcommand};
 use flake_ast::Source;
 use flake_interpreter::execute;
 use flake_types::check;
-
-const TAGLINE: &str = "Clarity, crystallized.";
 
 /// Flake — a safe, modern systems language with gradual ownership and first-class effects.
 #[derive(Debug, Parser)]
@@ -53,7 +54,10 @@ fn main() -> ExitCode {
     match cli.command {
         Commands::Run { file, skip_check } => run_file(&file, skip_check),
         Commands::Check { file } => check_file(&file),
-        Commands::Repl => not_yet("repl", None),
+        Commands::Repl => {
+            let code = repl::run();
+            ExitCode::from(code as u8)
+        }
     }
 }
 
@@ -61,7 +65,7 @@ fn load_source(path: &PathBuf) -> Result<Source, ExitCode> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Source::new(path.display().to_string(), text)),
         Err(err) => {
-            eprintln!("error: cannot read {}: {err}", path.display());
+            report::emit_message(&format!("cannot read {}: {err}", path.display()));
             Err(ExitCode::from(1))
         }
     }
@@ -74,7 +78,10 @@ fn run_file(path: &PathBuf, skip_check: bool) -> ExitCode {
     };
     if !skip_check {
         if let Err(err) = check(&source) {
-            eprint!("{}", err.display(&source));
+            match &err {
+                flake_types::CheckError::Parse(e) => report::emit(&source, e.span, &e.message),
+                flake_types::CheckError::Type(e) => report::emit(&source, e.span, &e.message),
+            }
             return ExitCode::from(1);
         }
     }
@@ -85,7 +92,11 @@ fn run_file(path: &PathBuf, skip_check: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(err) => {
-            eprint!("{}", err.display(&source));
+            if let Some(span) = err.span() {
+                report::emit(&source, span, &err.to_string());
+            } else {
+                report::emit_message(&err.to_string());
+            }
             ExitCode::from(1)
         }
     }
@@ -102,19 +113,11 @@ fn check_file(path: &PathBuf) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(err) => {
-            eprint!("{}", err.display(&source));
+            match &err {
+                flake_types::CheckError::Parse(e) => report::emit(&source, e.span, &e.message),
+                flake_types::CheckError::Type(e) => report::emit(&source, e.span, &e.message),
+            }
             ExitCode::from(1)
         }
     }
-}
-
-fn not_yet(command: &str, file: Option<&PathBuf>) -> ExitCode {
-    eprint!("flake {command}: not implemented yet");
-    if let Some(path) = file {
-        eprint!(" (target: {})", path.display());
-    }
-    eprintln!();
-    eprintln!("{TAGLINE}");
-    eprintln!("See ROADMAP.md for milestone status.");
-    ExitCode::from(2)
 }

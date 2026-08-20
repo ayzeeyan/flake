@@ -9,7 +9,7 @@ use flake_ast::{
     AssignOp, BinOp, Block, Expr, InterpPart, Item, LetStmt, Literal, Program, Source, Span, Stmt,
     UnOp,
 };
-use flake_parser::parse;
+use flake_parser::{ReplInput, parse, parse_repl};
 
 use crate::env::Env;
 use crate::error::{RunError, RuntimeError};
@@ -43,10 +43,79 @@ struct Interpreter<'io> {
     depth: usize,
 }
 
+/// Persistent evaluation engine used by `flake run` and the REPL.
+pub struct Engine {
+    env: Env,
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Engine {
+    #[must_use]
+    pub fn new() -> Self {
+        let env = Env::root();
+        install_builtins(&env);
+        Self { env }
+    }
+
+    /// Run a complete program (requires `main`).
+    pub fn run(&mut self, source: &Source, stdout: &mut dyn Write) -> Result<Value, RunError> {
+        let program = parse(source)?;
+        let mut interp = Interpreter {
+            source,
+            env: self.env.clone(),
+            stdout,
+            depth: 0,
+        };
+        interp.collect_items(&program).map_err(RunError::from)?;
+        interp.call_main(&program).map_err(RunError::from)
+    }
+
+    /// Evaluate REPL input: a program fragment or a script of statements.
+    pub fn eval_repl(&mut self, source: &Source, stdout: &mut dyn Write) -> Result<Value, RunError> {
+        let input = parse_repl(source)?;
+        let mut interp = Interpreter {
+            source,
+            env: self.env.clone(),
+            stdout,
+            depth: 0,
+        };
+        match input {
+            ReplInput::Program(program) => {
+                interp.collect_items(&program).map_err(RunError::from)?;
+                let has_main = program.items.iter().any(|item| matches!(item, Item::Fn(f) if f.name.name == "main"));
+                if has_main {
+                    interp.call_main(&program).map_err(RunError::from)
+                } else {
+                    Ok(Value::Nil)
+                }
+            }
+            ReplInput::Script(block) => match interp.eval_open_block(&block) {
+                Ok(v) => Ok(v),
+                Err(Fail::Runtime(e)) => Err(e.into()),
+                Err(Fail::Control(Control::Return(v))) => Ok(v),
+                Err(Fail::Control(Control::Break)) => Err(RuntimeError::new(
+                    block.span,
+                    "`break` outside of a loop",
+                )
+                .into()),
+                Err(Fail::Control(Control::Continue)) => Err(RuntimeError::new(
+                    block.span,
+                    "`continue` outside of a loop",
+                )
+                .into()),
+            },
+        }
+    }
+}
+
 /// Parse and execute a Flake program, writing `print` output to `stdout`.
 pub fn execute(source: &Source, stdout: &mut dyn Write) -> Result<Value, RunError> {
-    let program = parse(source)?;
-    execute_program(source, &program, stdout)
+    Engine::new().run(source, stdout)
 }
 
 /// Execute an already-parsed program.
@@ -61,9 +130,32 @@ pub fn execute_program(
         stdout,
         depth: 0,
     };
-    interp.install_builtins();
+    install_builtins(&interp.env);
     interp.collect_items(program).map_err(RunError::from)?;
     interp.call_main(program).map_err(RunError::from)
+}
+
+fn install_builtins(env: &Env) {
+    for native in [
+        NativeFn::Print,
+        NativeFn::Len,
+        NativeFn::Push,
+        NativeFn::Pop,
+        NativeFn::Str,
+        NativeFn::Int,
+        NativeFn::Float,
+        NativeFn::TypeOf,
+        NativeFn::Assert,
+        NativeFn::ReadFile,
+        NativeFn::Abs,
+        NativeFn::Min,
+        NativeFn::Max,
+        NativeFn::Range,
+        NativeFn::Join,
+        NativeFn::Split,
+    ] {
+        env.define(native.name(), Value::Native(native), false);
+    }
 }
 
 /// Execute `source` and return both the result and captured stdout.
@@ -74,23 +166,6 @@ pub fn execute_captured(source: &Source) -> Result<(Value, String), RunError> {
 }
 
 impl<'io> Interpreter<'io> {
-    fn install_builtins(&mut self) {
-        for native in [
-            NativeFn::Print,
-            NativeFn::Len,
-            NativeFn::Push,
-            NativeFn::Pop,
-            NativeFn::Str,
-            NativeFn::Int,
-            NativeFn::Float,
-            NativeFn::TypeOf,
-            NativeFn::Assert,
-            NativeFn::ReadFile,
-        ] {
-            self.env.define(native.name(), Value::Native(native), false);
-        }
-    }
-
     fn collect_items(&mut self, program: &Program) -> Result<(), RuntimeError> {
         for item in &program.items {
             match item {
@@ -186,18 +261,20 @@ impl<'io> Interpreter<'io> {
     fn eval_block(&mut self, block: &Block) -> EvalResult<Value> {
         let saved = self.env.clone();
         self.env = saved.child();
-        let result = (|| {
-            for stmt in &block.stmts {
-                self.eval_stmt(stmt)?;
-            }
-            if let Some(tail) = &block.tail {
-                self.eval_expr(tail)
-            } else {
-                Ok(Value::Nil)
-            }
-        })();
+        let result = self.eval_open_block(block);
         self.env = saved;
         result
+    }
+
+    fn eval_open_block(&mut self, block: &Block) -> EvalResult<Value> {
+        for stmt in &block.stmts {
+            self.eval_stmt(stmt)?;
+        }
+        if let Some(tail) = &block.tail {
+            self.eval_expr(tail)
+        } else {
+            Ok(Value::Nil)
+        }
     }
 
     fn eval_stmt(&mut self, stmt: &Stmt) -> EvalResult<()> {
@@ -600,6 +677,110 @@ impl<'io> Interpreter<'io> {
                     )
                     .into()),
                 }
+            }
+            NativeFn::Abs => {
+                expect_arity("abs", args, 1, span)?;
+                match &args[0] {
+                    Value::Int(n) => n
+                        .checked_abs()
+                        .map(Value::Int)
+                        .ok_or_else(|| RuntimeError::new(span, "integer overflow").into()),
+                    Value::Float(n) => Ok(Value::Float(n.abs())),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("abs() expected Int or Float, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Min | NativeFn::Max => {
+                if args.len() < 2 {
+                    return Err(RuntimeError::new(
+                        span,
+                        format!("{}() expected at least 2 arguments", native.name()),
+                    )
+                    .into());
+                }
+                let mut acc = args[0].clone();
+                for arg in &args[1..] {
+                    let lt = match cmp(acc.clone(), arg.clone(), span, |o| o.is_lt())? {
+                        Value::Bool(b) => b,
+                        _ => false,
+                    };
+                    match native {
+                        NativeFn::Min if !lt => acc = arg.clone(),
+                        NativeFn::Max if lt => acc = arg.clone(),
+                        _ => {}
+                    }
+                }
+                Ok(acc)
+            }
+            NativeFn::Range => {
+                let (start, end) = match args.len() {
+                    1 => (0, expect_int(&args[0], span)?),
+                    2 => (expect_int(&args[0], span)?, expect_int(&args[1], span)?),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            span,
+                            "range() expected 1 or 2 arguments",
+                        )
+                        .into());
+                    }
+                };
+                Ok(Value::Range { start, end })
+            }
+            NativeFn::Join => {
+                expect_arity("join", args, 2, span)?;
+                let sep = match &args[1] {
+                    Value::String(s) => s.to_string(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            span,
+                            format!("join() separator expected String, found {}", other.type_name()),
+                        )
+                        .into());
+                    }
+                };
+                match &args[0] {
+                    Value::List(items) => {
+                        let parts: Vec<_> = items.borrow().iter().map(Value::display_value).collect();
+                        Ok(Value::from_string(parts.join(&sep)))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("join() expected List, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Split => {
+                expect_arity("split", args, 2, span)?;
+                let s = match &args[0] {
+                    Value::String(s) => s.to_string(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            span,
+                            format!("split() expected String, found {}", other.type_name()),
+                        )
+                        .into());
+                    }
+                };
+                let sep = match &args[1] {
+                    Value::String(s) => s.to_string(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            span,
+                            format!("split() separator expected String, found {}", other.type_name()),
+                        )
+                        .into());
+                    }
+                };
+                let parts: Vec<_> = if sep.is_empty() {
+                    s.chars().map(|c| Value::from_string(c.to_string())).collect()
+                } else {
+                    s.split(&sep).map(Value::from_string).collect()
+                };
+                Ok(Value::List(Rc::new(RefCell::new(parts))))
             }
         }
     }

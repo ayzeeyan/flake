@@ -19,6 +19,18 @@ pub fn parse_str(text: &str) -> Result<Program, ParseError> {
     parse(&Source::new("<input>", text))
 }
 
+/// Input accepted by the REPL: a full program or a statement/expression script.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReplInput {
+    Program(Program),
+    Script(Block),
+}
+
+pub fn parse_repl(source: &Source) -> Result<ReplInput, ParseError> {
+    let tokens = tokenize(source)?;
+    Parser::new(source, tokens).parse_repl_input()
+}
+
 struct Parser<'src> {
     source: &'src Source,
     tokens: Vec<Token>,
@@ -46,6 +58,60 @@ impl<'src> Parser<'src> {
         Ok(Program {
             items,
             span: start.merge(end),
+        })
+    }
+
+    fn parse_repl_input(&mut self) -> Result<ReplInput, ParseError> {
+        self.skip_nl();
+        if self.at_item_start() {
+            Ok(ReplInput::Program(self.parse_program()?))
+        } else {
+            Ok(ReplInput::Script(self.parse_script_body()?))
+        }
+    }
+
+    fn at_item_start(&self) -> bool {
+        matches!(
+            self.kind(),
+            TokenKind::Fn
+                | TokenKind::Struct
+                | TokenKind::Type
+                | TokenKind::Import
+                | TokenKind::Pub
+                | TokenKind::Strict
+                | TokenKind::Owned
+        )
+    }
+
+    fn parse_script_body(&mut self) -> Result<Block, ParseError> {
+        let start = self.current().span;
+        let mut stmts = Vec::new();
+        let mut last_semi = true;
+        while !self.at_eof() {
+            self.skip_nl();
+            if self.at_eof() {
+                break;
+            }
+            let stmt = self.parse_stmt()?;
+            last_semi = self.eat(&TokenKind::Semicolon);
+            stmts.push(stmt);
+        }
+        let tail = if !last_semi {
+            if let Some(Stmt::Expr(_)) = stmts.last() {
+                match stmts.pop() {
+                    Some(Stmt::Expr(e)) => Some(Box::new(e)),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Ok(Block {
+            stmts,
+            tail,
+            span: start.merge(self.current().span),
         })
     }
 

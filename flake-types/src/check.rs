@@ -73,6 +73,22 @@ impl Checker {
             "read_file".into(),
             mk(vec![Type::String], Type::String, &["io", "alloc"]),
         );
+        self.functions
+            .insert("abs".into(), mk(vec![Type::Dyn], Type::Dyn, &[]));
+        self.functions
+            .insert("min".into(), mk(vec![Type::Dyn, Type::Dyn], Type::Dyn, &[]));
+        self.functions
+            .insert("max".into(), mk(vec![Type::Dyn, Type::Dyn], Type::Dyn, &[]));
+        self.functions
+            .insert("range".into(), mk(vec![Type::Int], Type::Range, &[]));
+        self.functions.insert(
+            "join".into(),
+            mk(vec![Type::list(Type::Dyn), Type::String], Type::String, &["alloc"]),
+        );
+        self.functions.insert(
+            "split".into(),
+            mk(vec![Type::String, Type::String], Type::list(Type::String), &["alloc"]),
+        );
     }
 
     fn resolve(&self, ty: &Type) -> Type {
@@ -561,7 +577,10 @@ impl Checker {
                         // `print` is variadic in the interpreter; accept any arity.
                         let variadic_print = matches!(
                             callee.as_ref(),
-                            Expr::Ident(id) if id.name == "print" || id.name == "assert"
+                            Expr::Ident(id) if matches!(
+                                id.name.as_str(),
+                                "print" | "assert" | "min" | "max" | "range"
+                            )
                         );
                         if !variadic_print && params.len() != args.len() {
                             return Err(TypeError::new(

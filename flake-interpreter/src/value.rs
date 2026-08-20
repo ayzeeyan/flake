@@ -51,6 +51,12 @@ pub enum NativeFn {
     TypeOf,
     Assert,
     ReadFile,
+    Abs,
+    Min,
+    Max,
+    Range,
+    Join,
+    Split,
 }
 
 impl NativeFn {
@@ -67,6 +73,12 @@ impl NativeFn {
             Self::TypeOf => "type_of",
             Self::Assert => "assert",
             Self::ReadFile => "read_file",
+            Self::Abs => "abs",
+            Self::Min => "min",
+            Self::Max => "max",
+            Self::Range => "range",
+            Self::Join => "join",
+            Self::Split => "split",
         }
     }
 }

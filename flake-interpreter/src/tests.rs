@@ -1,6 +1,6 @@
 use flake_ast::Source;
 
-use crate::{Value, execute_captured};
+use crate::{Engine, Value, execute_captured};
 
 fn run(src: &str) -> (Value, String) {
     let source = Source::new("test.flk", src);
@@ -188,6 +188,35 @@ fn main() {
 fn no_main_errors() {
     let msg = run_err("fn helper() { 1 }");
     assert!(msg.contains("no `main`"), "{msg}");
+}
+
+#[test]
+fn range_join_split() {
+    let (_, out) = run(&main(
+        r#"
+        var s = 0
+        for n in range(4) {
+            s = s + n
+        }
+        print(s)
+        print(join(["a", "b"], "-"))
+        print(len(split("a-b-c", "-")))
+        "#,
+    ));
+    assert_eq!(out, "6\na-b\n3\n");
+}
+
+#[test]
+fn repl_state_persists() {
+    let mut engine = Engine::new();
+    let mut out = Vec::new();
+    engine
+        .eval_repl(&Source::new("<repl>", "let x = 40"), &mut out)
+        .unwrap();
+    let value = engine
+        .eval_repl(&Source::new("<repl>", "x + 2"), &mut out)
+        .unwrap();
+    assert_eq!(value, Value::Int(42));
 }
 
 #[test]

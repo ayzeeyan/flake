@@ -15,7 +15,7 @@ annotations. Native/WASM backends come later.
 | 4 | Type system foundation | **done** |
 | 5 | Effect system | **done** |
 | 6 | Gradual ownership foundation | **done** |
-| 7 | REPL and language expansion | pending |
+| 7 | REPL and language expansion | **done** |
 | 8 | Bytecode VM foundation | pending |
 | 9 | Polish, tests, documentation and examples | pending |
 | 10 | Flake v0.1 complete | pending |

@@ -2,7 +2,7 @@ use flake_ast::{
     BinOp, Expr, InterpPart, Item, Literal, Stmt, TypeExpr, print_program,
 };
 
-use crate::parse_str;
+use crate::{parse_repl, parse_str, ReplInput};
 
 fn parse_ok(src: &str) -> flake_ast::Program {
     parse_str(src).unwrap_or_else(|e| panic!("parse failed for {src:?}: {e}"))
@@ -227,6 +227,15 @@ fn error_on_bad_top_level() {
 fn error_on_unterminated_block() {
     let err = parse_str("fn main() {").unwrap_err();
     assert!(err.message.contains("`}`"), "{}", err.message);
+}
+
+#[test]
+fn repl_parses_bare_expression() {
+    let src = flake_ast::Source::new("<repl>", "1 + 2");
+    match parse_repl(&src).unwrap() {
+        ReplInput::Script(block) => assert!(block.tail.is_some()),
+        other => panic!("expected script, got {other:?}"),
+    }
 }
 
 #[test]
