@@ -1,0 +1,16 @@
+[package]
+name = "flake-interpreter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Tree-walking interpreter for the Flake programming language."
+
+[dependencies]
+flake-ast.workspace = true
+flake-parser.workspace = true
+
+[lints]
+workspace = true

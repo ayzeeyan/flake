@@ -1,0 +1,7 @@
+// Flake v0.1 — a first program.
+// Running this file requires the interpreter (Milestone 3).
+
+fn main() {
+    let name = "World"
+    print("Hello, {name}!")
+}

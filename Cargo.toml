@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = [
+    "flake-ast",
+    "flake-lexer",
+    "flake-parser",
+    "flake-types",
+    "flake-interpreter",
+    "flake-vm",
+    "flake-cli",
+]
+default-members = ["flake-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+authors = ["Flake Contributors"]
+repository = "https://github.com/ayzeeyan/flake"
+homepage = "https://github.com/ayzeeyan/flake"
+description = "Flake — a safe, modern systems language with gradual ownership and first-class effects."
+keywords = ["language", "compiler", "interpreter", "systems"]
+categories = ["compilers"]
+
+[workspace.dependencies]
+flake-ast = { path = "flake-ast" }
+flake-lexer = { path = "flake-lexer" }
+flake-parser = { path = "flake-parser" }
+flake-types = { path = "flake-types" }
+flake-interpreter = { path = "flake-interpreter" }
+flake-vm = { path = "flake-vm" }
+clap = { version = "4.5", features = ["derive"] }
+thiserror = "2.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

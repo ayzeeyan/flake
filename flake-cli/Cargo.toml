@@ -1,0 +1,25 @@
+[package]
+name = "flake-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Command-line interface for the Flake programming language."
+
+[[bin]]
+name = "flake"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+flake-ast.workspace = true
+flake-lexer.workspace = true
+flake-parser.workspace = true
+flake-types.workspace = true
+flake-interpreter.workspace = true
+flake-vm.workspace = true
+
+[lints]
+workspace = true
