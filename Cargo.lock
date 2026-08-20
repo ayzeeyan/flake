@@ -146,6 +146,8 @@ name = "flake-types"
 version = "0.1.0"
 dependencies = [
  "flake-ast",
+ "flake-parser",
+ "thiserror",
 ]
 
 [[package]]

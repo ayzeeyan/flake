@@ -33,6 +33,25 @@ fn run_without_file_fails() {
 }
 
 #[test]
+fn check_hello_example() {
+    let hello = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("examples")
+        .join("hello.flk");
+    let output = flake_bin()
+        .arg("check")
+        .arg(&hello)
+        .output()
+        .expect("check hello");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok");
+}
+
+#[test]
 fn run_hello_example() {
     let hello = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")

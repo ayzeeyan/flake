@@ -10,6 +10,8 @@ description = "Type system, effects, and gradual ownership for Flake."
 
 [dependencies]
 flake-ast.workspace = true
+flake-parser.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

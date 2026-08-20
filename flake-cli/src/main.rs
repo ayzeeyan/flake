@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use flake_ast::Source;
 use flake_interpreter::execute;
+use flake_types::check;
 
 const TAGLINE: &str = "Clarity, crystallized.";
 
@@ -34,6 +35,9 @@ enum Commands {
     Run {
         /// Path to a `.flk` source file
         file: PathBuf,
+        /// Skip the type checker and run anyway
+        #[arg(long)]
+        skip_check: bool,
     },
     /// Type-check a Flake program without running it
     Check {
@@ -47,25 +51,54 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Run { file } => run_file(&file),
-        Commands::Check { file } => not_yet("check", Some(&file)),
+        Commands::Run { file, skip_check } => run_file(&file, skip_check),
+        Commands::Check { file } => check_file(&file),
         Commands::Repl => not_yet("repl", None),
     }
 }
 
-fn run_file(path: &PathBuf) -> ExitCode {
-    let text = match fs::read_to_string(path) {
-        Ok(t) => t,
+fn load_source(path: &PathBuf) -> Result<Source, ExitCode> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(Source::new(path.display().to_string(), text)),
         Err(err) => {
             eprintln!("error: cannot read {}: {err}", path.display());
+            Err(ExitCode::from(1))
+        }
+    }
+}
+
+fn run_file(path: &PathBuf, skip_check: bool) -> ExitCode {
+    let source = match load_source(path) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    if !skip_check {
+        if let Err(err) = check(&source) {
+            eprint!("{}", err.display(&source));
             return ExitCode::from(1);
         }
-    };
-    let source = Source::new(path.display().to_string(), text);
+    }
     let mut stdout = io::stdout();
     match execute(&source, &mut stdout) {
         Ok(_) => {
             let _ = stdout.flush();
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprint!("{}", err.display(&source));
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn check_file(path: &PathBuf) -> ExitCode {
+    let source = match load_source(path) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    match check(&source) {
+        Ok(_) => {
+            println!("ok");
             ExitCode::SUCCESS
         }
         Err(err) => {
