@@ -11,6 +11,7 @@ description = "Recursive-descent parser for the Flake programming language."
 [dependencies]
 flake-ast.workspace = true
 flake-lexer.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

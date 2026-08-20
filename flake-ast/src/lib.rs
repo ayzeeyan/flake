@@ -1,10 +1,11 @@
 //! Abstract syntax tree and source spans for Flake.
-//!
-//! The full AST lands in Milestone 2. Spans and source maps live here so the
-//! lexer, parser, and later stages share one representation.
 
+mod ast;
+mod pretty;
 mod span;
 
+pub use ast::*;
+pub use pretty::print_program;
 pub use span::{LineCol, Source, Span};
 
 /// Current crate version, matching the workspace.

@@ -137,6 +137,7 @@ version = "0.1.0"
 dependencies = [
  "flake-ast",
  "flake-lexer",
+ "thiserror",
 ]
 
 [[package]]

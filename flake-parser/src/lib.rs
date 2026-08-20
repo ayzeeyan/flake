@@ -1,7 +1,10 @@
 //! Recursive-descent parser for Flake.
-//!
-//! Parsing lands in Milestone 2. This crate currently exports version
-//! metadata so the workspace compiles.
+
+mod error;
+mod parser;
+
+pub use error::ParseError;
+pub use parser::{parse, parse_str};
 
 /// Current crate version, matching the workspace.
 pub fn version() -> &'static str {
@@ -9,12 +12,4 @@ pub fn version() -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_is_semver() {
-        assert!(!version().is_empty());
-        assert!(version().contains('.'));
-    }
-}
+mod tests;
