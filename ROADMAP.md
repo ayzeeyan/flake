@@ -13,7 +13,7 @@ annotations. Native/WASM backends come later.
 | 2 | Parser and AST | **done** |
 | 3 | Basic tree-walking interpreter | **done** |
 | 4 | Type system foundation | **done** |
-| 5 | Effect system | pending |
+| 5 | Effect system | **done** |
 | 6 | Gradual ownership foundation | pending |
 | 7 | REPL and language expansion | pending |
 | 8 | Bytecode VM foundation | pending |

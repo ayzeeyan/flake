@@ -94,6 +94,58 @@ fn undefined_variable() {
 }
 
 #[test]
+fn print_in_pure_function_is_rejected() {
+    let msg = err(
+        r#"
+fn greet() / pure {
+    print("hi")
+}
+fn main() { greet() }
+"#,
+    );
+    assert!(msg.contains("io") || msg.contains("effects"), "{msg}");
+}
+
+#[test]
+fn print_in_io_function_is_ok() {
+    ok(r#"
+fn greet() / io {
+    print("hi")
+}
+fn main() { greet() }
+"#);
+}
+
+#[test]
+fn inferred_io_cannot_be_called_from_pure() {
+    let msg = err(
+        r#"
+fn greet() {
+    print("hi")
+}
+fn wrap() / pure {
+    greet()
+}
+fn main() { wrap() }
+"#,
+    );
+    assert!(msg.contains("effects") || msg.contains("io"), "{msg}");
+}
+
+#[test]
+fn read_file_requires_io_and_alloc() {
+    let msg = err(
+        r#"
+fn load(path: String) -> String / io {
+    read_file(path)
+}
+fn main() { }
+"#,
+    );
+    assert!(msg.contains("alloc") || msg.contains("effects"), "{msg}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

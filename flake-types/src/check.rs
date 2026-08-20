@@ -1,6 +1,6 @@
 //! Type checking and local inference with gradual `dyn`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use flake_ast::{
     AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, Source, Span, Stmt,
@@ -40,34 +40,38 @@ impl Checker {
     }
 
     fn install_builtins(&mut self) {
-        let dyn_fn = |params: Vec<Type>, ret: Type| Type::function(params, ret, EffectSet::unspecified());
+        let mk = |params: Vec<Type>, ret: Type, effects: &[&str]| {
+            Type::function(params, ret, EffectSet::from_names(effects.iter().copied(), true))
+        };
         self.functions.insert(
             "print".into(),
-            dyn_fn(vec![Type::Dyn], Type::Nil),
+            mk(vec![Type::Dyn], Type::Nil, &["io"]),
         );
         self.functions
-            .insert("len".into(), dyn_fn(vec![Type::Dyn], Type::Int));
+            .insert("len".into(), mk(vec![Type::Dyn], Type::Int, &[]));
         self.functions.insert(
             "push".into(),
-            dyn_fn(vec![Type::list(Type::Dyn), Type::Dyn], Type::Nil),
+            mk(vec![Type::list(Type::Dyn), Type::Dyn], Type::Nil, &["alloc"]),
         );
         self.functions.insert(
             "pop".into(),
-            dyn_fn(vec![Type::list(Type::Dyn)], Type::Dyn),
+            mk(vec![Type::list(Type::Dyn)], Type::Dyn, &[]),
         );
         self.functions
-            .insert("str".into(), dyn_fn(vec![Type::Dyn], Type::String));
+            .insert("str".into(), mk(vec![Type::Dyn], Type::String, &["alloc"]));
         self.functions
-            .insert("int".into(), dyn_fn(vec![Type::Dyn], Type::Int));
+            .insert("int".into(), mk(vec![Type::Dyn], Type::Int, &[]));
         self.functions
-            .insert("float".into(), dyn_fn(vec![Type::Dyn], Type::Float));
+            .insert("float".into(), mk(vec![Type::Dyn], Type::Float, &[]));
+        self.functions.insert(
+            "type_of".into(),
+            mk(vec![Type::Dyn], Type::String, &["alloc"]),
+        );
         self.functions
-            .insert("type_of".into(), dyn_fn(vec![Type::Dyn], Type::String));
-        self.functions
-            .insert("assert".into(), dyn_fn(vec![Type::Bool], Type::Nil));
+            .insert("assert".into(), mk(vec![Type::Bool], Type::Nil, &["panic"]));
         self.functions.insert(
             "read_file".into(),
-            dyn_fn(vec![Type::String], Type::String),
+            mk(vec![Type::String], Type::String, &["io", "alloc"]),
         );
     }
 
@@ -240,6 +244,7 @@ impl Checker {
                 Item::Struct(_) | Item::Type(_) => {}
             }
         }
+        self.check_effects(program)?;
         Ok(())
     }
 
@@ -741,6 +746,240 @@ impl Checker {
                 self.unify(&r, &Type::Bool, span)?;
                 Ok(Type::Bool)
             }
+        }
+    }
+
+    fn check_effects(&mut self, program: &Program) -> Result<(), TypeError> {
+        let mut visiting = HashSet::new();
+        let mut done = HashSet::new();
+        let fns: Vec<&FnDecl> = program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Fn(f) => Some(f),
+                _ => None,
+            })
+            .collect();
+        for func in &fns {
+            self.infer_fn_effects(func, &fns, &mut visiting, &mut done)?;
+        }
+        Ok(())
+    }
+
+    fn infer_fn_effects(
+        &mut self,
+        func: &FnDecl,
+        fns: &[&FnDecl],
+        visiting: &mut HashSet<String>,
+        done: &mut HashSet<String>,
+    ) -> Result<EffectSet, TypeError> {
+        if let Some(existing) = done.get(&func.name.name) {
+            let _ = existing;
+            return Ok(self.fn_effects(&func.name.name));
+        }
+        if visiting.contains(&func.name.name) {
+            return Ok(self.fn_effects(&func.name.name));
+        }
+        visiting.insert(func.name.name.clone());
+
+        let mut used = EffectSet::unspecified();
+        self.collect_block_effects(&func.body, fns, visiting, done, &mut used)?;
+
+        visiting.remove(&func.name.name);
+        done.insert(func.name.name.clone());
+
+        let declared = self.fn_effects(&func.name.name);
+        let allowed = if func.name.name == "main" && !declared.specified {
+            EffectSet::top_level()
+        } else if declared.specified {
+            declared.clone()
+        } else {
+            used.clone()
+        };
+
+        if !used.is_subset(&allowed) {
+            let extra: Vec<_> = used
+                .iter()
+                .filter(|e| !allowed.contains(e))
+                .map(|e| e.to_string())
+                .collect();
+            return Err(TypeError::new(
+                func.name.span,
+                format!(
+                    "function `{}` performs effects [{}] not declared in `{}`",
+                    func.name.name,
+                    extra.join(" + "),
+                    if declared.specified {
+                        declared.to_string()
+                    } else {
+                        "pure".into()
+                    }
+                ),
+            ));
+        }
+
+        let stored = if declared.specified {
+            declared
+        } else if func.name.name == "main" {
+            used
+        } else {
+            used
+        };
+        self.set_fn_effects(&func.name.name, stored.clone());
+        Ok(stored)
+    }
+
+    fn fn_effects(&self, name: &str) -> EffectSet {
+        match self.functions.get(name) {
+            Some(Type::Fn { effects, .. }) => effects.clone(),
+            _ => EffectSet::unspecified(),
+        }
+    }
+
+    fn set_fn_effects(&mut self, name: &str, effects: EffectSet) {
+        if let Some(Type::Fn { effects: slot, .. }) = self.functions.get_mut(name) {
+            *slot = effects;
+        }
+    }
+
+    fn collect_block_effects(
+        &mut self,
+        block: &Block,
+        fns: &[&FnDecl],
+        visiting: &mut HashSet<String>,
+        done: &mut HashSet<String>,
+        used: &mut EffectSet,
+    ) -> Result<(), TypeError> {
+        for stmt in &block.stmts {
+            self.collect_stmt_effects(stmt, fns, visiting, done, used)?;
+        }
+        if let Some(tail) = &block.tail {
+            self.collect_expr_effects(tail, fns, visiting, done, used)?;
+        }
+        Ok(())
+    }
+
+    fn collect_stmt_effects(
+        &mut self,
+        stmt: &Stmt,
+        fns: &[&FnDecl],
+        visiting: &mut HashSet<String>,
+        done: &mut HashSet<String>,
+        used: &mut EffectSet,
+    ) -> Result<(), TypeError> {
+        match stmt {
+            Stmt::Let(s) | Stmt::Var(s) => {
+                self.collect_expr_effects(&s.value, fns, visiting, done, used)
+            }
+            Stmt::Return { value: Some(v), .. } => {
+                self.collect_expr_effects(v, fns, visiting, done, used)
+            }
+            Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => Ok(()),
+            Stmt::While { cond, body, .. } => {
+                self.collect_expr_effects(cond, fns, visiting, done, used)?;
+                self.collect_block_effects(body, fns, visiting, done, used)
+            }
+            Stmt::For { iter, body, .. } => {
+                self.collect_expr_effects(iter, fns, visiting, done, used)?;
+                self.collect_block_effects(body, fns, visiting, done, used)
+            }
+            Stmt::Loop { body, .. } => self.collect_block_effects(body, fns, visiting, done, used),
+            Stmt::Expr(e) => self.collect_expr_effects(e, fns, visiting, done, used),
+        }
+    }
+
+    fn collect_expr_effects(
+        &mut self,
+        expr: &Expr,
+        fns: &[&FnDecl],
+        visiting: &mut HashSet<String>,
+        done: &mut HashSet<String>,
+        used: &mut EffectSet,
+    ) -> Result<(), TypeError> {
+        match expr {
+            Expr::Call { callee, args, .. } => {
+                for arg in args {
+                    self.collect_expr_effects(arg, fns, visiting, done, used)?;
+                }
+                self.collect_expr_effects(callee, fns, visiting, done, used)?;
+                if let Expr::Ident(id) = callee.as_ref() {
+                    let callee_effects = if let Some(f) = fns.iter().find(|f| f.name.name == id.name)
+                    {
+                        self.infer_fn_effects(f, fns, visiting, done)?
+                    } else {
+                        self.fn_effects(&id.name)
+                    };
+                    used.union_with(&callee_effects);
+                } else {
+                    match self.check_expr(callee) {
+                        Ok(ty) => match self.resolve(&ty) {
+                            Type::Fn { effects, .. } => used.union_with(&effects),
+                            Type::Dyn | Type::Var(_) => used.union_with(&EffectSet::top_level()),
+                            _ => {}
+                        },
+                        Err(_) => {}
+                    }
+                }
+                Ok(())
+            }
+            Expr::Interpolated { parts, .. } => {
+                for part in parts {
+                    if let InterpPart::Expr(e) = part {
+                        self.collect_expr_effects(e, fns, visiting, done, used)?;
+                    }
+                }
+                Ok(())
+            }
+            Expr::List { elements, .. } => {
+                for e in elements {
+                    self.collect_expr_effects(e, fns, visiting, done, used)?;
+                }
+                Ok(())
+            }
+            Expr::Map { entries, .. } => {
+                for (k, v) in entries {
+                    self.collect_expr_effects(k, fns, visiting, done, used)?;
+                    self.collect_expr_effects(v, fns, visiting, done, used)?;
+                }
+                Ok(())
+            }
+            Expr::Unary { expr, .. } => self.collect_expr_effects(expr, fns, visiting, done, used),
+            Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+                self.collect_expr_effects(left, fns, visiting, done, used)?;
+                self.collect_expr_effects(right, fns, visiting, done, used)
+            }
+            Expr::Index { target, index, .. } => {
+                self.collect_expr_effects(target, fns, visiting, done, used)?;
+                self.collect_expr_effects(index, fns, visiting, done, used)
+            }
+            Expr::Field { target, .. } => {
+                self.collect_expr_effects(target, fns, visiting, done, used)
+            }
+            Expr::Range { start, end, .. } => {
+                self.collect_expr_effects(start, fns, visiting, done, used)?;
+                self.collect_expr_effects(end, fns, visiting, done, used)
+            }
+            Expr::If {
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
+                self.collect_expr_effects(cond, fns, visiting, done, used)?;
+                self.collect_block_effects(then_block, fns, visiting, done, used)?;
+                if let Some(els) = else_block {
+                    self.collect_expr_effects(els, fns, visiting, done, used)?;
+                }
+                Ok(())
+            }
+            Expr::Block(b) => self.collect_block_effects(b, fns, visiting, done, used),
+            Expr::StructInit { fields, .. } => {
+                for (_, v) in fields {
+                    self.collect_expr_effects(v, fns, visiting, done, used)?;
+                }
+                Ok(())
+            }
+            Expr::Literal { .. } | Expr::Ident(_) => Ok(()),
         }
     }
 }
