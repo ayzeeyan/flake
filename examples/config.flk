@@ -1,0 +1,15 @@
+// Structs, interpolation, and a tiny config value.
+
+struct Config {
+    host: String
+    port: Int
+}
+
+fn describe(cfg: Config) -> String {
+    "{cfg.host}:{cfg.port}"
+}
+
+fn main() {
+    let cfg = Config { host: "localhost", port: 8080 }
+    print("listening on {describe(cfg)}")
+}

@@ -1,0 +1,16 @@
+// Ownership is gradual: ordinary functions may reuse values freely.
+// `strict` functions treat `owned` parameters as moved on use.
+
+strict fn consume(name: owned String) / io {
+    print("consumed {name}")
+}
+
+fn reuse(name: owned String) / io {
+    print("once: {name}")
+    print("twice: {name}")
+}
+
+fn main() {
+    consume("strict")
+    reuse("gradual")
+}

@@ -12,6 +12,10 @@ fn main() {
 }
 ```
 
+```bash
+flake run examples/hello.flk
+```
+
 ## Why Flake?
 
 Most systems languages ask you to pay the full cost of safety up front. Most
@@ -25,7 +29,7 @@ between:
 - **Effects as part of the type system.** If a function does I/O, you can see it
   in the signature: `fn read_file(path: String) -> String / io + alloc`.
 - **Progressive complexity.** Write a script. Drop down to fine-grained control
-  when you need it. Target native code and WebAssembly.
+  when you need it.
 
 ## Philosophy
 
@@ -39,30 +43,25 @@ between:
 
 ## Status
 
-v0.1 is under active development. See [ROADMAP.md](ROADMAP.md) for milestone
-progress.
+**v0.1** — lexer, parser, type/effect/ownership checker, tree-walking
+interpreter, bytecode VM foundation, and REPL.
 
-Current pipeline: **lexer → parser → tree-walking interpreter**, with a
-bytecode VM planned next and a Cranelift/LLVM backend later.
+See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
+for a language tour.
 
-## Build
+## Build and run
 
 ```bash
 cargo build
-```
-
-The `flake` binary is produced by the `flake-cli` crate.
-
-## Usage
-
-```bash
-flake --help
-flake --version
+cargo test
 
 flake run examples/hello.flk
+flake run --vm examples/hello.flk
 flake check examples/hello.flk
 flake repl
 ```
+
+The `flake` binary comes from the `flake-cli` crate.
 
 ## Language sketch
 
@@ -75,6 +74,10 @@ fn load_config(path: String) -> Config / io + alloc {
 fn add(a: Int, b: Int) -> Int {
     a + b
 }
+
+strict fn take(name: owned String) / io {
+    print(name)
+}
 ```
 
 - File extension: `.flk`
@@ -82,6 +85,18 @@ fn add(a: Int, b: Int) -> Int {
 - Effects appear after the return type, joined with `+`
 - Comments: `//` and `/* */`
 - String interpolation: `"Hello, {name}"`
+
+## Examples
+
+| File | What it shows |
+| --- | --- |
+| [examples/hello.flk](examples/hello.flk) | Interpolation and `main` |
+| [examples/fibonacci.flk](examples/fibonacci.flk) | Recursion |
+| [examples/fizzbuzz.flk](examples/fizzbuzz.flk) | Loops and conditionals |
+| [examples/effects.flk](examples/effects.flk) | Effect annotations |
+| [examples/lists.flk](examples/lists.flk) | Lists and helpers |
+| [examples/ownership.flk](examples/ownership.flk) | Gradual vs strict ownership |
+| [examples/config.flk](examples/config.flk) | Structs |
 
 ## Workspace
 
@@ -94,6 +109,13 @@ fn add(a: Int, b: Int) -> Int {
 | `flake-interpreter` | Tree-walking interpreter |
 | `flake-vm` | Stack-based bytecode VM |
 | `flake-cli` | `flake` command-line interface |
+
+## Docs
+
+- [Language tour](docs/tour.md)
+- [Grammar sketch](docs/grammar.md)
+- [Architecture](docs/architecture.md)
+- [Roadmap](ROADMAP.md)
 
 ## License
 

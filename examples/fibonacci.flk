@@ -1,0 +1,13 @@
+// Recursive Fibonacci.
+
+fn fib(n: Int) -> Int {
+    if n < 2 {
+        n
+    } else {
+        fib(n - 1) + fib(n - 2)
+    }
+}
+
+fn main() {
+    print("fib(10) = {fib(10)}")
+}

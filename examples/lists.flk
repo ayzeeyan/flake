@@ -1,0 +1,23 @@
+// Lists, ranges, and a few standard helpers.
+
+fn sum(xs) {
+    var total = 0
+    for x in xs {
+        total = total + x
+    }
+    total
+}
+
+fn main() {
+    let xs = [1, 2, 3, 4, 5]
+    print("len = {len(xs)}")
+    print("sum = {sum(xs)}")
+    print("first = {xs[0]} last = {xs[-1]}")
+
+    var doubled = []
+    for n in xs {
+        push(doubled, n * 2)
+    }
+    print("doubled = {doubled}")
+    print(join(["clarity", "crystallized"], ", "))
+}

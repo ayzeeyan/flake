@@ -1,0 +1,20 @@
+// Effects belong in the type system.
+// `greet` declares `io` because it prints. `shout` is inferred to need `io`
+// because it calls `greet`. `main` may perform I/O without an annotation.
+
+fn greet(name: String) / io {
+    print("Hello, {name}!")
+}
+
+fn shout(name: String) / io {
+    greet(name)
+}
+
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fn main() {
+    shout("Flake")
+    print("2 + 2 = {add(2, 2)}")
+}
