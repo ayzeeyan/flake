@@ -1,7 +1,13 @@
 //! Tree-walking interpreter for Flake.
-//!
-//! The interpreter lands in Milestone 3. This crate currently exports version
-//! metadata so the workspace compiles.
+
+mod env;
+mod error;
+mod eval;
+mod value;
+
+pub use error::{RunError, RuntimeError};
+pub use eval::{execute, execute_captured, execute_program};
+pub use value::{Function, NativeFn, Value};
 
 /// Current crate version, matching the workspace.
 pub fn version() -> &'static str {
@@ -9,12 +15,4 @@ pub fn version() -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_is_semver() {
-        assert!(!version().is_empty());
-        assert!(version().contains('.'));
-    }
-}
+mod tests;

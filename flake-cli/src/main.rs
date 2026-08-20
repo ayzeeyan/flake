@@ -1,9 +1,13 @@
 //! `flake` — the command-line interface for the Flake programming language.
 
+use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use flake_ast::Source;
+use flake_interpreter::execute;
 
 const TAGLINE: &str = "Clarity, crystallized.";
 
@@ -43,9 +47,31 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Run { file } => not_yet("run", Some(&file)),
+        Commands::Run { file } => run_file(&file),
         Commands::Check { file } => not_yet("check", Some(&file)),
         Commands::Repl => not_yet("repl", None),
+    }
+}
+
+fn run_file(path: &PathBuf) -> ExitCode {
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(err) => {
+            eprintln!("error: cannot read {}: {err}", path.display());
+            return ExitCode::from(1);
+        }
+    };
+    let source = Source::new(path.display().to_string(), text);
+    let mut stdout = io::stdout();
+    match execute(&source, &mut stdout) {
+        Ok(_) => {
+            let _ = stdout.flush();
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprint!("{}", err.display(&source));
+            ExitCode::from(1)
+        }
     }
 }
 

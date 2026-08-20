@@ -11,7 +11,7 @@ annotations. Native/WASM backends come later.
 | 0 | Project skeleton and workspace | **done** |
 | 1 | Lexer | **done** |
 | 2 | Parser and AST | **done** |
-| 3 | Basic tree-walking interpreter | pending |
+| 3 | Basic tree-walking interpreter | **done** |
 | 4 | Type system foundation | pending |
 | 5 | Effect system | pending |
 | 6 | Gradual ownership foundation | pending |

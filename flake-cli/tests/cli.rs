@@ -31,3 +31,22 @@ fn run_without_file_fails() {
     let status = flake_bin().arg("run").status().expect("run flake");
     assert!(!status.success());
 }
+
+#[test]
+fn run_hello_example() {
+    let hello = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("examples")
+        .join("hello.flk");
+    let output = flake_bin()
+        .arg("run")
+        .arg(&hello)
+        .output()
+        .expect("run hello");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "Hello, World!\n");
+}

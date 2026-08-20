@@ -2,10 +2,12 @@
 
 mod ast;
 mod pretty;
+mod report;
 mod span;
 
 pub use ast::*;
 pub use pretty::print_program;
+pub use report::render;
 pub use span::{LineCol, Source, Span};
 
 /// Current crate version, matching the workspace.
