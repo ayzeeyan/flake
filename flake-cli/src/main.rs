@@ -39,6 +39,9 @@ enum Commands {
         /// Skip the type checker and run anyway
         #[arg(long)]
         skip_check: bool,
+        /// Execute on the bytecode VM instead of the tree-walking interpreter
+        #[arg(long)]
+        vm: bool,
     },
     /// Type-check a Flake program without running it
     Check {
@@ -52,7 +55,7 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Run { file, skip_check } => run_file(&file, skip_check),
+        Commands::Run { file, skip_check, vm } => run_file(&file, skip_check, vm),
         Commands::Check { file } => check_file(&file),
         Commands::Repl => {
             let code = repl::run();
@@ -71,7 +74,7 @@ fn load_source(path: &PathBuf) -> Result<Source, ExitCode> {
     }
 }
 
-fn run_file(path: &PathBuf, skip_check: bool) -> ExitCode {
+fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool) -> ExitCode {
     let source = match load_source(path) {
         Ok(s) => s,
         Err(code) => return code,
@@ -86,18 +89,35 @@ fn run_file(path: &PathBuf, skip_check: bool) -> ExitCode {
         }
     }
     let mut stdout = io::stdout();
-    match execute(&source, &mut stdout) {
-        Ok(_) => {
-            let _ = stdout.flush();
-            ExitCode::SUCCESS
-        }
-        Err(err) => {
-            if let Some(span) = err.span() {
-                report::emit(&source, span, &err.to_string());
-            } else {
-                report::emit_message(&err.to_string());
+    if use_vm {
+        match flake_vm::execute(&source, &mut stdout) {
+            Ok(_) => {
+                let _ = stdout.flush();
+                ExitCode::SUCCESS
             }
-            ExitCode::from(1)
+            Err(err) => {
+                if let Some(span) = err.span() {
+                    report::emit(&source, span, &err.to_string());
+                } else {
+                    report::emit_message(&err.to_string());
+                }
+                ExitCode::from(1)
+            }
+        }
+    } else {
+        match execute(&source, &mut stdout) {
+            Ok(_) => {
+                let _ = stdout.flush();
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                if let Some(span) = err.span() {
+                    report::emit(&source, span, &err.to_string());
+                } else {
+                    report::emit_message(&err.to_string());
+                }
+                ExitCode::from(1)
+            }
         }
     }
 }

@@ -10,6 +10,8 @@ description = "Stack-based bytecode virtual machine for Flake."
 
 [dependencies]
 flake-ast.workspace = true
+flake-parser.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
