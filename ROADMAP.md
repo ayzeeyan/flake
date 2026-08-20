@@ -1,8 +1,7 @@
 # Flake Roadmap
 
-v0.1 goal: a coherent language with a tree-walking interpreter, a bytecode VM
-foundation, gradual typing, a basic effect system, and optional ownership
-annotations. Native/WASM backends come later.
+**v0.1 is complete.** The language has a coherent front end, a type/effect/ownership
+checker, a tree-walking interpreter, a bytecode VM foundation, and a REPL.
 
 ## v0.1 milestones
 
@@ -18,61 +17,31 @@ annotations. Native/WASM backends come later.
 | 7 | REPL and language expansion | **done** |
 | 8 | Bytecode VM foundation | **done** |
 | 9 | Polish, tests, documentation and examples | **done** |
-| 10 | Flake v0.1 complete | pending |
+| 10 | Flake v0.1 complete | **done** |
 
-## Milestone notes
+## What v0.1 delivers
 
-### 0 — Project skeleton
+- `flake run examples/hello.flk` (tree-walker) and `flake run --vm examples/hello.flk`
+- `flake check` with gradual typing, effect checking, and optional ownership
+- `flake repl` with persistent bindings
+- Effect annotations (`/ io + alloc`) parsed and checked
+- `dyn` for gradual typing; omitted types inferred locally
+- `strict` / `owned` functions enforce move semantics; ordinary code does not
+- miette diagnostics
+- Examples, language tour, and a crate layout ready for a native backend
 
-Cargo workspace, `flake` CLI with version/help, README, this roadmap.
+## After v0.1
 
-### 1 — Lexer
+These are explicitly out of this release:
 
-Keywords, identifiers, literals, operators, strings, comments. Test suite.
+1. **Full ownership and borrowing** — lifetimes, reborrows, and non-lexical
+   scopes, still gradual.
+2. **Cranelift or LLVM backend** — compile the existing AST/bytecode to native
+   code and WebAssembly.
+3. **Package manager** — modules, `import` that actually loads files, a lockfile.
+4. **Async / structured concurrency** as a core `conc` effect.
+5. **Self-hosting** — a Flake compiler written in Flake.
 
-### 2 — Parser and AST
-
-Recursive-descent parser, AST, functions, variables, expressions, control flow,
-effect annotations, pretty-printer.
-
-### 3 — Tree-walking interpreter
-
-`flake run` on basic programs, runtime errors.
-
-### 4 — Type system foundation
-
-Type representation, checking, local inference, `dyn` gradual typing.
-
-### 5 — Effect system
-
-Effect tracking, declarations on functions, basic checking.
-
-### 6 — Gradual ownership foundation
-
-Ownership/borrow annotations, checking in `strict` / `owned` contexts.
-Ordinary code still runs without annotations.
-
-### 7 — REPL and language expansion
-
-`if`/`else`, loops, arrays/lists, basic standard library, interactive REPL,
-rich diagnostics.
-
-### 8 — Bytecode VM foundation
-
-Stack-based VM, AST → bytecode, `flake run` can use the VM.
-
-### 9 — Polish
-
-Large test suite, non-trivial examples, language tour, cleanup.
-
-### 10 — Finalization
-
-Review, roadmap update, push to remote.
-
-## After v0.1 (not in this release)
-
-- Full ownership and borrowing
-- Cranelift or LLVM backend
-- Package manager
-- Async / structured concurrency as a core effect
-- Self-hosting
+Near-term VM work (still post-v0.1): compile `for`, structs, maps, `break` /
+`continue`, and compound assignment so `--vm` covers the full interpreter
+language.

@@ -43,7 +43,7 @@ between:
 
 ## Status
 
-**v0.1** — lexer, parser, type/effect/ownership checker, tree-walking
+**v0.1 complete** — lexer, parser, type/effect/ownership checker, tree-walking
 interpreter, bytecode VM foundation, and REPL.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
