@@ -1,7 +1,11 @@
 //! Abstract syntax tree and source spans for Flake.
 //!
-//! The full AST lands in Milestone 2. This crate currently exports version
-//! metadata and a placeholder module layout so the workspace compiles.
+//! The full AST lands in Milestone 2. Spans and source maps live here so the
+//! lexer, parser, and later stages share one representation.
+
+mod span;
+
+pub use span::{LineCol, Source, Span};
 
 /// Current crate version, matching the workspace.
 pub fn version() -> &'static str {

@@ -10,6 +10,7 @@ description = "Lexer for the Flake programming language."
 
 [dependencies]
 flake-ast.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

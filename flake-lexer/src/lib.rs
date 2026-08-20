@@ -1,7 +1,15 @@
 //! Lexer for Flake source (`.flk` files).
 //!
-//! Tokenization lands in Milestone 1. This crate currently exports version
-//! metadata so the workspace compiles.
+//! Turns source text into a token stream: keywords, identifiers, literals,
+//! operators, string interpolation markers, and comments (which are discarded).
+
+mod error;
+mod lexer;
+mod token;
+
+pub use error::LexError;
+pub use lexer::{dump_tokens, tokenize, tokenize_str};
+pub use token::{Token, TokenKind};
 
 /// Current crate version, matching the workspace.
 pub fn version() -> &'static str {
@@ -9,12 +17,4 @@ pub fn version() -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_is_semver() {
-        assert!(!version().is_empty());
-        assert!(version().contains('.'));
-    }
-}
+mod tests;
