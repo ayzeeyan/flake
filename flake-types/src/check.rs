@@ -245,6 +245,7 @@ impl Checker {
             }
         }
         self.check_effects(program)?;
+        crate::ownership::check_ownership(program)?;
         Ok(())
     }
 

@@ -14,7 +14,7 @@ annotations. Native/WASM backends come later.
 | 3 | Basic tree-walking interpreter | **done** |
 | 4 | Type system foundation | **done** |
 | 5 | Effect system | **done** |
-| 6 | Gradual ownership foundation | pending |
+| 6 | Gradual ownership foundation | **done** |
 | 7 | REPL and language expansion | pending |
 | 8 | Bytecode VM foundation | pending |
 | 9 | Polish, tests, documentation and examples | pending |

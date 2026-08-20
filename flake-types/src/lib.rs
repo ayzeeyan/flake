@@ -3,11 +3,13 @@
 mod check;
 mod effects;
 mod error;
+mod ownership;
 mod ty;
 
 pub use check::{check, check_program, check_str};
 pub use effects::{Effect, EffectSet};
 pub use error::{CheckError, TypeError};
+pub use ownership::check_ownership;
 pub use ty::Type;
 
 /// Current crate version, matching the workspace.

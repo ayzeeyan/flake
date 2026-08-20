@@ -133,6 +133,66 @@ fn main() { wrap() }
 }
 
 #[test]
+fn ordinary_code_allows_multiple_uses() {
+    ok(r#"
+fn take(x: owned String) {
+    print(x)
+    print(x)
+}
+fn main() { take("hi") }
+"#);
+}
+
+#[test]
+fn strict_owned_cannot_be_used_after_move() {
+    let msg = err(
+        r#"
+strict fn take(x: owned String) {
+    print(x)
+    print(x)
+}
+fn main() { take("hi") }
+"#,
+    );
+    assert!(msg.contains("moved"), "{msg}");
+}
+
+#[test]
+fn strict_copy_types_can_be_reused() {
+    ok(r#"
+strict fn twice(x: Int) {
+    print(x)
+    print(x)
+}
+fn main() { twice(1) }
+"#);
+}
+
+#[test]
+fn strict_ref_can_be_reused() {
+    ok(r#"
+strict fn peek(x: ref String) {
+    print(x)
+    print(x)
+}
+fn main() { peek("hi") }
+"#);
+}
+
+#[test]
+fn cannot_assign_to_ref() {
+    let msg = err(
+        r#"
+strict fn bump(x: ref String) {
+    x = "no"
+}
+fn main() { bump("hi") }
+"#,
+    );
+    assert!(msg.contains("ref"), "{msg}");
+}
+
+#[test]
 fn read_file_requires_io_and_alloc() {
     let msg = err(
         r#"
