@@ -220,6 +220,31 @@ fn repl_state_persists() {
 }
 
 #[test]
+fn stdlib_natives() {
+    let (_, out) = run(&main(
+        r#"
+        print(first([9, 8]))
+        print(last("ab"))
+        print(starts_with("flake", "fl"))
+        print(contains([1, 2], 2))
+        "#,
+    ));
+    assert_eq!(out, "9\nb\ntrue\ntrue\n");
+}
+
+#[test]
+fn write_file_roundtrip() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("flake-interp-write-{}.txt", std::process::id()));
+    let posix = path.to_string_lossy().replace('\\', "/");
+    let (_, out) = run(&main(&format!(
+        r#"write_file("{posix}", "hello") print(read_file("{posix}"))"#
+    )));
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(out, "hello\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

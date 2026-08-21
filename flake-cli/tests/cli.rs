@@ -27,6 +27,21 @@ fn help_flag_lists_core_commands() {
 }
 
 #[test]
+fn missing_import_reports_module_name() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("flake-missing-import-{}.flk", std::process::id()));
+    std::fs::write(&path, "import definitely_missing\nfn main() {}\n").unwrap();
+    let output = flake_bin().arg("check").arg(&path).output().expect("check");
+    let _ = std::fs::remove_file(&path);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("definitely_missing") || stderr.contains("cannot find module"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn run_without_file_fails() {
     let status = flake_bin().arg("run").status().expect("run flake");
     assert!(!status.success());

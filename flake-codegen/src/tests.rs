@@ -222,6 +222,19 @@ fn native_modules() {
 }
 
 #[test]
+fn native_write_file_roundtrip() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("flake-write-{}.txt", std::process::id()));
+    let posix = path.to_string_lossy().replace('\\', "/");
+    let program = format!(
+        "fn main() {{ write_file(\"{posix}\", \"native-ok\") print(read_file(\"{posix}\")) }}"
+    );
+    let out = run_native(&src(&program)).expect("write_file native");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(out, "native-ok\n");
+}
+
+#[test]
 fn native_read_file() {
     let dir = std::env::temp_dir();
     let path = dir.join(format!("flake-read-{}.txt", std::process::id()));

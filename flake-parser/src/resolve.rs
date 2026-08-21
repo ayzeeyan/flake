@@ -210,4 +210,11 @@ mod tests {
         assert_eq!(graph.modules.len(), 1);
         assert_eq!(graph.entry().name, "t");
     }
+
+    #[test]
+    fn missing_import_is_an_error() {
+        let source = Source::new("t.flk", "import nope\nfn main() {}");
+        let err = load_graph(&source).expect_err("missing module");
+        assert!(err.message.contains("nope"), "{}", err.message);
+    }
 }

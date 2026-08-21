@@ -15,7 +15,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Modules and imports | **done** |
 | 3 | Stronger gradual ownership | **done** |
 | 4 | Standard library expansion | **done** |
-| 5 | Better diagnostics and comprehensive tests | pending |
+| 5 | Better diagnostics and comprehensive tests | **done** |
 | 6 | Polish, documentation and examples | pending |
 | 7 | Flake v0.3 complete | pending |
 
@@ -49,6 +49,13 @@ There is no LLVM, Cranelift, or C transpilation.
 - Prelude natives: `write_file`, `contains`, `starts_with`, `ends_with`, `first`, `last`
 - Flake modules under `std/` (`list`, `string`), found by walking up from the importer
 - Example: [examples/stdlib.flk](examples/stdlib.flk)
+
+## What v0.3 milestone 5 delivers
+
+- `help:` notes in ownership errors are shown as miette help text
+- Missing `import` names the module and search path
+- Tests cover write/read file, stdlib natives, missing modules, and
+  interpreter / VM / native agreement on every example
 
 ## v0.2 milestones
 

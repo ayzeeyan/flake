@@ -646,9 +646,11 @@ fn emit_call(
             if args.len() < 2 {
                 return Err(CodegenError::new("write_file() expected 2 arguments"));
             }
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            let spill = local_disp(LocalId(func.locals.len() as u32));
             load_as_cstr(func, args[1], asm, strings, strs, uniq);
-            asm.mov_rr(Reg::Rdx, Reg::Rax);
+            asm.mov_mr_rbp(spill, Reg::Rax);
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            asm.mov_rm_rbp(Reg::Rdx, spill);
             asm.call_label("rt_write_file");
             if let Some(d) = dest {
                 asm.xor_rr(Reg::Rax, Reg::Rax);
