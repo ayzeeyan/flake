@@ -59,6 +59,7 @@ fn all_examples_typecheck() {
         "lists.flk",
         "ownership.flk",
         "config.flk",
+        "modules.flk",
     ] {
         check_example(name);
     }
@@ -110,6 +111,14 @@ fn config_output() {
 }
 
 #[test]
+fn modules_output() {
+    assert_eq!(
+        run_example("modules.flk"),
+        "2 + 2 = 4\nsquare(5) = 25\n"
+    );
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",
@@ -119,6 +128,7 @@ fn native_matches_interpreter_on_all_examples() {
         "lists.flk",
         "ownership.flk",
         "config.flk",
+        "modules.flk",
     ] {
         let interp = run_example(name);
         let output = flake_bin()
@@ -147,6 +157,7 @@ fn vm_matches_interpreter_on_all_examples() {
         "lists.flk",
         "ownership.flk",
         "config.flk",
+        "modules.flk",
     ] {
         let interp = run_example(name);
         let vm = run_example_vm(name);

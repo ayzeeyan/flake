@@ -6,7 +6,7 @@ use flake_ast::{
     AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, Source, Span, Stmt,
     TypeExpr, UnOp,
 };
-use flake_parser::parse;
+use flake_parser::{import_alias, load_graph, ModuleGraph};
 
 use crate::effects::EffectSet;
 use crate::error::{CheckError, TypeError};
@@ -210,6 +210,62 @@ impl Checker {
         self.scopes.last_mut().unwrap().insert(name, ty);
     }
 
+    fn install_imports(
+        &mut self,
+        graph: &ModuleGraph,
+        module: &flake_parser::LoadedModule,
+    ) -> Result<(), TypeError> {
+        for item in &module.program.items {
+            let Item::Import(import) = item else {
+                continue;
+            };
+            let Some(imported) = graph.get(&import.path.name) else {
+                return Err(TypeError::new(
+                    import.span,
+                    format!("unresolved import `{}`", import.path.name),
+                ));
+            };
+            let alias = import_alias(import).to_string();
+            let mut members = Vec::new();
+            for item in &imported.program.items {
+                match item {
+                    Item::Struct(st) => {
+                        let mut fields = Vec::new();
+                        for field in &st.fields {
+                            fields.push((field.name.name.clone(), self.lower_type(&field.ty)?));
+                        }
+                        let ty = Type::Struct {
+                            name: st.name.name.clone(),
+                            fields: fields.clone(),
+                        };
+                        self.structs.insert(st.name.name.clone(), ty.clone());
+                        members.push((st.name.name.clone(), ty));
+                    }
+                    Item::Type(alias_item) => {
+                        let ty = self.lower_type(&alias_item.ty)?;
+                        self.aliases.insert(alias_item.name.name.clone(), ty);
+                    }
+                    Item::Fn(func) => {
+                        let ty = self.lower_fn_type(func)?;
+                        if !self.functions.contains_key(&func.name.name) {
+                            self.functions.insert(func.name.name.clone(), ty.clone());
+                        }
+                        members.push((func.name.name.clone(), ty));
+                    }
+                    Item::Import(_) => {}
+                }
+            }
+            self.define(
+                alias,
+                Type::Module {
+                    name: imported.name.clone(),
+                    members,
+                },
+            );
+        }
+        Ok(())
+    }
+
     fn lookup(&self, name: &str) -> Option<Type> {
         for scope in self.scopes.iter().rev() {
             if let Some(t) = scope.get(name) {
@@ -251,13 +307,7 @@ impl Checker {
         for item in &program.items {
             match item {
                 Item::Fn(func) => self.check_fn(func)?,
-                Item::Import(import) => {
-                    return Err(TypeError::new(
-                        import.span,
-                        "imports are not implemented yet",
-                    ));
-                }
-                Item::Struct(_) | Item::Type(_) => {}
+                Item::Import(_) | Item::Struct(_) | Item::Type(_) => {}
             }
         }
         self.check_effects(program)?;
@@ -657,6 +707,16 @@ impl Checker {
                             ))
                         }
                     }
+                    Type::Module { name, members } => members
+                        .iter()
+                        .find(|(n, _)| n == &field.name)
+                        .map(|(_, ty)| ty.clone())
+                        .ok_or_else(|| {
+                            TypeError::new(
+                                field.span,
+                                format!("module `{name}` has no export `{}`", field.name),
+                            )
+                        }),
                     Type::Dyn | Type::Var(_) => Ok(Type::Dyn),
                     other => Err(TypeError::new(
                         field.span,
@@ -1053,15 +1113,36 @@ fn occurs(id: u32, ty: &Type) -> bool {
         Type::Ref { inner, .. } => occurs(id, inner),
         Type::Map(k, v) => occurs(id, k) || occurs(id, v),
         Type::Fn { params, ret, .. } => params.iter().any(|p| occurs(id, p)) || occurs(id, ret),
+        Type::Module { members, .. } => members.iter().any(|(_, t)| occurs(id, t)),
         _ => false,
     }
 }
 
-/// Parse and type-check `source`.
+/// Parse and type-check `source`, including `import`ed files.
 pub fn check(source: &Source) -> Result<Program, CheckError> {
-    let program = parse(source)?;
-    check_program(&program)?;
-    Ok(program)
+    let graph = load_graph(source)?;
+    check_graph(&graph)?;
+    Ok(graph.entry().program.clone())
+}
+
+fn check_graph(graph: &ModuleGraph) -> Result<(), CheckError> {
+    let entry_name = graph.entry().source.name().to_string();
+    for module in &graph.modules {
+        let mut checker = Checker::new();
+        let map_err = |e: TypeError| {
+            if module.source.name() == entry_name {
+                CheckError::Type(e)
+            } else {
+                CheckError::TypeIn {
+                    origin: module.source.clone(),
+                    error: e,
+                }
+            }
+        };
+        checker.install_imports(graph, module).map_err(&map_err)?;
+        checker.check_program(&module.program).map_err(map_err)?;
+    }
+    Ok(())
 }
 
 /// Type-check an already-parsed program.

@@ -87,6 +87,20 @@ fn main() -> ExitCode {
     }
 }
 
+fn emit_check_error(entry: &Source, err: &flake_types::CheckError) {
+    match err {
+        flake_types::CheckError::Parse(e) => report::emit(entry, e.span, &e.message),
+        flake_types::CheckError::Type(e) => report::emit(entry, e.span, &e.message),
+        flake_types::CheckError::TypeIn { origin, error } => {
+            report::emit(origin, error.span, &error.message);
+        }
+        flake_types::CheckError::Resolve(e) => {
+            let src = e.origin.as_ref().unwrap_or(entry);
+            report::emit(src, e.span, &e.message);
+        }
+    }
+}
+
 fn load_source(path: &PathBuf) -> Result<Source, ExitCode> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Source::new(path.display().to_string(), text)),
@@ -104,10 +118,7 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> Exi
     };
     if !skip_check {
         if let Err(err) = check(&source) {
-            match &err {
-                flake_types::CheckError::Parse(e) => report::emit(&source, e.span, &e.message),
-                flake_types::CheckError::Type(e) => report::emit(&source, e.span, &e.message),
-            }
+            emit_check_error(&source, &err);
             return ExitCode::from(1);
         }
     }
@@ -212,10 +223,7 @@ fn check_file(path: &PathBuf) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(err) => {
-            match &err {
-                flake_types::CheckError::Parse(e) => report::emit(&source, e.span, &e.message),
-                flake_types::CheckError::Type(e) => report::emit(&source, e.span, &e.message),
-            }
+            emit_check_error(&source, &err);
             ExitCode::from(1)
         }
     }

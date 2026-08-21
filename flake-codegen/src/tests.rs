@@ -194,6 +194,16 @@ fn main() {
 }
 
 #[test]
+fn native_modules() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("examples");
+    let path = dir.join("modules.flk");
+    let text = std::fs::read_to_string(&path).expect("modules.flk");
+    let source = flake_ast::Source::new(path.display().to_string(), text);
+    let out = run_native(&source).expect("modules native");
+    assert_eq!(out, "2 + 2 = 4\nsquare(5) = 25\n");
+}
+
+#[test]
 fn native_read_file() {
     let dir = std::env::temp_dir();
     let path = dir.join(format!("flake-read-{}.txt", std::process::id()));

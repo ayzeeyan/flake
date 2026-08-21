@@ -10,19 +10,19 @@ mod vm;
 use std::io::Write;
 
 use flake_ast::Source;
-use flake_parser::parse;
+use flake_parser::load_graph;
 
 pub use error::{ExecuteError, VmError};
 pub use opcode::{Chunk, Op};
 pub use value::{Function, Native, Value};
 pub use vm::Vm;
 
-use compiler::compile;
+use compiler::compile_graph;
 
 /// Parse, compile, and execute `source` on the bytecode VM.
 pub fn execute(source: &Source, stdout: &mut dyn Write) -> Result<Value, ExecuteError> {
-    let program = parse(source)?;
-    let compiled = compile(&program)?;
+    let graph = load_graph(source)?;
+    let compiled = compile_graph(&graph)?;
     let mut vm = Vm::new(stdout);
     for func in compiled.functions {
         vm.define_function(func);

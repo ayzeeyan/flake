@@ -1,12 +1,43 @@
 //! AST → bytecode compiler.
 
+use std::collections::{HashMap, HashSet};
+
 use flake_ast::{
     AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, Stmt, UnOp,
 };
+use flake_parser::{import_alias, qualify, ModuleGraph};
 
 use crate::error::VmError;
 use crate::opcode::{Chunk, Op};
 use crate::value::{Function, Value};
+
+struct Names {
+    /// Module prefix for this file (`math`), `None` for the entry file.
+    prefix: Option<String>,
+    /// alias → module name
+    imports: HashMap<String, String>,
+    local_fns: HashSet<String>,
+    /// bare imported name → qualified name
+    imported_fns: HashMap<String, String>,
+}
+
+impl Names {
+    fn global(&self, name: &str) -> String {
+        if self.local_fns.contains(name) {
+            if let Some(prefix) = &self.prefix {
+                return qualify(prefix, name);
+            }
+        }
+        if let Some(q) = self.imported_fns.get(name) {
+            return q.clone();
+        }
+        name.to_string()
+    }
+
+    fn field_global(&self, alias: &str, field: &str) -> Option<String> {
+        self.imports.get(alias).map(|module| qualify(module, field))
+    }
+}
 
 pub struct Compiled {
     pub functions: Vec<Function>,
@@ -22,16 +53,17 @@ struct LoopCtx {
     break_jumps: Vec<usize>,
 }
 
-struct FnCompiler {
+struct FnCompiler<'a> {
     chunk: Chunk,
     locals: Vec<Local>,
     scope: u32,
     max_locals: u16,
     loops: Vec<LoopCtx>,
+    names: &'a Names,
 }
 
-impl FnCompiler {
-    fn new(params: Vec<String>) -> Self {
+impl<'a> FnCompiler<'a> {
+    fn new(params: Vec<String>, names: &'a Names) -> Self {
         let locals = params
             .into_iter()
             .map(|name| Local { name, depth: 0 })
@@ -43,6 +75,7 @@ impl FnCompiler {
             scope: 0,
             max_locals,
             loops: Vec::new(),
+            names,
         }
     }
 
@@ -263,7 +296,8 @@ impl FnCompiler {
                 if let Some(slot) = self.resolve_local(&id.name) {
                     self.chunk.emit(Op::GetLocal(slot));
                 } else {
-                    let c = self.chunk.add_constant(Value::from_string(id.name.clone()));
+                    let name = self.names.global(&id.name);
+                    let c = self.chunk.add_constant(Value::from_string(name));
                     self.chunk.emit(Op::GetGlobal(c));
                 }
                 Ok(())
@@ -380,6 +414,13 @@ impl FnCompiler {
                 Ok(())
             }
             Expr::Field { target, field, .. } => {
+                if let Expr::Ident(id) = target.as_ref() {
+                    if let Some(global) = self.names.field_global(&id.name, &field.name) {
+                        let c = self.chunk.add_constant(Value::from_string(global));
+                        self.chunk.emit(Op::GetGlobal(c));
+                        return Ok(());
+                    }
+                }
                 self.compile_expr(target)?;
                 let c = self.chunk.add_constant(Value::from_string(field.name.clone()));
                 self.chunk.emit(Op::GetField(c));
@@ -527,25 +568,90 @@ fn bin_op(op: BinOp) -> Op {
     }
 }
 
+#[allow(dead_code)]
 pub fn compile(program: &Program) -> Result<Compiled, VmError> {
+    compile_with_names(program, &Names {
+        prefix: None,
+        imports: HashMap::new(),
+        local_fns: program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Fn(f) => Some(f.name.name.clone()),
+                _ => None,
+            })
+            .collect(),
+        imported_fns: HashMap::new(),
+    })
+}
+
+pub fn compile_graph(graph: &ModuleGraph) -> Result<Compiled, VmError> {
+    let mut functions = Vec::new();
+    let entry = graph.entry().name.as_str();
+    for module in &graph.modules {
+        let names = names_for(graph, module, module.name == entry);
+        let compiled = compile_with_names(&module.program, &names)?;
+        functions.extend(compiled.functions);
+    }
+    Ok(Compiled { functions })
+}
+
+fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry: bool) -> Names {
+    let local_fns: HashSet<String> = module
+        .program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Fn(f) => Some(f.name.name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut imports = HashMap::new();
+    let mut imported_fns = HashMap::new();
+    for item in &module.program.items {
+        if let Item::Import(import) = item {
+            let module_name = import.path.name.clone();
+            let alias = import_alias(import).to_string();
+            imports.insert(alias, module_name.clone());
+            if let Some(imported) = graph.get(&module_name) {
+                for item in &imported.program.items {
+                    if let Item::Fn(func) = item {
+                        imported_fns
+                            .entry(func.name.name.clone())
+                            .or_insert_with(|| qualify(&module_name, &func.name.name));
+                    }
+                }
+            }
+        }
+    }
+    Names {
+        prefix: if is_entry {
+            None
+        } else {
+            Some(module.name.clone())
+        },
+        imports,
+        local_fns,
+        imported_fns,
+    }
+}
+
+fn compile_with_names(program: &Program, names: &Names) -> Result<Compiled, VmError> {
     let mut functions = Vec::new();
     for item in &program.items {
         match item {
-            Item::Fn(func) => functions.push(compile_fn(func)?),
-            Item::Import(import) => {
-                return Err(VmError::new(import.span, "imports are not implemented"));
-            }
-            Item::Struct(_) | Item::Type(_) => {}
+            Item::Fn(func) => functions.push(compile_fn(func, names)?),
+            Item::Import(_) | Item::Struct(_) | Item::Type(_) => {}
         }
     }
     Ok(Compiled { functions })
 }
 
-fn compile_fn(func: &FnDecl) -> Result<Function, VmError> {
+fn compile_fn(func: &FnDecl, names: &Names) -> Result<Function, VmError> {
     let params: Vec<String> = func.params.iter().map(|p| p.name.name.clone()).collect();
     let arity = params.len() as u8;
-    let mut compiler = FnCompiler::new(params);
+    let mut compiler = FnCompiler::new(params, names);
     compiler.compile_block_value(&func.body, false)?;
     compiler.chunk.emit(Op::Return);
-    Ok(compiler.finish(func.name.name.clone(), arity))
+    Ok(compiler.finish(names.global(&func.name.name), arity))
 }

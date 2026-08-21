@@ -32,6 +32,14 @@ pub enum CheckError {
     Parse(#[from] flake_parser::ParseError),
     #[error(transparent)]
     Type(#[from] TypeError),
+    /// Type error whose span belongs to an imported file.
+    #[error("{error}")]
+    TypeIn {
+        origin: Source,
+        error: TypeError,
+    },
+    #[error(transparent)]
+    Resolve(#[from] flake_parser::ResolveError),
 }
 
 impl CheckError {
@@ -40,6 +48,11 @@ impl CheckError {
         match self {
             Self::Parse(err) => render(source, err.span, "error", &err.message),
             Self::Type(err) => err.display(source),
+            Self::TypeIn { origin, error } => error.display(origin),
+            Self::Resolve(err) => {
+                let src = err.origin.as_ref().unwrap_or(source);
+                render(src, err.span, "error", &err.message)
+            }
         }
     }
 }

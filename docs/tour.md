@@ -86,6 +86,23 @@ functions have their effects inferred. `main` may perform I/O without writing
 
 Known effects: `io`, `alloc`, `conc`, `panic`, `pure`.
 
+## Modules
+
+Each `.flk` file is a module. `import math` loads `math.flk` from the same
+directory. `import math as m` binds the namespace under `m`.
+
+```flake
+import math
+
+fn main() {
+    print(math.add(2, 40))
+    print(square(5))    // bare name, if unambiguous
+}
+```
+
+Functions, structs, and type aliases in the imported file are exported.
+There is no package manager or versioned registry yet.
+
 ## Ownership
 
 Ordinary code does not need ownership annotations. In a `strict` or `owned`

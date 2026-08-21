@@ -10,7 +10,7 @@ param       := ident (":" type)?
 effects     := ident ("+" ident)*
 struct      := "pub"? "struct" ident "{" (ident ":" type)* "}"
 type-alias  := "pub"? "type" ident "=" type
-import      := "import" ident ("as" ident)?
+import      := "import" ident ("as" ident)?   // `import math` → sibling math.flk
 
 block       := "{" stmt* expr? "}"
 stmt        := let | var | return | break | continue

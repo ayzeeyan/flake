@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Expanded native x86-64 backend | **done** |
-| 2 | Modules and imports | next |
+| 2 | Modules and imports | **done** |
 | 3 | Stronger gradual ownership | pending |
 | 4 | Standard library expansion | pending |
 | 5 | Better diagnostics and comprehensive tests | pending |
@@ -28,6 +28,13 @@ There is no LLVM, Cranelift, or C transpilation.
   `min`, `max`, `range`, `str`, `int`, `type_of`, `assert`, `read_file`
 - `flake run --native` matches the interpreter on every current example
 - Still no LLVM, Cranelift, or C transpilation
+
+## What v0.3 milestone 2 delivers
+
+- `import math` loads sibling `math.flk`; `import math as m` binds a namespace
+- Qualified calls (`math.add`) and unambiguous bare names both work
+- Type checker, interpreter, VM, and native path all understand modules
+- Example: [examples/modules.flk](examples/modules.flk)
 
 ## v0.2 milestones
 

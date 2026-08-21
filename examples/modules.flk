@@ -1,0 +1,9 @@
+// Multi-file programs: `import math` loads `math.flk` next to this file.
+// Names are available both qualified (`math.add`) and, when unambiguous, bare (`square`).
+
+import math
+
+fn main() {
+    print("2 + 2 = {math.add(2, 2)}")
+    print("square(5) = {square(5)}")
+}

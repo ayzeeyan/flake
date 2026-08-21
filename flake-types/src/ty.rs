@@ -33,6 +33,11 @@ pub enum Type {
         inner: Box<Type>,
     },
     Mut(Box<Type>),
+    /// Namespace introduced by `import math` / `import math as m`.
+    Module {
+        name: String,
+        members: Vec<(String, Type)>,
+    },
 }
 
 impl Type {
@@ -78,6 +83,13 @@ impl Type {
                     .map(|(n, t)| (n.clone(), t.without_ownership()))
                     .collect(),
             },
+            Self::Module { name, members } => Self::Module {
+                name: name.clone(),
+                members: members
+                    .iter()
+                    .map(|(n, t)| (n.clone(), t.without_ownership()))
+                    .collect(),
+            },
             other => other.clone(),
         }
     }
@@ -104,6 +116,7 @@ impl fmt::Display for Type {
             Self::List(e) => write!(f, "[{e}]"),
             Self::Map(k, v) => write!(f, "Map[{k}, {v}]"),
             Self::Struct { name, .. } => f.write_str(name),
+            Self::Module { name, .. } => write!(f, "module {name}"),
             Self::Fn {
                 params,
                 ret,

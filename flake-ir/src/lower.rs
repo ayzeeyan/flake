@@ -1,10 +1,12 @@
 //! AST → Flake IR.
 
+use std::collections::{HashMap, HashSet};
+
 use flake_ast::{
     AssignOp, BinOp as AstBin, Block as AstBlock, Expr, FnDecl, InterpPart, Item, Literal, Program,
     Source, Stmt, TypeExpr, UnOp as AstUn,
 };
-use flake_parser::parse;
+use flake_parser::{import_alias, load_graph, qualify, ModuleGraph};
 
 use crate::error::IrError;
 use crate::ir::{
@@ -25,10 +27,11 @@ struct Builder {
     loops: Vec<LoopCtx>,
     next_local: u32,
     next_block: u32,
+    names: Names,
 }
 
 impl Builder {
-    fn new() -> Self {
+    fn new(names: Names) -> Self {
         let entry = BlockId(0);
         Self {
             locals: Vec::new(),
@@ -40,6 +43,7 @@ impl Builder {
             loops: Vec::new(),
             next_local: 0,
             next_block: 1,
+            names,
         }
     }
 
@@ -95,11 +99,109 @@ impl Builder {
 }
 
 pub fn lower(source: &Source) -> Result<Module, IrError> {
-    let program = parse(source)?;
-    Ok(lower_program(source.name(), &program))
+    let graph = load_graph(source)?;
+    Ok(lower_graph(&graph))
 }
 
 pub fn lower_program(name: &str, program: &Program) -> Module {
+    lower_program_with(
+        name,
+        program,
+        &Names {
+            prefix: None,
+            imports: HashMap::new(),
+            local_fns: fn_names(program),
+            imported_fns: HashMap::new(),
+        },
+    )
+}
+
+pub fn lower_graph(graph: &ModuleGraph) -> Module {
+    let mut structs = Vec::new();
+    let mut functions = Vec::new();
+    let entry = graph.entry().name.as_str();
+    for module in &graph.modules {
+        let names = names_for(graph, module, module.name == entry);
+        let part = lower_program_with(&module.name, &module.program, &names);
+        structs.extend(part.structs);
+        functions.extend(part.functions);
+    }
+    Module {
+        name: graph.entry().name.clone(),
+        functions,
+        structs,
+    }
+}
+
+#[derive(Clone)]
+struct Names {
+    prefix: Option<String>,
+    imports: HashMap<String, String>,
+    local_fns: HashSet<String>,
+    imported_fns: HashMap<String, String>,
+}
+
+impl Names {
+    fn global(&self, name: &str) -> String {
+        if self.local_fns.contains(name) {
+            if let Some(prefix) = &self.prefix {
+                return qualify(prefix, name);
+            }
+        }
+        if let Some(q) = self.imported_fns.get(name) {
+            return q.clone();
+        }
+        name.to_string()
+    }
+
+    fn field_global(&self, alias: &str, field: &str) -> Option<String> {
+        self.imports.get(alias).map(|module| qualify(module, field))
+    }
+}
+
+fn fn_names(program: &Program) -> HashSet<String> {
+    program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Fn(f) => Some(f.name.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry: bool) -> Names {
+    let local_fns = fn_names(&module.program);
+    let mut imports = HashMap::new();
+    let mut imported_fns = HashMap::new();
+    for item in &module.program.items {
+        if let Item::Import(import) = item {
+            let module_name = import.path.name.clone();
+            imports.insert(import_alias(import).to_string(), module_name.clone());
+            if let Some(imported) = graph.get(&module_name) {
+                for item in &imported.program.items {
+                    if let Item::Fn(func) = item {
+                        imported_fns
+                            .entry(func.name.name.clone())
+                            .or_insert_with(|| qualify(&module_name, &func.name.name));
+                    }
+                }
+            }
+        }
+    }
+    Names {
+        prefix: if is_entry {
+            None
+        } else {
+            Some(module.name.clone())
+        },
+        imports,
+        local_fns,
+        imported_fns,
+    }
+}
+
+fn lower_program_with(name: &str, program: &Program, names: &Names) -> Module {
     let mut structs = Vec::new();
     let mut functions = Vec::new();
     for item in &program.items {
@@ -114,7 +216,7 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
                         .collect(),
                 });
             }
-            Item::Fn(func) => functions.push(lower_fn(func)),
+            Item::Fn(func) => functions.push(lower_fn(func, names)),
             Item::Type(_) | Item::Import(_) => {}
         }
     }
@@ -125,8 +227,8 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
     }
 }
 
-fn lower_fn(func: &FnDecl) -> Function {
-    let mut b = Builder::new();
+fn lower_fn(func: &FnDecl, names: &Names) -> Function {
+    let mut b = Builder::new(names.clone());
     let mut params = Vec::new();
     for p in &func.params {
         let ty = lower_type(p.ty.as_ref());
@@ -146,7 +248,7 @@ fn lower_fn(func: &FnDecl) -> Function {
     }
 
     Function {
-        name: func.name.name.clone(),
+        name: names.global(&func.name.name),
         params,
         ret,
         effects: func.effects.names().map(str::to_string).collect(),
@@ -408,7 +510,18 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                     if lookup(b, &id.name).is_some() {
                         Callee::Local(lookup(b, &id.name).unwrap())
                     } else {
-                        Callee::Static(id.name.clone())
+                        Callee::Static(b.names.global(&id.name))
+                    }
+                }
+                Expr::Field { target, field, .. } => {
+                    if let Expr::Ident(id) = target.as_ref() {
+                        if let Some(global) = b.names.field_global(&id.name, &field.name) {
+                            Callee::Static(global)
+                        } else {
+                            Callee::Local(lower_expr(b, callee))
+                        }
+                    } else {
+                        Callee::Local(lower_expr(b, callee))
                     }
                 }
                 other => Callee::Local(lower_expr(b, other)),

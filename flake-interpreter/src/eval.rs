@@ -9,7 +9,7 @@ use flake_ast::{
     AssignOp, BinOp, Block, Expr, InterpPart, Item, LetStmt, Literal, Program, Source, Span, Stmt,
     UnOp,
 };
-use flake_parser::{ReplInput, parse, parse_repl};
+use flake_parser::{ReplInput, import_alias, load_graph, parse_repl, ModuleGraph};
 
 use crate::env::Env;
 use crate::error::{RunError, RuntimeError};
@@ -64,15 +64,17 @@ impl Engine {
 
     /// Run a complete program (requires `main`).
     pub fn run(&mut self, source: &Source, stdout: &mut dyn Write) -> Result<Value, RunError> {
-        let program = parse(source)?;
+        let graph = load_graph(source)?;
         let mut interp = Interpreter {
             source,
             env: self.env.clone(),
             stdout,
             depth: 0,
         };
-        interp.collect_items(&program).map_err(RunError::from)?;
-        interp.call_main(&program).map_err(RunError::from)
+        interp.install_graph(&graph).map_err(RunError::from)?;
+        interp
+            .call_main(&graph.entry().program)
+            .map_err(RunError::from)
     }
 
     /// Evaluate REPL input: a program fragment or a script of statements.
@@ -166,6 +168,59 @@ pub fn execute_captured(source: &Source) -> Result<(Value, String), RunError> {
 }
 
 impl<'io> Interpreter<'io> {
+    fn install_graph(&mut self, graph: &ModuleGraph) -> Result<(), RuntimeError> {
+        let mut done = HashMap::new();
+        self.install_module(graph, graph.entry(), &mut done)
+    }
+
+    fn install_module(
+        &mut self,
+        graph: &ModuleGraph,
+        module: &flake_parser::LoadedModule,
+        done: &mut HashMap<String, Value>,
+    ) -> Result<(), RuntimeError> {
+        if done.contains_key(&module.name) {
+            return Ok(());
+        }
+        for item in &module.program.items {
+            if let Item::Import(import) = item {
+                let Some(imported) = graph.get(&import.path.name) else {
+                    return Err(RuntimeError::new(
+                        import.span,
+                        format!("unresolved import `{}`", import.path.name),
+                    ));
+                };
+                self.install_module(graph, imported, done)?;
+                let alias = import_alias(import);
+                if let Some(module_val) = done.get(&imported.name).cloned() {
+                    self.env.define(alias, module_val.clone(), false);
+                    if let Value::Module { members, .. } = &module_val {
+                        for (name, value) in members.iter() {
+                            if self.env.get(name).is_none() {
+                                self.env.define(name, value.clone(), false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.collect_items(&module.program)?;
+        let mut members = HashMap::new();
+        for item in &module.program.items {
+            if let Item::Fn(func) = item {
+                if let Some(value) = self.env.get(&func.name.name) {
+                    members.insert(func.name.name.clone(), value);
+                }
+            }
+        }
+        let module_val = Value::Module {
+            name: Rc::from(module.name.as_str()),
+            members: Rc::new(members),
+        };
+        done.insert(module.name.clone(), module_val);
+        Ok(())
+    }
+
     fn collect_items(&mut self, program: &Program) -> Result<(), RuntimeError> {
         for item in &program.items {
             match item {
@@ -179,13 +234,7 @@ impl<'io> Interpreter<'io> {
                     }));
                     self.env.define(&func.name.name, value, false);
                 }
-                Item::Struct(_) | Item::Type(_) => {}
-                Item::Import(import) => {
-                    return Err(RuntimeError::new(
-                        import.span,
-                        "imports are not implemented in the tree-walking interpreter",
-                    ));
-                }
+                Item::Struct(_) | Item::Type(_) | Item::Import(_) => {}
             }
         }
         Ok(())
@@ -1017,6 +1066,9 @@ fn field_get(target: &Value, name: &str, span: Span) -> EvalResult<Value> {
             .get(name)
             .cloned()
             .ok_or_else(|| RuntimeError::new(span, format!("no field `{name}`")).into()),
+        Value::Module { name: module, members } => members.get(name).cloned().ok_or_else(|| {
+            RuntimeError::new(span, format!("module `{module}` has no export `{name}`")).into()
+        }),
         other => Err(RuntimeError::new(
             span,
             format!("cannot access field `{name}` on {}", other.type_name()),

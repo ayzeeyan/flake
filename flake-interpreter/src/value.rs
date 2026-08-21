@@ -28,6 +28,10 @@ pub enum Value {
         start: i64,
         end: i64,
     },
+    Module {
+        name: Rc<str>,
+        members: Rc<HashMap<String, Value>>,
+    },
 }
 
 #[derive(Clone)]
@@ -108,6 +112,7 @@ impl Value {
             Self::Function(_) => "Function",
             Self::Native(_) => "Function",
             Self::Range { .. } => "Range",
+            Self::Module { .. } => "Module",
         }
     }
 
@@ -159,6 +164,7 @@ impl Value {
             Self::Function(f) => format!("<fn {}>", f.name),
             Self::Native(n) => format!("<fn {}>", n.name()),
             Self::Range { start, end } => format!("{start}..{end}"),
+            Self::Module { name, .. } => format!("<module {name}>"),
         }
     }
 

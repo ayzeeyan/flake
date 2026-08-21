@@ -28,6 +28,8 @@ pub enum ExecuteError {
     #[error(transparent)]
     Parse(#[from] flake_parser::ParseError),
     #[error(transparent)]
+    Resolve(#[from] flake_parser::ResolveError),
+    #[error(transparent)]
     Compile(#[from] VmError),
     #[error(transparent)]
     Runtime(VmError),
@@ -37,6 +39,10 @@ impl ExecuteError {
     pub fn display(&self, source: &Source) -> String {
         match self {
             Self::Parse(err) => render(source, err.span, "error", &err.message),
+            Self::Resolve(err) => {
+                let src = err.origin.as_ref().unwrap_or(source);
+                render(src, err.span, "error", &err.message)
+            }
             Self::Compile(err) | Self::Runtime(err) => err.display(source),
         }
     }
@@ -44,6 +50,7 @@ impl ExecuteError {
     pub fn span(&self) -> Option<Span> {
         match self {
             Self::Parse(err) => Some(err.span),
+            Self::Resolve(err) => Some(err.span),
             Self::Compile(err) | Self::Runtime(err) => Some(err.span),
         }
     }

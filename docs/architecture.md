@@ -16,7 +16,7 @@ source → lexer → parser → AST
 | --- | --- |
 | `flake-ast` | Spans, AST, pretty-printer, diagnostic rendering |
 | `flake-lexer` | Tokens, comments, string interpolation |
-| `flake-parser` | Recursive-descent + Pratt parser |
+| `flake-parser` | Recursive-descent + Pratt parser, `import` module loader |
 | `flake-types` | Inference, `dyn`, effects, gradual ownership |
 | `flake-ir` | Control-flow-graph IR (locals + basic blocks) |
 | `flake-interpreter` | Tree-walking runtime and REPL engine |
