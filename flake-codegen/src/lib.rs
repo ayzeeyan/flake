@@ -6,6 +6,7 @@
 mod emit;
 mod error;
 mod pe;
+mod regalloc;
 mod runtime;
 mod x86;
 

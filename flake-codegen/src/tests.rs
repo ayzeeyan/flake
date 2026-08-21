@@ -169,6 +169,50 @@ fn main() {
 }
 
 #[test]
+fn native_register_heavy_locals() {
+    let out = run_native(&src(
+        r#"
+fn mix(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int) -> Int {
+    let s = a + b + c + d + e + f
+    s + s + a
+}
+fn main() { print(mix(1, 2, 3, 4, 5, 6)) }
+"#,
+    ))
+    .expect("regalloc");
+    assert_eq!(out, "43\n");
+}
+
+#[test]
+fn native_float_arith() {
+    let out = run_native(&src(
+        r#"
+fn main() {
+    print(int(1.5 + 2.5))
+    print(int(float(10) / float(2)))
+}
+"#,
+    ))
+    .expect("float native");
+    assert_eq!(out, "4\n5\n");
+}
+
+#[test]
+fn asm_assigns_callee_saved_regs() {
+    let asm = compile_asm(&src(
+        r#"
+fn add(a: Int, b: Int) -> Int { a + b }
+fn main() { print(add(2, 40)) }
+"#,
+    ))
+    .expect("asm");
+    assert!(
+        asm.contains("local 0 ->") && (asm.contains("Rbx") || asm.contains("[rbp")),
+        "{asm}"
+    );
+}
+
+#[test]
 fn native_five_args() {
     let out = run_native(&src(r#"
 fn sum5(a: Int, b: Int, c: Int, d: Int, e: Int) -> Int {

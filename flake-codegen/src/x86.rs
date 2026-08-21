@@ -17,6 +17,10 @@ pub enum Reg {
     R9 = 9,
     R10 = 10,
     R11 = 11,
+    R12 = 12,
+    R13 = 13,
+    R14 = 14,
+    R15 = 15,
 }
 
 impl Reg {
@@ -38,8 +42,11 @@ pub enum Cc {
     /// Unsigned above (`ja`).
     A,
     /// Unsigned below (`jb`).
-    #[allow(dead_code)]
     B,
+    /// Unsigned below or equal (`jbe`).
+    Be,
+    /// Unsigned above or equal (`jae`).
+    Ae,
 }
 
 pub struct Asm {
@@ -247,6 +254,87 @@ impl Asm {
         self.reloc_rel32(label.into());
     }
 
+    /// `call r64`
+    pub fn call_r(&mut self, r: Reg) {
+        if r.id() >= 8 {
+            self.bytes.push(0x41);
+        }
+        self.bytes.push(0xFF);
+        self.bytes.push(0xD0 + (r.id() & 7));
+    }
+
+    /// `movq xmm{k}, r64`  (SSE2)
+    pub fn movq_xmm_r(&mut self, xmm: u8, src: Reg) {
+        // 66 REX.W 0F 6E /r
+        let mut rex = 0x48;
+        if src.id() >= 8 {
+            rex |= 0x01;
+        }
+        self.bytes.push(0x66);
+        self.bytes.push(rex);
+        self.bytes.push(0x0F);
+        self.bytes.push(0x6E);
+        self.bytes.push(0b11_000_000 | (xmm << 3) | (src.id() & 7));
+    }
+
+    /// `movq r64, xmm{k}`
+    pub fn movq_r_xmm(&mut self, dst: Reg, xmm: u8) {
+        let mut rex = 0x48;
+        if dst.id() >= 8 {
+            rex |= 0x01;
+        }
+        self.bytes.push(0x66);
+        self.bytes.push(rex);
+        self.bytes.push(0x0F);
+        self.bytes.push(0x7E);
+        self.bytes.push(0b11_000_000 | (xmm << 3) | (dst.id() & 7));
+    }
+
+    /// `addsd xmm0, xmm1`
+    pub fn addsd_xmm0_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x58, 0xC1]);
+    }
+
+    /// `subsd xmm0, xmm1`
+    pub fn subsd_xmm0_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x5C, 0xC1]);
+    }
+
+    /// `mulsd xmm0, xmm1`
+    pub fn mulsd_xmm0_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x59, 0xC1]);
+    }
+
+    /// `divsd xmm0, xmm1`
+    pub fn divsd_xmm0_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x5E, 0xC1]);
+    }
+
+    /// `ucomisd xmm0, xmm1`
+    pub fn ucomisd_xmm0_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0x66, 0x0F, 0x2E, 0xC1]);
+    }
+
+    /// `cvtsi2sd xmm0, r64`
+    pub fn cvtsi2sd_xmm0(&mut self, src: Reg) {
+        let mut rex = 0x48;
+        if src.id() >= 8 {
+            rex |= 0x01;
+        }
+        self.bytes.extend_from_slice(&[0xF2, rex, 0x0F, 0x2A]);
+        self.bytes.push(0b11_000_000 | (src.id() & 7));
+    }
+
+    /// `cvttsd2si r64, xmm0`
+    pub fn cvttsd2si_r_xmm0(&mut self, dst: Reg) {
+        let mut rex = 0x48;
+        if dst.id() >= 8 {
+            rex |= 0x04;
+        }
+        self.bytes.extend_from_slice(&[0xF2, rex, 0x0F, 0x2C]);
+        self.bytes.push(0b11_000_000 | ((dst.id() & 7) << 3));
+    }
+
     /// `call qword ptr [rip+rel32]` — IAT import. `disp` is patched later as absolute RVA diff.
     pub fn call_indirect_rip(&mut self) -> usize {
         self.bytes.extend_from_slice(&[0xFF, 0x15]);
@@ -361,6 +449,8 @@ fn setcc_op(cc: Cc) -> u8 {
         Cc::Ge => 0x9D,
         Cc::A => 0x97,
         Cc::B => 0x92,
+        Cc::Be => 0x96,
+        Cc::Ae => 0x93,
     }
 }
 
@@ -374,5 +464,7 @@ fn jcc_op(cc: Cc) -> u8 {
         Cc::Ge => 0x8D,
         Cc::A => 0x87,
         Cc::B => 0x82,
+        Cc::Be => 0x86,
+        Cc::Ae => 0x83,
     }
 }

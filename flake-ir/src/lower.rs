@@ -660,6 +660,16 @@ fn lower_binary(b: &mut Builder, op: AstBin, left: &Expr, right: &Expr) -> Local
             AstBin::Eq | AstBin::Ne | AstBin::Lt | AstBin::Le | AstBin::Gt | AstBin::Ge => {
                 IrType::Bool
             }
+            _ if matches!(
+                b.locals.iter().find(|l| l.id == lhs).map(|l| &l.ty),
+                Some(IrType::Float)
+            ) || matches!(
+                b.locals.iter().find(|l| l.id == rhs).map(|l| &l.ty),
+                Some(IrType::Float)
+            ) =>
+            {
+                IrType::Float
+            }
             _ => IrType::Int,
         },
     );

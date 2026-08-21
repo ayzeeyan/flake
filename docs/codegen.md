@@ -20,8 +20,16 @@ flake run --native examples/hello.flk
 Generated functions use the **Windows x64 ABI**:
 
 - integer/pointer arguments in `rcx`, `rdx`, `r8`, `r9`
+- further arguments on the stack at `[rbp+48]` …
 - return value in `rax`
 - 32 bytes of home space reserved in every frame
+- incoming callee-saved registers are saved in the frame and restored on return
+
+## Register allocation
+
+A linear-scan-style allocator assigns the hottest locals to callee-saved GPRs
+(`rbx`, `rsi`, `rdi`, `r13`–`r15`). Remaining locals live in `[rbp]` slots.
+Argument/scratch registers stay free for the ABI and instruction selection.
 
 ## Runtime
 
@@ -42,11 +50,10 @@ A small hand-written runtime is linked into every image:
 
 Imports are resolved from `KERNEL32.dll` via a standard PE import table.
 
-## What compiles natively (v0.3)
+## What compiles natively (v0.4)
 
-Integers, bools, strings, `if`/`while`/`for` (lists and ranges), functions
-(including more than four arguments), structs, lists, maps, interpolation,
-`print`, and the built-in helpers (`len`, `push`, `pop`, `join`, `split`,
-`abs`, `min`, `max`, `range`, `str`, `int`, `type_of`, `assert`, `read_file`).
+Integers, bools, floats (SSE2), strings, `if`/`while`/`for` (lists and ranges),
+functions (including more than four arguments and indirect `call r64`), structs,
+lists, maps, interpolation, `print`, modules, and the built-in helpers.
 
-Indirect calls and floating-point values are not lowered yet.
+Register allocation keeps hot locals in callee-saved registers.

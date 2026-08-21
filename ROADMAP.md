@@ -1,12 +1,30 @@
 # Flake Roadmap
 
-**v0.3 is complete.** A useful subset of Flake compiles to working native
-x86-64 PE executables, programs can be split across `.flk` files with `import`,
-gradual ownership is stronger but still optional, and a small standard library
-exists. Interpreter, VM, and native stay consistent. There is no LLVM,
-Cranelift, or C transpilation.
+**v0.4 is in progress.** v0.3 delivered practical native x86-64, modules, stronger
+ownership, and a small standard library. v0.4 raises the native backend to
+production quality (register allocation, full ABI), matures ownership, and
+expands the language surface.
 
 There is no LLVM, Cranelift, or C transpilation.
+
+## v0.4 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | High-quality native x86-64 backend | **done** |
+| 2 | Mature gradual ownership | next |
+| 3 | Language and module expansion | pending |
+| 4 | Standard library maturity | pending |
+| 5 | Cross-backend consistency and diagnostics | pending |
+| 6 | Polish, documentation and examples | pending |
+| 7 | Flake v0.4 complete | pending |
+
+## What v0.4 milestone 1 delivers
+
+- Linear-scan-style register allocation onto Windows callee-saved GPRs
+- Solid Windows x64 ABI (home space, stack args, callee-saved save/restore)
+- Native floats via SSE2; indirect calls via `call r64`
+- Existing examples still match the interpreter on `flake run --native`
 
 ## v0.3 milestones
 

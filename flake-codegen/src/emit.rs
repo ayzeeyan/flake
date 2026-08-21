@@ -3,6 +3,7 @@
 use flake_ir::{BinOp, Callee, Const, Function, Inst, IrType, LocalId, Module, UnOp};
 
 use crate::error::CodegenError;
+use crate::regalloc::{allocate, Frame};
 use crate::x86::{Asm, Cc, Reg};
 
 pub struct Compiled {
@@ -110,20 +111,19 @@ fn emit_start(asm: &mut Asm, iat: &mut Vec<(usize, usize)>, gas: &mut String) {
     iat.push((p, Import::ExitProcess as usize));
 }
 
-fn prologue(asm: &mut Asm, frame: i32) {
+fn prologue(asm: &mut Asm, frame: &Frame) {
     asm.push(Reg::Rbp);
     asm.mov_rr(Reg::Rbp, Reg::Rsp);
-    let mut sz = frame;
-    if sz % 16 != 0 {
-        sz += 16 - (sz % 16);
+    asm.sub_ri(Reg::Rsp, frame.frame_size);
+    for (i, r) in frame.saved.iter().enumerate() {
+        asm.mov_mr_rbp(-8 * (i as i32 + 1), *r);
     }
-    if sz == 0 {
-        sz = 32;
-    }
-    asm.sub_ri(Reg::Rsp, sz);
 }
 
-fn epilogue(asm: &mut Asm) {
+fn epilogue(asm: &mut Asm, frame: &Frame) {
+    for (i, r) in frame.saved.iter().enumerate() {
+        asm.mov_rm_rbp(*r, -8 * (i as i32 + 1));
+    }
     asm.mov_rr(Reg::Rsp, Reg::Rbp);
     asm.pop(Reg::Rbp);
     asm.ret();
@@ -142,23 +142,34 @@ fn emit_function(
     let _ = iat;
     asm.label(&func.name);
     gas.push_str(&format!("\n{}:\n", func.name));
-    let n = func.locals.len() as i32;
-    // Extra slots: concat spill, plus padding for the Windows home space.
-    let frame = (((n + 3) * 8 + 32) + 15) & !15;
-    prologue(asm, frame);
+    let frame = allocate(func);
+    prologue(asm, &frame);
     gas.push_str(&format!(
-        "    push rbp\n    mov rbp, rsp\n    sub rsp, {frame}\n"
+        "    push rbp\n    mov rbp, rsp\n    sub rsp, {}\n",
+        frame.frame_size
     ));
+    for (i, r) in frame.saved.iter().enumerate() {
+        gas.push_str(&format!("    ; save {:?} at [rbp-{}]\n", r, 8 * (i + 1)));
+    }
+    for (i, loc) in frame.loc.iter().enumerate() {
+        match loc {
+            crate::regalloc::Loc::Reg(r) => {
+                gas.push_str(&format!("    ; local {i} -> {:?}\n", r));
+            }
+            crate::regalloc::Loc::Slot(d) => {
+                gas.push_str(&format!("    ; local {i} -> [rbp{d:+}]\n"));
+            }
+        }
+    }
 
     let win_args = [Reg::Rcx, Reg::Rdx, Reg::R8, Reg::R9];
     for (i, _) in func.params.iter().enumerate() {
         if i < 4 {
-            asm.mov_mr_rbp(local_disp(LocalId(i as u32)), win_args[i]);
+            frame.store(asm, LocalId(i as u32), win_args[i]);
         } else {
-            // [rbp+16+32 + 8*(i-4)] = [rbp+48+8*(i-4)]
             let disp = 48 + 8 * ((i as i32) - 4);
             asm.mov_rm_rbp(Reg::Rax, disp);
-            asm.mov_mr_rbp(local_disp(LocalId(i as u32)), Reg::Rax);
+            frame.store(asm, LocalId(i as u32), Reg::Rax);
         }
     }
 
@@ -167,19 +178,16 @@ fn emit_function(
         asm.label(&lab);
         gas.push_str(&format!(".{lab}:\n"));
         for inst in &block.insts {
-            emit_inst(module, func, inst, asm, strings, strs, gas, uniq)?;
+            emit_inst(module, func, &frame, inst, asm, strings, strs, gas, uniq)?;
         }
     }
     Ok(())
 }
 
-fn local_disp(id: LocalId) -> i32 {
-    -8 * (id.0 as i32 + 1)
-}
-
 fn emit_inst(
     module: &Module,
     func: &Function,
+    frame: &Frame,
     inst: &Inst,
     asm: &mut Asm,
     strings: &mut Vec<Vec<u8>>,
@@ -191,43 +199,42 @@ fn emit_inst(
         Inst::LoadConst { dest, value } => match value {
             Const::Int(n) => {
                 asm.mov_ri(Reg::Rax, *n);
-                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                frame.store(asm, *dest, Reg::Rax);
                 gas.push_str(&format!(
-                    "    mov rax, {n}\n    mov [rbp{:+}], rax\n",
-                    local_disp(*dest)
+                    "    mov rax, {n}\n    store local {}\n",
+                    dest.0
                 ));
             }
             Const::Bool(v) => {
                 asm.mov_ri(Reg::Rax, if *v { 1 } else { 0 });
-                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                frame.store(asm, *dest, Reg::Rax);
             }
             Const::Nil => {
                 asm.xor_rr(Reg::Rax, Reg::Rax);
-                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                frame.store(asm, *dest, Reg::Rax);
             }
             Const::String(s) => {
                 let idx = intern_cstring(strings, s);
                 let at = asm.lea_rip(Reg::Rax);
                 strs.push((at, idx));
-                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                frame.store(asm, *dest, Reg::Rax);
             }
-            Const::Float(_) => {
-                return Err(CodegenError::new(
-                    "native backend does not yet lower Float constants",
-                ));
+            Const::Float(n) => {
+                asm.mov_ri(Reg::Rax, n.to_bits() as i64);
+                frame.store(asm, *dest, Reg::Rax);
             }
         },
         Inst::Move { dest, src } => {
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*src));
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.load(asm, *src, Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         Inst::Binary { dest, op, lhs, rhs } => {
             if matches!(op, BinOp::Eq | BinOp::Ne)
                 && is_string_ty(&local_ty(func, *lhs))
                 && is_string_ty(&local_ty(func, *rhs))
             {
-                asm.mov_rm_rbp(Reg::Rcx, local_disp(*lhs));
-                asm.mov_rm_rbp(Reg::Rdx, local_disp(*rhs));
+                frame.load(asm, *lhs, Reg::Rcx);
+                frame.load(asm, *rhs, Reg::Rdx);
                 asm.call_label("rt_streq");
                 if matches!(op, BinOp::Ne) {
                     asm.test_rr(Reg::Rax, Reg::Rax);
@@ -235,11 +242,43 @@ fn emit_inst(
                     asm.setcc(Cc::Z, Reg::Rax);
                     asm.movzx_rax_al();
                 }
-                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                frame.store(asm, *dest, Reg::Rax);
                 return Ok(());
             }
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*lhs));
-            asm.mov_rm_rbp(Reg::R10, local_disp(*rhs));
+            frame.load(asm, *lhs, Reg::Rax);
+            frame.load(asm, *rhs, Reg::R10);
+            let floaty = matches!(local_ty(func, *lhs), IrType::Float)
+                || matches!(local_ty(func, *rhs), IrType::Float);
+            if floaty {
+                asm.movq_xmm_r(0, Reg::Rax);
+                asm.movq_xmm_r(1, Reg::R10);
+                match op {
+                    BinOp::Add => asm.addsd_xmm0_xmm1(),
+                    BinOp::Sub => asm.subsd_xmm0_xmm1(),
+                    BinOp::Mul => asm.mulsd_xmm0_xmm1(),
+                    BinOp::Div => asm.divsd_xmm0_xmm1(),
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                        asm.ucomisd_xmm0_xmm1();
+                        let cc = match op {
+                            BinOp::Eq => Cc::E,
+                            BinOp::Ne => Cc::Ne,
+                            BinOp::Lt => Cc::B,
+                            BinOp::Le => Cc::Be,
+                            BinOp::Gt => Cc::A,
+                            BinOp::Ge => Cc::Ae,
+                            _ => unreachable!(),
+                        };
+                        asm.setcc(cc, Reg::Rax);
+                        asm.movzx_rax_al();
+                        frame.store(asm, *dest, Reg::Rax);
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                asm.movq_r_xmm(Reg::Rax, 0);
+                frame.store(asm, *dest, Reg::Rax);
+                return Ok(());
+            }
             match op {
                 BinOp::Add => asm.add_rr(Reg::Rax, Reg::R10),
                 BinOp::Sub => asm.sub_rr(Reg::Rax, Reg::R10),
@@ -273,10 +312,10 @@ fn emit_inst(
                     asm.bytes.extend_from_slice(&[0x4C, 0x09, 0xD0]); // or rax, r10
                 }
             }
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         Inst::Unary { dest, op, src } => {
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*src));
+            frame.load(asm, *src, Reg::Rax);
             match op {
                 UnOp::Neg => asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]),
                 UnOp::Not => {
@@ -286,30 +325,30 @@ fn emit_inst(
                     asm.movzx_rax_al();
                 }
             }
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         Inst::Call { dest, callee, args } => {
-            emit_call(func, dest.as_ref(), callee, args, asm, strings, strs, uniq)?;
+            emit_call(func, frame, dest.as_ref(), callee, args, asm, strings, strs, uniq)?;
         }
         Inst::Concat { dest, parts } => {
             if parts.is_empty() {
                 let idx = intern_cstring(strings, "");
                 let at = asm.lea_rip(Reg::Rax);
                 strs.push((at, idx));
-                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                frame.store(asm, *dest, Reg::Rax);
             } else {
-                let spill = local_disp(LocalId(func.locals.len() as u32));
-                load_as_cstr(func, parts[0], asm, strings, strs, uniq);
+                let spill = frame.spill;
+                load_as_cstr(func, frame, parts[0], asm, strings, strs, uniq);
                 asm.mov_mr_rbp(spill, Reg::Rax);
                 for p in &parts[1..] {
-                    load_as_cstr(func, *p, asm, strings, strs, uniq);
+                    load_as_cstr(func, frame, *p, asm, strings, strs, uniq);
                     asm.mov_rr(Reg::Rdx, Reg::Rax);
                     asm.mov_rm_rbp(Reg::Rcx, spill);
                     asm.call_label("rt_concat2");
                     asm.mov_mr_rbp(spill, Reg::Rax);
                 }
                 asm.mov_rm_rbp(Reg::Rax, spill);
-                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                frame.store(asm, *dest, Reg::Rax);
             }
         }
         Inst::Jump { target } => {
@@ -320,18 +359,18 @@ fn emit_inst(
             then_block,
             else_block,
         } => {
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*cond));
+            frame.load(asm, *cond, Reg::Rax);
             asm.test_rr(Reg::Rax, Reg::Rax);
             asm.jcc_label(Cc::NZ, format!("{}_bb{}", func.name, then_block.0));
             asm.jmp_label(format!("{}_bb{}", func.name, else_block.0));
         }
         Inst::Return { value } => {
             if let Some(v) = value {
-                asm.mov_rm_rbp(Reg::Rax, local_disp(*v));
+                frame.load(asm, *v, Reg::Rax);
             } else {
                 asm.xor_rr(Reg::Rax, Reg::Rax);
             }
-            epilogue(asm);
+            epilogue(asm, frame);
         }
         Inst::MakeList { dest, items } => {
             let n = items.len() as i64;
@@ -343,53 +382,53 @@ fn emit_inst(
             asm.mov_ri(Reg::R10, cap);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
             for (i, item) in items.iter().enumerate() {
-                asm.mov_rm_rbp(Reg::R10, local_disp(*item));
+                frame.load(asm, *item, Reg::R10);
                 asm.mov_mr(Reg::Rax, 16 + 8 * i as i32, Reg::R10);
             }
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         Inst::GetIndex { dest, obj, index } => {
-            emit_get_index(func, dest, obj, index, asm, uniq);
+            emit_get_index(func, frame, dest, obj, index, asm, uniq);
         }
         Inst::SetIndex { obj, index, value } => {
-            emit_set_index(func, obj, index, value, asm, uniq);
+            emit_set_index(func, frame, obj, index, value, asm, uniq);
         }
         Inst::MakeStruct { dest, fields, .. } => {
             let n = fields.len() as i64;
             asm.mov_ri(Reg::Rcx, 8 * n.max(1));
             asm.call_label("rt_alloc");
             for (i, (_, val)) in fields.iter().enumerate() {
-                asm.mov_rm_rbp(Reg::R10, local_disp(*val));
+                frame.load(asm, *val, Reg::R10);
                 asm.mov_mr(Reg::Rax, 8 * i as i32, Reg::R10);
             }
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         Inst::GetField { dest, obj, field } => {
             let off = field_offset(module, func, *obj, field)?;
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
+            frame.load(asm, *obj, Reg::Rax);
             asm.mov_rm(Reg::Rax, Reg::Rax, off);
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         Inst::SetField { obj, field, value } => {
             let off = field_offset(module, func, *obj, field)?;
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::R10, local_disp(*value));
+            frame.load(asm, *obj, Reg::Rax);
+            frame.load(asm, *value, Reg::R10);
             asm.mov_mr(Reg::Rax, off, Reg::R10);
         }
         Inst::MakeRange { dest, start, end } => {
             asm.mov_ri(Reg::Rcx, 16);
             asm.call_label("rt_alloc");
-            asm.mov_rm_rbp(Reg::R10, local_disp(*start));
+            frame.load(asm, *start, Reg::R10);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
-            asm.mov_rm_rbp(Reg::R10, local_disp(*end));
+            frame.load(asm, *end, Reg::R10);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         Inst::MakeIter { dest, src } => {
-            emit_make_iter(func, dest, src, asm, uniq);
+            emit_make_iter(func, frame, dest, src, asm, uniq);
         }
         Inst::IterNext { value, more, iter } => {
-            emit_iter_next(value, more, iter, asm, uniq);
+            emit_iter_next(frame, value, more, iter, asm, uniq);
         }
         Inst::MakeMap { dest, keys, values } => {
             let n = keys.len() as i64;
@@ -401,12 +440,12 @@ fn emit_inst(
             asm.mov_ri(Reg::R10, cap);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
             for (i, (k, v)) in keys.iter().zip(values.iter()).enumerate() {
-                asm.mov_rm_rbp(Reg::R10, local_disp(*k));
+                frame.load(asm, *k, Reg::R10);
                 asm.mov_mr(Reg::Rax, 16 + 16 * i as i32, Reg::R10);
-                asm.mov_rm_rbp(Reg::R10, local_disp(*v));
+                frame.load(asm, *v, Reg::R10);
                 asm.mov_mr(Reg::Rax, 24 + 16 * i as i32, Reg::R10);
             }
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
     }
     let _ = gas;
@@ -421,6 +460,7 @@ fn next_id(uniq: &mut u32) -> u32 {
 
 fn load_as_cstr(
     func: &Function,
+    frame: &Frame,
     local: LocalId,
     asm: &mut Asm,
     strings: &mut Vec<Vec<u8>>,
@@ -431,12 +471,17 @@ fn load_as_cstr(
         .local(local)
         .map(|l| l.ty.clone())
         .unwrap_or(IrType::Dyn);
-    asm.mov_rm_rbp(Reg::Rcx, local_disp(local));
+    frame.load(asm, local, Reg::Rcx);
     match ty {
         IrType::String => {
             asm.mov_rr(Reg::Rax, Reg::Rcx);
         }
         IrType::Int => {
+            asm.call_label("rt_itoa");
+        }
+        IrType::Float => {
+            asm.movq_xmm_r(0, Reg::Rcx);
+            asm.cvttsd2si_r_xmm0(Reg::Rcx);
             asm.call_label("rt_itoa");
         }
         IrType::Unknown | IrType::Dyn => {
@@ -499,7 +544,14 @@ fn field_offset(
     Err(CodegenError::new(format!("unknown field `{field}`")))
 }
 
-fn emit_make_iter(func: &Function, dest: &LocalId, src: &LocalId, asm: &mut Asm, uniq: &mut u32) {
+fn emit_make_iter(
+    func: &Function,
+    frame: &Frame,
+    dest: &LocalId,
+    src: &LocalId,
+    asm: &mut Asm,
+    uniq: &mut u32,
+) {
     let ty = func
         .local(*src)
         .map(|l| l.ty.clone())
@@ -508,7 +560,7 @@ fn emit_make_iter(func: &Function, dest: &LocalId, src: &LocalId, asm: &mut Asm,
         IrType::Range => {
             asm.mov_ri(Reg::Rcx, 32);
             asm.call_label("rt_alloc");
-            asm.mov_rm_rbp(Reg::R11, local_disp(*src));
+            frame.load(asm, *src, Reg::R11);
             asm.mov_rm(Reg::R8, Reg::R11, 0);
             asm.mov_rm(Reg::R9, Reg::R11, 8);
             asm.mov_ri(Reg::R10, 1);
@@ -522,25 +574,32 @@ fn emit_make_iter(func: &Function, dest: &LocalId, src: &LocalId, asm: &mut Asm,
             asm.mov_mr(Reg::Rax, 8, Reg::R8);
             asm.mov_mr(Reg::Rax, 16, Reg::R9);
             asm.mov_mr(Reg::Rax, 24, Reg::R10);
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         _ => {
             asm.mov_ri(Reg::Rcx, 24);
             asm.call_label("rt_alloc");
             asm.mov_ri(Reg::R11, 2); // kind = list
             asm.mov_mr(Reg::Rax, 0, Reg::R11);
-            asm.mov_rm_rbp(Reg::R10, local_disp(*src));
+            frame.load(asm, *src, Reg::R10);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
             asm.xor_rr(Reg::R10, Reg::R10);
             asm.mov_mr(Reg::Rax, 16, Reg::R10);
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
     }
 }
 
-fn emit_iter_next(value: &LocalId, more: &LocalId, iter: &LocalId, asm: &mut Asm, uniq: &mut u32) {
+fn emit_iter_next(
+    frame: &Frame,
+    value: &LocalId,
+    more: &LocalId,
+    iter: &LocalId,
+    asm: &mut Asm,
+    uniq: &mut u32,
+) {
     let id = next_id(uniq);
-    asm.mov_rm_rbp(Reg::Rax, local_disp(*iter));
+    frame.load(asm, *iter, Reg::Rax);
     asm.mov_rm(Reg::R10, Reg::Rax, 0); // kind
     asm.mov_ri(Reg::R11, 1);
     asm.cmp_rr(Reg::R10, Reg::R11);
@@ -556,11 +615,11 @@ fn emit_iter_next(value: &LocalId, more: &LocalId, iter: &LocalId, asm: &mut Asm
     asm.shl_ri(Reg::R11, 3);
     asm.add_rr(Reg::R8, Reg::R11);
     asm.mov_rm(Reg::R8, Reg::R8, 16);
-    asm.mov_mr_rbp(local_disp(*value), Reg::R8);
+    frame.store(asm, *value, Reg::R8);
     asm.add_ri(Reg::R9, 1);
     asm.mov_mr(Reg::Rax, 16, Reg::R9);
     asm.mov_ri(Reg::R8, 1);
-    asm.mov_mr_rbp(local_disp(*more), Reg::R8);
+    frame.store(asm, *more, Reg::R8);
     asm.jmp_label(format!(".nend{id}"));
 
     asm.label(format!(".nrange{id}"));
@@ -576,21 +635,22 @@ fn emit_iter_next(value: &LocalId, more: &LocalId, iter: &LocalId, asm: &mut Asm
     asm.cmp_rr(Reg::R8, Reg::R9);
     asm.jcc_label(Cc::Le, format!(".ndone{id}"));
     asm.label(format!(".nyield{id}"));
-    asm.mov_mr_rbp(local_disp(*value), Reg::R8);
+    frame.store(asm, *value, Reg::R8);
     asm.add_rr(Reg::R8, Reg::R10);
     asm.mov_mr(Reg::Rax, 8, Reg::R8);
     asm.mov_ri(Reg::R8, 1);
-    asm.mov_mr_rbp(local_disp(*more), Reg::R8);
+    frame.store(asm, *more, Reg::R8);
     asm.jmp_label(format!(".nend{id}"));
 
     asm.label(format!(".ndone{id}"));
     asm.xor_rr(Reg::R8, Reg::R8);
-    asm.mov_mr_rbp(local_disp(*more), Reg::R8);
+    frame.store(asm, *more, Reg::R8);
     asm.label(format!(".nend{id}"));
 }
 
 fn emit_call(
     func: &Function,
+    frame: &Frame,
     dest: Option<&LocalId>,
     callee: &Callee,
     args: &[LocalId],
@@ -601,99 +661,117 @@ fn emit_call(
 ) -> Result<(), CodegenError> {
     match callee {
         Callee::Static(name) if name == "print" => {
-            emit_native_print(func, dest, args, asm, strings, strs, uniq)
+            emit_native_print(func, frame, dest, args, asm, strings, strs, uniq)
         }
-        Callee::Static(name) if name == "len" => emit_native_len(func, dest, args, asm),
-        Callee::Static(name) if name == "push" => emit_native_push(dest, args, asm),
-        Callee::Static(name) if name == "pop" => emit_native_pop(dest, args, asm),
+        Callee::Static(name) if name == "len" => emit_native_len(func, frame, dest, args, asm),
+        Callee::Static(name) if name == "push" => emit_native_push(frame, dest, args, asm),
+        Callee::Static(name) if name == "pop" => emit_native_pop(frame, dest, args, asm),
         Callee::Static(name) if name == "join" => {
-            emit_binary_rt("rt_join", dest, args, asm);
+            emit_binary_rt(frame, "rt_join", dest, args, asm);
             Ok(())
         }
         Callee::Static(name) if name == "split" => {
-            emit_binary_rt("rt_split", dest, args, asm);
+            emit_binary_rt(frame, "rt_split", dest, args, asm);
             Ok(())
         }
-        Callee::Static(name) if name == "abs" => emit_native_abs(dest, args, asm, uniq),
-        Callee::Static(name) if name == "min" => emit_native_minmax(dest, args, asm, uniq, true),
-        Callee::Static(name) if name == "max" => emit_native_minmax(dest, args, asm, uniq, false),
-        Callee::Static(name) if name == "range" => emit_native_range(dest, args, asm),
+        Callee::Static(name) if name == "abs" => emit_native_abs(frame, dest, args, asm, uniq),
+        Callee::Static(name) if name == "min" => {
+            emit_native_minmax(frame, dest, args, asm, uniq, true)
+        }
+        Callee::Static(name) if name == "max" => {
+            emit_native_minmax(frame, dest, args, asm, uniq, false)
+        }
+        Callee::Static(name) if name == "range" => emit_native_range(frame, dest, args, asm),
         Callee::Static(name) if name == "str" => {
             if args.is_empty() {
                 return Err(CodegenError::new("str() expected 1 argument"));
             }
-            load_as_cstr(func, args[0], asm, strings, strs, uniq);
-            store_rax(dest, asm);
+            load_as_cstr(func, frame, args[0], asm, strings, strs, uniq);
+            store_rax(frame, dest, asm);
             Ok(())
         }
-        Callee::Static(name) if name == "int" => emit_native_int(func, dest, args, asm, uniq),
+        Callee::Static(name) if name == "int" => emit_native_int(func, frame, dest, args, asm, uniq),
         Callee::Static(name) if name == "type_of" => {
-            emit_native_type_of(func, dest, args, asm, strings, strs)
+            emit_native_type_of(func, frame, dest, args, asm, strings, strs)
         }
         Callee::Static(name) if name == "assert" => {
-            emit_native_assert(dest, args, asm, strings, strs)
+            emit_native_assert(frame, dest, args, asm, strings, strs)
         }
         Callee::Static(name) if name == "read_file" => {
             if args.is_empty() {
                 return Err(CodegenError::new("read_file() expected 1 argument"));
             }
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            frame.load(asm, args[0], Reg::Rcx);
             asm.call_label("rt_read_file");
-            store_rax(dest, asm);
+            store_rax(frame, dest, asm);
             Ok(())
         }
         Callee::Static(name) if name == "write_file" => {
             if args.len() < 2 {
                 return Err(CodegenError::new("write_file() expected 2 arguments"));
             }
-            let spill = local_disp(LocalId(func.locals.len() as u32));
-            load_as_cstr(func, args[1], asm, strings, strs, uniq);
+            let spill = frame.spill;
+            load_as_cstr(func, frame, args[1], asm, strings, strs, uniq);
             asm.mov_mr_rbp(spill, Reg::Rax);
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            frame.load(asm, args[0], Reg::Rcx);
             asm.mov_rm_rbp(Reg::Rdx, spill);
             asm.call_label("rt_write_file");
             if let Some(d) = dest {
                 asm.xor_rr(Reg::Rax, Reg::Rax);
-                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+                frame.store(asm, *d, Reg::Rax);
             }
             Ok(())
         }
         Callee::Static(name) if name == "starts_with" => {
-            emit_binary_rt("rt_starts_with", dest, args, asm);
+            emit_binary_rt(frame, "rt_starts_with", dest, args, asm);
             Ok(())
         }
         Callee::Static(name) if name == "ends_with" => {
-            emit_binary_rt("rt_ends_with", dest, args, asm);
+            emit_binary_rt(frame, "rt_ends_with", dest, args, asm);
             Ok(())
         }
-        Callee::Static(name) if name == "contains" => emit_native_contains(func, dest, args, asm),
-        Callee::Static(name) if name == "first" => emit_native_first_last(func, dest, args, asm, true),
-        Callee::Static(name) if name == "last" => emit_native_first_last(func, dest, args, asm, false),
-        Callee::Static(name) if name == "float" => Err(CodegenError::new(
-            "native backend does not yet lower float()",
-        )),
-        Callee::Static(name) => emit_user_call(name, dest, args, asm),
-        Callee::Local(_) => Err(CodegenError::new(
-            "indirect calls are not yet natively compiled",
-        )),
+        Callee::Static(name) if name == "contains" => {
+            emit_native_contains(func, frame, dest, args, asm)
+        }
+        Callee::Static(name) if name == "first" => {
+            emit_native_first_last(func, frame, dest, args, asm, true)
+        }
+        Callee::Static(name) if name == "last" => {
+            emit_native_first_last(func, frame, dest, args, asm, false)
+        }
+        Callee::Static(name) if name == "float" => emit_native_float(func, frame, dest, args, asm),
+        Callee::Static(name) => emit_user_call(frame, name, dest, args, asm),
+        Callee::Local(id) => {
+            frame.load(asm, *id, Reg::Rax);
+            asm.call_r(Reg::Rax);
+            store_rax(frame, dest, asm);
+            Ok(())
+        }
     }
 }
 
-fn store_rax(dest: Option<&LocalId>, asm: &mut Asm) {
+fn store_rax(frame: &Frame, dest: Option<&LocalId>, asm: &mut Asm) {
     if let Some(d) = dest {
-        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+        frame.store(asm, *d, Reg::Rax);
     }
 }
 
-fn emit_binary_rt(label: &str, dest: Option<&LocalId>, args: &[LocalId], asm: &mut Asm) {
-    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-    asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+fn emit_binary_rt(
+    frame: &Frame,
+    label: &str,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) {
+    frame.load(asm, args[0], Reg::Rcx);
+    frame.load(asm, args[1], Reg::Rdx);
     asm.call_label(label);
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
 }
 
 fn emit_native_print(
     func: &Function,
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -708,10 +786,15 @@ fn emit_native_print(
             asm.call_label("rt_print_cstr");
         }
         let ty = local_ty(func, *arg);
-        asm.mov_rm_rbp(Reg::Rcx, local_disp(*arg));
+        frame.load(asm, *arg, Reg::Rcx);
         match ty {
             IrType::String => asm.call_label("rt_print_cstr"),
-            IrType::Int | IrType::Float => asm.call_label("rt_print_i64"),
+            IrType::Int => asm.call_label("rt_print_i64"),
+            IrType::Float => {
+                asm.movq_xmm_r(0, Reg::Rcx);
+                asm.cvttsd2si_r_xmm0(Reg::Rcx);
+                asm.call_label("rt_print_i64");
+            }
             IrType::Dyn | IrType::Unknown => {
                 let id = next_id(uniq);
                 asm.mov_ri(Reg::R10, 0x10000);
@@ -767,13 +850,14 @@ fn emit_native_print(
     asm.call_label("rt_print_nl");
     if let Some(d) = dest {
         asm.xor_rr(Reg::Rax, Reg::Rax);
-        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+        frame.store(asm, *d, Reg::Rax);
     }
     Ok(())
 }
 
 fn emit_native_len(
     func: &Function,
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -781,16 +865,17 @@ fn emit_native_len(
     if args.is_empty() {
         return Err(CodegenError::new("len() expected 1 argument"));
     }
-    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    frame.load(asm, args[0], Reg::Rcx);
     match local_ty(func, args[0]) {
         IrType::String => asm.call_label("rt_strlen"),
         _ => asm.mov_rm(Reg::Rax, Reg::Rcx, 0),
     }
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_push(
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -798,18 +883,19 @@ fn emit_native_push(
     if args.len() < 2 {
         return Err(CodegenError::new("push() expected 2 arguments"));
     }
-    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-    asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+    frame.load(asm, args[0], Reg::Rcx);
+    frame.load(asm, args[1], Reg::Rdx);
     asm.call_label("rt_list_push");
-    asm.mov_mr_rbp(local_disp(args[0]), Reg::Rax);
+    frame.store(asm, args[0], Reg::Rax);
     if let Some(d) = dest {
         asm.xor_rr(Reg::Rax, Reg::Rax);
-        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+        frame.store(asm, *d, Reg::Rax);
     }
     Ok(())
 }
 
 fn emit_native_pop(
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -817,13 +903,14 @@ fn emit_native_pop(
     if args.is_empty() {
         return Err(CodegenError::new("pop() expected 1 argument"));
     }
-    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    frame.load(asm, args[0], Reg::Rcx);
     asm.call_label("rt_list_pop");
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_abs(
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -833,16 +920,17 @@ fn emit_native_abs(
         return Err(CodegenError::new("abs() expected 1 argument"));
     }
     let id = next_id(uniq);
-    asm.mov_rm_rbp(Reg::Rax, local_disp(args[0]));
+    frame.load(asm, args[0], Reg::Rax);
     asm.test_rr(Reg::Rax, Reg::Rax);
     asm.jcc_label(Cc::Ge, format!(".abs{id}"));
     asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]);
     asm.label(format!(".abs{id}"));
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_minmax(
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -852,10 +940,10 @@ fn emit_native_minmax(
     if args.len() < 2 {
         return Err(CodegenError::new("min/max expected at least 2 arguments"));
     }
-    asm.mov_rm_rbp(Reg::Rax, local_disp(args[0]));
+    frame.load(asm, args[0], Reg::Rax);
     for a in &args[1..] {
         let id = next_id(uniq);
-        asm.mov_rm_rbp(Reg::R10, local_disp(*a));
+        frame.load(asm, *a, Reg::R10);
         asm.cmp_rr(Reg::Rax, Reg::R10);
         let keep = format!(".mm{id}");
         if is_min {
@@ -866,11 +954,12 @@ fn emit_native_minmax(
         asm.mov_rr(Reg::Rax, Reg::R10);
         asm.label(keep);
     }
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_range(
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -881,23 +970,24 @@ fn emit_native_range(
         1 => {
             asm.xor_rr(Reg::R10, Reg::R10);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
-            asm.mov_rm_rbp(Reg::R10, local_disp(args[0]));
+            frame.load(asm, args[0], Reg::R10);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
         }
         n if n >= 2 => {
-            asm.mov_rm_rbp(Reg::R10, local_disp(args[0]));
+            frame.load(asm, args[0], Reg::R10);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
-            asm.mov_rm_rbp(Reg::R10, local_disp(args[1]));
+            frame.load(asm, args[1], Reg::R10);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
         }
         _ => return Err(CodegenError::new("range() expected 1 or 2 arguments")),
     }
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_int(
     func: &Function,
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -906,9 +996,13 @@ fn emit_native_int(
     if args.is_empty() {
         return Err(CodegenError::new("int() expected 1 argument"));
     }
-    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    frame.load(asm, args[0], Reg::Rcx);
     match local_ty(func, args[0]) {
         IrType::String => asm.call_label("rt_atoi"),
+        IrType::Float => {
+            asm.movq_xmm_r(0, Reg::Rcx);
+            asm.cvttsd2si_r_xmm0(Reg::Rax);
+        }
         IrType::Int | IrType::Bool | IrType::Nil => asm.mov_rr(Reg::Rax, Reg::Rcx),
         _ => {
             let id = next_id(uniq);
@@ -922,12 +1016,13 @@ fn emit_native_int(
             asm.label(format!(".intd{id}"));
         }
     }
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_type_of(
     func: &Function,
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -940,11 +1035,12 @@ fn emit_native_type_of(
     let name = ir_type_name(&local_ty(func, args[0]));
     let at = asm.lea_rip(Reg::Rax);
     strs.push((at, intern_cstring(strings, name)));
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_assert(
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -954,22 +1050,23 @@ fn emit_native_assert(
     if args.is_empty() {
         return Err(CodegenError::new("assert() expected 1 or 2 arguments"));
     }
-    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    frame.load(asm, args[0], Reg::Rcx);
     if args.len() >= 2 {
-        asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+        frame.load(asm, args[1], Reg::Rdx);
     } else {
         asm.xor_rr(Reg::Rdx, Reg::Rdx);
     }
     asm.call_label("rt_assert");
     if let Some(d) = dest {
         asm.xor_rr(Reg::Rax, Reg::Rax);
-        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+        frame.store(asm, *d, Reg::Rax);
     }
     Ok(())
 }
 
 fn emit_native_contains(
     func: &Function,
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -979,22 +1076,23 @@ fn emit_native_contains(
     }
     match local_ty(func, args[0]) {
         IrType::List(_) => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+            frame.load(asm, args[0], Reg::Rcx);
+            frame.load(asm, args[1], Reg::Rdx);
             asm.call_label("rt_list_contains");
         }
         _ => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+            frame.load(asm, args[0], Reg::Rcx);
+            frame.load(asm, args[1], Reg::Rdx);
             asm.call_label("rt_contains");
         }
     }
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_native_first_last(
     func: &Function,
+    frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
@@ -1005,7 +1103,7 @@ fn emit_native_first_last(
     }
     match local_ty(func, args[0]) {
         IrType::String => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            frame.load(asm, args[0], Reg::Rcx);
             if first {
                 asm.xor_rr(Reg::Rdx, Reg::Rdx);
             } else {
@@ -1014,7 +1112,7 @@ fn emit_native_first_last(
             asm.call_label("rt_str_index");
         }
         _ => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            frame.load(asm, args[0], Reg::Rcx);
             if first {
                 asm.call_label("rt_list_first");
             } else {
@@ -1022,11 +1120,34 @@ fn emit_native_first_last(
             }
         }
     }
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
+    Ok(())
+}
+
+fn emit_native_float(
+    func: &Function,
+    frame: &Frame,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("float() expected 1 argument"));
+    }
+    frame.load(asm, args[0], Reg::Rax);
+    match local_ty(func, args[0]) {
+        IrType::Float => {}
+        _ => {
+            asm.cvtsi2sd_xmm0(Reg::Rax);
+            asm.movq_r_xmm(Reg::Rax, 0);
+        }
+    }
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_user_call(
+    frame: &Frame,
     name: &str,
     dest: Option<&LocalId>,
     args: &[LocalId],
@@ -1042,23 +1163,24 @@ fn emit_user_call(
         }
         asm.sub_ri(Reg::Rsp, space);
         for (i, a) in args.iter().enumerate().skip(4) {
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*a));
+            frame.load(asm, *a, Reg::Rax);
             asm.mov_mr_rsp(32 + 8 * (i as i32 - 4), Reg::Rax);
         }
     }
     for (i, a) in args.iter().enumerate().take(4) {
-        asm.mov_rm_rbp(win_args[i], local_disp(*a));
+        frame.load(asm, *a, win_args[i]);
     }
     asm.call_label(name);
     if extra > 0 {
         asm.add_ri(Reg::Rsp, space);
     }
-    store_rax(dest, asm);
+    store_rax(frame, dest, asm);
     Ok(())
 }
 
 fn emit_get_index(
     func: &Function,
+    frame: &Frame,
     dest: &LocalId,
     obj: &LocalId,
     index: &LocalId,
@@ -1069,27 +1191,27 @@ fn emit_get_index(
     let idx_ty = local_ty(func, *index);
     match obj_ty {
         IrType::Map(_, _) => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            frame.load(asm, *obj, Reg::Rcx);
+            frame.load(asm, *index, Reg::Rdx);
             asm.call_label("rt_map_get");
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         IrType::String => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            frame.load(asm, *obj, Reg::Rcx);
+            frame.load(asm, *index, Reg::Rdx);
             asm.call_label("rt_str_index");
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         IrType::Dyn | IrType::Unknown if is_string_ty(&idx_ty) => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            frame.load(asm, *obj, Reg::Rcx);
+            frame.load(asm, *index, Reg::Rdx);
             asm.call_label("rt_map_get");
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
         _ => {
             let id = next_id(uniq);
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
+            frame.load(asm, *obj, Reg::Rax);
+            frame.load(asm, *index, Reg::R10);
             asm.test_rr(Reg::R10, Reg::R10);
             asm.jcc_label(Cc::Ge, format!(".idxpos{id}"));
             asm.mov_rm(Reg::R11, Reg::Rax, 0);
@@ -1098,13 +1220,14 @@ fn emit_get_index(
             asm.shl_ri(Reg::R10, 3);
             asm.add_rr(Reg::Rax, Reg::R10);
             asm.mov_rm(Reg::Rax, Reg::Rax, 16);
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            frame.store(asm, *dest, Reg::Rax);
         }
     }
 }
 
 fn emit_set_index(
     func: &Function,
+    frame: &Frame,
     obj: &LocalId,
     index: &LocalId,
     value: &LocalId,
@@ -1115,23 +1238,23 @@ fn emit_set_index(
     let idx_ty = local_ty(func, *index);
     match obj_ty {
         IrType::Map(_, _) => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
-            asm.mov_rm_rbp(Reg::R8, local_disp(*value));
+            frame.load(asm, *obj, Reg::Rcx);
+            frame.load(asm, *index, Reg::Rdx);
+            frame.load(asm, *value, Reg::R8);
             asm.call_label("rt_map_set");
-            asm.mov_mr_rbp(local_disp(*obj), Reg::Rax);
+            frame.store(asm, *obj, Reg::Rax);
         }
         IrType::Dyn | IrType::Unknown if is_string_ty(&idx_ty) => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
-            asm.mov_rm_rbp(Reg::R8, local_disp(*value));
+            frame.load(asm, *obj, Reg::Rcx);
+            frame.load(asm, *index, Reg::Rdx);
+            frame.load(asm, *value, Reg::R8);
             asm.call_label("rt_map_set");
-            asm.mov_mr_rbp(local_disp(*obj), Reg::Rax);
+            frame.store(asm, *obj, Reg::Rax);
         }
         _ => {
             let id = next_id(uniq);
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
+            frame.load(asm, *obj, Reg::Rax);
+            frame.load(asm, *index, Reg::R10);
             asm.test_rr(Reg::R10, Reg::R10);
             asm.jcc_label(Cc::Ge, format!(".sidxpos{id}"));
             asm.mov_rm(Reg::R11, Reg::Rax, 0);
@@ -1139,7 +1262,7 @@ fn emit_set_index(
             asm.label(format!(".sidxpos{id}"));
             asm.shl_ri(Reg::R10, 3);
             asm.add_rr(Reg::Rax, Reg::R10);
-            asm.mov_rm_rbp(Reg::R10, local_disp(*value));
+            frame.load(asm, *value, Reg::R10);
             asm.mov_mr(Reg::Rax, 16, Reg::R10);
         }
     }
