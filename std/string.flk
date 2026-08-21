@@ -1,9 +1,23 @@
 // String helpers. `import string` (resolved from the `std/` directory).
 
-fn is_blank(s: String) -> Bool {
-    len(s) == 0
+pub fn is_blank(s: String) -> Bool {
+    len(trim(s)) == 0
 }
 
-fn surround(s: String, left: String, right: String) -> String {
+pub fn surround(s: String, left: String, right: String) -> String {
     "{left}{s}{right}"
+}
+
+pub fn replace(s: String, old: String, new: String) -> String {
+    join(split(s, old), new)
+}
+
+pub fn repeat(s: String, n: Int) -> String {
+    var out = ""
+    var i = 0
+    while i < n {
+        out = "{out}{s}"
+        i = i + 1
+    }
+    out
 }

@@ -134,38 +134,38 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> Exi
             }
         }
     } else {
-    let mut stdout = io::stdout();
-    if use_vm {
-        match flake_vm::execute(&source, &mut stdout) {
-            Ok(_) => {
-                let _ = stdout.flush();
-                ExitCode::SUCCESS
-            }
-            Err(err) => {
-                if let Some(span) = err.span() {
-                    report::emit(&source, span, &err.to_string());
-                } else {
-                    report::emit_message(&err.to_string());
+        let mut stdout = io::stdout();
+        if use_vm {
+            match flake_vm::execute(&source, &mut stdout) {
+                Ok(_) => {
+                    let _ = stdout.flush();
+                    ExitCode::SUCCESS
                 }
-                ExitCode::from(1)
+                Err(err) => {
+                    if let Some(span) = err.span() {
+                        report::emit(&source, span, &err.to_string());
+                    } else {
+                        report::emit_message(&err.to_string());
+                    }
+                    ExitCode::from(1)
+                }
+            }
+        } else {
+            match execute(&source, &mut stdout) {
+                Ok(_) => {
+                    let _ = stdout.flush();
+                    ExitCode::SUCCESS
+                }
+                Err(err) => {
+                    if let Some(span) = err.span() {
+                        report::emit(&source, span, &err.to_string());
+                    } else {
+                        report::emit_message(&err.to_string());
+                    }
+                    ExitCode::from(1)
+                }
             }
         }
-    } else {
-        match execute(&source, &mut stdout) {
-            Ok(_) => {
-                let _ = stdout.flush();
-                ExitCode::SUCCESS
-            }
-            Err(err) => {
-                if let Some(span) = err.span() {
-                    report::emit(&source, span, &err.to_string());
-                } else {
-                    report::emit_message(&err.to_string());
-                }
-                ExitCode::from(1)
-            }
-        }
-    }
     }
 }
 

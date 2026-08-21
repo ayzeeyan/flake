@@ -124,7 +124,11 @@ fn stdlib_output() {
     let out = run_example("stdlib.flk");
     assert!(out.contains("first = 1 last = 3"), "{out}");
     assert!(out.contains("rest = [2, 3]"), "{out}");
-    assert!(out.contains("true"), "{out}");
+    assert!(out.contains("reverse = [3, 2, 1] sum = 6"), "{out}");
+    assert!(out.contains("hi\n"), "{out}");
+    assert!(out.contains("FLAKE"), "{out}");
+    assert!(out.contains("a:b:c"), "{out}");
+    assert!(out.contains("nana"), "{out}");
 }
 
 #[test]

@@ -227,9 +227,13 @@ fn stdlib_natives() {
         print(last("ab"))
         print(starts_with("flake", "fl"))
         print(contains([1, 2], 2))
+        print(trim("  hi  "))
+        print(upper("ab"))
+        print(lower("AB"))
+        print(file_exists("no-such-flake-file.txt"))
         "#,
     ));
-    assert_eq!(out, "9\nb\ntrue\ntrue\n");
+    assert_eq!(out, "9\nb\ntrue\ntrue\nhi\nAB\nab\nfalse\n");
 }
 
 #[test]

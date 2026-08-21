@@ -83,10 +83,17 @@ pub enum Native {
     EndsWith,
     First,
     Last,
+    Trim,
+    Upper,
+    Lower,
+    FileExists,
+    Env,
+    Cwd,
+    RemoveFile,
 }
 
 impl Native {
-    pub fn all() -> [Native; 22] {
+    pub fn all() -> [Native; 29] {
         [
             Native::Print,
             Native::Len,
@@ -110,6 +117,13 @@ impl Native {
             Native::EndsWith,
             Native::First,
             Native::Last,
+            Native::Trim,
+            Native::Upper,
+            Native::Lower,
+            Native::FileExists,
+            Native::Env,
+            Native::Cwd,
+            Native::RemoveFile,
         ]
     }
 
@@ -138,6 +152,13 @@ impl Native {
             Self::EndsWith => "ends_with",
             Self::First => "first",
             Self::Last => "last",
+            Self::Trim => "trim",
+            Self::Upper => "upper",
+            Self::Lower => "lower",
+            Self::FileExists => "file_exists",
+            Self::Env => "env",
+            Self::Cwd => "cwd",
+            Self::RemoveFile => "remove_file",
         }
     }
 }

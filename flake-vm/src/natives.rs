@@ -289,6 +289,82 @@ pub fn call_native(
                 )),
             }
         }
+        Native::Trim => {
+            expect_arity("trim", args, 1)?;
+            match &args[0] {
+                Value::String(s) => Ok(Value::from_string(s.trim().to_string())),
+                other => Err(VmError::new(
+                    span,
+                    format!("trim() expected String, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::Upper => {
+            expect_arity("upper", args, 1)?;
+            match &args[0] {
+                Value::String(s) => Ok(Value::from_string(s.to_uppercase())),
+                other => Err(VmError::new(
+                    span,
+                    format!("upper() expected String, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::Lower => {
+            expect_arity("lower", args, 1)?;
+            match &args[0] {
+                Value::String(s) => Ok(Value::from_string(s.to_lowercase())),
+                other => Err(VmError::new(
+                    span,
+                    format!("lower() expected String, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::FileExists => {
+            expect_arity("file_exists", args, 1)?;
+            let path = match &args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::new(
+                        span,
+                        format!("file_exists() expected String, found {}", other.type_name()),
+                    ));
+                }
+            };
+            Ok(Value::Bool(std::path::Path::new(&path).exists()))
+        }
+        Native::Env => {
+            expect_arity("env", args, 1)?;
+            let name = match &args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::new(
+                        span,
+                        format!("env() expected String, found {}", other.type_name()),
+                    ));
+                }
+            };
+            Ok(Value::from_string(std::env::var(name).unwrap_or_default()))
+        }
+        Native::Cwd => {
+            expect_arity("cwd", args, 0)?;
+            let dir = std::env::current_dir()
+                .map_err(|e| VmError::new(span, format!("cwd() failed: {e}")))?;
+            Ok(Value::from_string(dir.to_string_lossy().replace('\\', "/")))
+        }
+        Native::RemoveFile => {
+            expect_arity("remove_file", args, 1)?;
+            let path = match &args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::new(
+                        span,
+                        format!("remove_file() expected String, found {}", other.type_name()),
+                    ));
+                }
+            };
+            let _ = std::fs::remove_file(&path);
+            Ok(Value::Nil)
+        }
     }
 }
 

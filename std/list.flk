@@ -1,10 +1,10 @@
 // List helpers. `import list` (resolved from the `std/` directory).
 
-fn is_empty(xs) -> Bool {
+pub fn is_empty(xs) -> Bool {
     len(xs) == 0
 }
 
-fn rest(xs) -> [dyn] {
+pub fn rest(xs) -> [dyn] {
     var out = []
     var i = 1
     while i < len(xs) {
@@ -12,4 +12,53 @@ fn rest(xs) -> [dyn] {
         i = i + 1
     }
     out
+}
+
+pub fn reverse(xs) -> [dyn] {
+    var out = []
+    var i = len(xs)
+    while i > 0 {
+        i = i - 1
+        push(out, xs[i])
+    }
+    out
+}
+
+pub fn concat(a, b) -> [dyn] {
+    var out = []
+    for x in a {
+        push(out, x)
+    }
+    for x in b {
+        push(out, x)
+    }
+    out
+}
+
+pub fn take(xs, n: Int) -> [dyn] {
+    var out = []
+    var i = 0
+    while i < n && i < len(xs) {
+        push(out, xs[i])
+        i = i + 1
+    }
+    out
+}
+
+pub fn drop(xs, n: Int) -> [dyn] {
+    var out = []
+    var i = n
+    while i < len(xs) {
+        push(out, xs[i])
+        i = i + 1
+    }
+    out
+}
+
+pub fn sum(xs) -> Int {
+    var s = 0
+    for x in xs {
+        s = s + x
+    }
+    s
 }

@@ -14,7 +14,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | High-quality native x86-64 backend | **done** |
 | 2 | Mature gradual ownership | **done** |
 | 3 | Language and module expansion | **done** |
-| 4 | Standard library maturity | pending |
+| 4 | Standard library maturity | **done** |
 | 5 | Cross-backend consistency and diagnostics | pending |
 | 6 | Polish, documentation and examples | pending |
 | 7 | Flake v0.4 complete | pending |
@@ -39,6 +39,13 @@ There is no LLVM, Cranelift, or C transpilation.
 - Module visibility: if a file uses `pub`, only `pub` items are exported
 - Interpreter, VM, and native paths all run enums and `match`
 - Examples: [enum](examples/enum.flk), [visible](examples/visible.flk)
+
+## What v0.4 milestone 4 delivers
+
+- Prelude natives: `trim`, `upper`, `lower`, `file_exists`, `env`, `cwd`, `remove_file`
+- `std/` modules: `list`, `string`, `math`, `option`, `result` (prelude + explicit imports)
+- Native-path support for the new natives
+- Example: [stdlib](examples/stdlib.flk)
 
 ## v0.3 milestones
 

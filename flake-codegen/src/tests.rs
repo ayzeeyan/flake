@@ -241,10 +241,18 @@ fn main() {
     print(ends_with("flake", "ke"))
     print(contains("abc", "b"))
     print(contains([1, 2, 3], 2))
+    print(trim("  hi  "))
+    print(upper("ab"))
+    print(lower("AB"))
+    print(file_exists("no-such-flake-file.txt"))
+    print(len(cwd()) > 0)
 }
 "#))
     .expect("stdlib natives");
-    assert_eq!(out, "9\n7\ntrue\ntrue\ntrue\ntrue\n");
+    assert_eq!(
+        out,
+        "9\n7\ntrue\ntrue\ntrue\ntrue\nhi\nAB\nab\nfalse\ntrue\n"
+    );
 }
 
 #[test]

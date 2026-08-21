@@ -164,6 +164,13 @@ fn install_builtins(env: &Env) {
         NativeFn::EndsWith,
         NativeFn::First,
         NativeFn::Last,
+        NativeFn::Trim,
+        NativeFn::Upper,
+        NativeFn::Lower,
+        NativeFn::FileExists,
+        NativeFn::Env,
+        NativeFn::Cwd,
+        NativeFn::RemoveFile,
     ] {
         env.define(native.name(), Value::Native(native), false);
     }
@@ -1032,6 +1039,88 @@ impl<'io> Interpreter<'io> {
                     )
                     .into()),
                 }
+            }
+            NativeFn::Trim => {
+                expect_arity("trim", args, 1, span)?;
+                match &args[0] {
+                    Value::String(s) => Ok(Value::from_string(s.trim().to_string())),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("trim() expected String, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Upper => {
+                expect_arity("upper", args, 1, span)?;
+                match &args[0] {
+                    Value::String(s) => Ok(Value::from_string(s.to_uppercase())),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("upper() expected String, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Lower => {
+                expect_arity("lower", args, 1, span)?;
+                match &args[0] {
+                    Value::String(s) => Ok(Value::from_string(s.to_lowercase())),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("lower() expected String, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::FileExists => {
+                expect_arity("file_exists", args, 1, span)?;
+                let path = match &args[0] {
+                    Value::String(s) => s.to_string(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            span,
+                            format!("file_exists() expected String, found {}", other.type_name()),
+                        )
+                        .into());
+                    }
+                };
+                Ok(Value::Bool(std::path::Path::new(&path).exists()))
+            }
+            NativeFn::Env => {
+                expect_arity("env", args, 1, span)?;
+                let name = match &args[0] {
+                    Value::String(s) => s.to_string(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            span,
+                            format!("env() expected String, found {}", other.type_name()),
+                        )
+                        .into());
+                    }
+                };
+                Ok(Value::from_string(std::env::var(name).unwrap_or_default()))
+            }
+            NativeFn::Cwd => {
+                expect_arity("cwd", args, 0, span)?;
+                let dir = std::env::current_dir()
+                    .map_err(|e| RuntimeError::new(span, format!("cwd() failed: {e}")))?;
+                Ok(Value::from_string(dir.to_string_lossy().replace('\\', "/")))
+            }
+            NativeFn::RemoveFile => {
+                expect_arity("remove_file", args, 1, span)?;
+                let path = match &args[0] {
+                    Value::String(s) => s.to_string(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            span,
+                            format!("remove_file() expected String, found {}", other.type_name()),
+                        )
+                        .into());
+                    }
+                };
+                let _ = std::fs::remove_file(&path);
+                Ok(Value::Nil)
             }
         }
     }

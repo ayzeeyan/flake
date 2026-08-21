@@ -1,14 +1,29 @@
-// Prelude natives plus `import list` from the `std/` directory.
+// Prelude natives plus Flake modules under `std/`.
 
 import list
+import string
+import option
 
 fn main() {
     let xs = [1, 2, 3]
     print("first = {first(xs)} last = {last(xs)}")
     print("rest = {rest(xs)}")
+    print("reverse = {reverse(xs)} sum = {sum(xs)}")
+    print("take 2 = {take(xs, 2)}")
     print(starts_with("flake", "fl"))
     print(ends_with("flake", "ke"))
     print(contains("clarity", "lar"))
     print(contains(xs, 2))
     print(is_empty([]))
+    print(trim("  hi  "))
+    print(upper("flake"))
+    print(lower("FLAKE"))
+    print(replace("a-b-c", "-", ":"))
+    print(repeat("na", 2))
+    print(surround("x", "<", ">"))
+    let o = option.Option.Some(7)
+    print(unwrap_or(o, 0))
+    print(unwrap_or(option.Option.None, 9))
+    print(len(cwd()) > 0)
+    print(file_exists("no-such-flake-file.txt"))
 }

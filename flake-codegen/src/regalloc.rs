@@ -126,9 +126,7 @@ fn refs(inst: &Inst) -> Vec<LocalId> {
             v.push(*dest);
             v.push(*src);
         }
-        Inst::Binary {
-            dest, lhs, rhs, ..
-        } => {
+        Inst::Binary { dest, lhs, rhs, .. } => {
             v.push(*dest);
             v.push(*lhs);
             v.push(*rhs);
@@ -165,11 +163,7 @@ fn refs(inst: &Inst) -> Vec<LocalId> {
             v.push(*dest);
             v.extend(items.iter().copied());
         }
-        Inst::MakeMap {
-            dest,
-            keys,
-            values,
-        } => {
+        Inst::MakeMap { dest, keys, values } => {
             v.push(*dest);
             v.extend(keys.iter().copied());
             v.extend(values.iter().copied());

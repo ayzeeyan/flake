@@ -182,6 +182,16 @@ fn enums_and_match() {
 }
 
 #[test]
+fn string_natives() {
+    assert_eq!(
+        run(&main(
+            r#"print(trim("  hi  ")) print(upper("ab")) print(lower("AB"))"#
+        )),
+        "hi\nAB\nab\n"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

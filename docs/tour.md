@@ -130,6 +130,11 @@ callable inside their own file.
 
 There is no package manager or versioned registry yet.
 
+Standard library modules live under `std/` and are found by walking up from
+the importer: `list`, `string`, `math`, `option`, `result`. Prelude natives
+include `trim`, `upper`, `lower`, `file_exists`, `env`, `cwd`, and
+`remove_file` in addition to I/O, lists, and strings.
+
 ## Ownership
 
 Ordinary code does not need ownership annotations. In a `strict` or `owned`

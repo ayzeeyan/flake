@@ -79,6 +79,13 @@ pub enum NativeFn {
     EndsWith,
     First,
     Last,
+    Trim,
+    Upper,
+    Lower,
+    FileExists,
+    Env,
+    Cwd,
+    RemoveFile,
 }
 
 impl NativeFn {
@@ -107,6 +114,13 @@ impl NativeFn {
             Self::EndsWith => "ends_with",
             Self::First => "first",
             Self::Last => "last",
+            Self::Trim => "trim",
+            Self::Upper => "upper",
+            Self::Lower => "lower",
+            Self::FileExists => "file_exists",
+            Self::Env => "env",
+            Self::Cwd => "cwd",
+            Self::RemoveFile => "remove_file",
         }
     }
 }

@@ -3,7 +3,7 @@
 use flake_ir::{BinOp, Callee, Const, Function, Inst, IrType, LocalId, Module, UnOp};
 
 use crate::error::CodegenError;
-use crate::regalloc::{allocate, Frame};
+use crate::regalloc::{Frame, allocate};
 use crate::x86::{Asm, Cc, Reg};
 
 pub struct Compiled {
@@ -26,6 +26,10 @@ pub enum Import {
     GetFileSize = 6,
     ReadFile = 7,
     CloseHandle = 8,
+    GetFileAttributesA = 9,
+    GetEnvironmentVariableA = 10,
+    GetCurrentDirectoryA = 11,
+    DeleteFileA = 12,
 }
 
 pub const IMPORTS: &[&str] = &[
@@ -38,6 +42,10 @@ pub const IMPORTS: &[&str] = &[
     "GetFileSize",
     "ReadFile",
     "CloseHandle",
+    "GetFileAttributesA",
+    "GetEnvironmentVariableA",
+    "GetCurrentDirectoryA",
+    "DeleteFileA",
 ];
 
 pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
@@ -200,10 +208,7 @@ fn emit_inst(
             Const::Int(n) => {
                 asm.mov_ri(Reg::Rax, *n);
                 frame.store(asm, *dest, Reg::Rax);
-                gas.push_str(&format!(
-                    "    mov rax, {n}\n    store local {}\n",
-                    dest.0
-                ));
+                gas.push_str(&format!("    mov rax, {n}\n    store local {}\n", dest.0));
             }
             Const::Bool(v) => {
                 asm.mov_ri(Reg::Rax, if *v { 1 } else { 0 });
@@ -328,7 +333,17 @@ fn emit_inst(
             frame.store(asm, *dest, Reg::Rax);
         }
         Inst::Call { dest, callee, args } => {
-            emit_call(func, frame, dest.as_ref(), callee, args, asm, strings, strs, uniq)?;
+            emit_call(
+                func,
+                frame,
+                dest.as_ref(),
+                callee,
+                args,
+                asm,
+                strings,
+                strs,
+                uniq,
+            )?;
         }
         Inst::Concat { dest, parts } => {
             if parts.is_empty() {
@@ -690,7 +705,9 @@ fn emit_call(
             store_rax(frame, dest, asm);
             Ok(())
         }
-        Callee::Static(name) if name == "int" => emit_native_int(func, frame, dest, args, asm, uniq),
+        Callee::Static(name) if name == "int" => {
+            emit_native_int(func, frame, dest, args, asm, uniq)
+        }
         Callee::Static(name) if name == "type_of" => {
             emit_native_type_of(func, frame, dest, args, asm, strings, strs)
         }
@@ -740,6 +757,35 @@ fn emit_call(
             emit_native_first_last(func, frame, dest, args, asm, false)
         }
         Callee::Static(name) if name == "float" => emit_native_float(func, frame, dest, args, asm),
+        Callee::Static(name) if name == "trim" => {
+            emit_unary_rt(frame, "rt_trim", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "upper" => {
+            emit_unary_rt(frame, "rt_upper", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "lower" => {
+            emit_unary_rt(frame, "rt_lower", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "file_exists" => {
+            emit_unary_rt(frame, "rt_file_exists", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "env" => {
+            emit_unary_rt(frame, "rt_env", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "cwd" => {
+            asm.call_label("rt_cwd");
+            store_rax(frame, dest, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "remove_file" => {
+            emit_unary_rt(frame, "rt_remove_file", dest, args, asm);
+            Ok(())
+        }
         Callee::Static(name) => emit_user_call(frame, name, dest, args, asm),
         Callee::Local(id) => {
             frame.load(asm, *id, Reg::Rax);
@@ -754,6 +800,18 @@ fn store_rax(frame: &Frame, dest: Option<&LocalId>, asm: &mut Asm) {
     if let Some(d) = dest {
         frame.store(asm, *d, Reg::Rax);
     }
+}
+
+fn emit_unary_rt(
+    frame: &Frame,
+    label: &str,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) {
+    frame.load(asm, args[0], Reg::Rcx);
+    asm.call_label(label);
+    store_rax(frame, dest, asm);
 }
 
 fn emit_binary_rt(

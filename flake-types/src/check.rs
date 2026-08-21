@@ -125,6 +125,30 @@ impl Checker {
             .insert("first".into(), mk(vec![Type::Dyn], Type::Dyn, &[]));
         self.functions
             .insert("last".into(), mk(vec![Type::Dyn], Type::Dyn, &[]));
+        self.functions.insert(
+            "trim".into(),
+            mk(vec![Type::String], Type::String, &["alloc"]),
+        );
+        self.functions.insert(
+            "upper".into(),
+            mk(vec![Type::String], Type::String, &["alloc"]),
+        );
+        self.functions.insert(
+            "lower".into(),
+            mk(vec![Type::String], Type::String, &["alloc"]),
+        );
+        self.functions.insert(
+            "file_exists".into(),
+            mk(vec![Type::String], Type::Bool, &["io"]),
+        );
+        self.functions
+            .insert("env".into(), mk(vec![Type::String], Type::String, &["io"]));
+        self.functions
+            .insert("cwd".into(), mk(vec![], Type::String, &["io", "alloc"]));
+        self.functions.insert(
+            "remove_file".into(),
+            mk(vec![Type::String], Type::Nil, &["io"]),
+        );
     }
 
     fn resolve(&self, ty: &Type) -> Type {

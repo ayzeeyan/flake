@@ -10,7 +10,10 @@ use rustyline::error::ReadlineError;
 use crate::report;
 
 pub fn run() -> i32 {
-    println!("Flake {} — Clarity, crystallized.", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Flake {} — Clarity, crystallized.",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("Type :help for help, :quit to exit.\n");
 
     let mut rl = match DefaultEditor::new() {
@@ -24,7 +27,11 @@ pub fn run() -> i32 {
     let mut pending = String::new();
 
     loop {
-        let prompt = if pending.is_empty() { "flake> " } else { "   ... " };
+        let prompt = if pending.is_empty() {
+            "flake> "
+        } else {
+            "   ... "
+        };
         let line = match rl.readline(prompt) {
             Ok(line) => line,
             Err(ReadlineError::Interrupted) => {

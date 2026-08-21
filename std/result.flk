@@ -1,0 +1,20 @@
+// Result-style errors. `import result`.
+
+pub enum Result {
+    Ok(dyn)
+    Err(String)
+}
+
+pub fn is_ok(r: Result) -> Bool {
+    match r {
+        Result.Ok(v) => true
+        Result.Err(m) => false
+    }
+}
+
+pub fn unwrap_or(r: Result, fallback: dyn) -> dyn {
+    match r {
+        Result.Ok(v) => v
+        Result.Err(m) => fallback
+    }
+}

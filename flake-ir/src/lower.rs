@@ -1077,15 +1077,24 @@ fn is_native_name(name: &str) -> bool {
             | "ends_with"
             | "first"
             | "last"
+            | "trim"
+            | "upper"
+            | "lower"
+            | "file_exists"
+            | "env"
+            | "cwd"
+            | "remove_file"
     )
 }
 
 fn native_result_ty(name: &str) -> IrType {
     match name {
-        "print" | "push" | "assert" | "write_file" => IrType::Nil,
+        "print" | "push" | "assert" | "write_file" | "remove_file" => IrType::Nil,
         "len" | "int" => IrType::Int,
-        "str" | "join" | "type_of" | "read_file" => IrType::String,
-        "contains" | "starts_with" | "ends_with" => IrType::Bool,
+        "str" | "join" | "type_of" | "read_file" | "trim" | "upper" | "lower" | "env" | "cwd" => {
+            IrType::String
+        }
+        "contains" | "starts_with" | "ends_with" | "file_exists" => IrType::Bool,
         "range" => IrType::Range,
         "split" => IrType::List(Box::new(IrType::String)),
         "float" => IrType::Float,
