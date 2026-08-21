@@ -2,9 +2,10 @@
 
 **Clarity, crystallized.**
 
-This is the v0.3 tour. Flake is a braced, immutable-by-default language with
+This is the v0.4 tour. Flake is a braced, immutable-by-default language with
 local type inference, an explicit `dyn` escape hatch, effect annotations,
-opt-in ownership, multi-file `import`, and a small standard library.
+opt-in ownership, enums and `match`, multi-file `import`, and a standard
+library that runs on the interpreter, VM, and native x86-64 backend.
 
 ## Hello
 
@@ -199,7 +200,9 @@ m["a"]
 print("Hello, {name}!")   // interpolation
 ```
 
-## Standard library (v0.1)
+## Standard library (v0.4)
+
+Prelude natives (no `import`):
 
 | Function | Role | Effects |
 | --- | --- | --- |
@@ -207,14 +210,29 @@ print("Hello, {name}!")   // interpolation
 | `len(x)` | length of list/string/map | pure |
 | `push(list, x)` | append | `alloc` |
 | `pop(list)` | remove last | pure |
+| `first`, `last` | ends of a list or string | pure |
 | `str`, `int`, `float` | conversions | `alloc` for `str` |
 | `type_of(x)` | runtime type name | `alloc` |
 | `assert(cond, msg?)` | check a condition | `panic` |
-| `read_file(path)` | read a UTF-8 file | `io + alloc` |
+| `read_file` / `write_file` | UTF-8 files | `io` (`+ alloc` for read) |
+| `file_exists`, `remove_file` | path checks / delete | `io` |
+| `env(name)`, `cwd()` | environment | `io` |
+| `trim`, `upper`, `lower` | ASCII/Unicode string case and trim | `alloc` |
+| `contains`, `starts_with`, `ends_with` | search | pure |
 | `abs`, `min`, `max` | numeric helpers | pure |
 | `range(n)` / `range(a, b)` | integer range | pure |
 | `join(list, sep)` | concatenate | `alloc` |
 | `split(s, sep)` | split a string | `alloc` |
+
+Flake modules under `std/` (walk up from the importer):
+
+| Module | Contents |
+| --- | --- |
+| `list` | `is_empty`, `rest`, `reverse`, `concat`, `take`, `drop`, `sum` |
+| `string` | `is_blank`, `surround`, `replace`, `repeat` |
+| `math` | `clamp`, `pow`, `sign` (sibling `math.flk` wins if present) |
+| `option` | `enum Option { Some(dyn) None }`, `is_some`, `unwrap_or` |
+| `result` | `enum Result { Ok(dyn) Err(String) }`, `is_ok`, `unwrap_or` |
 
 ## Back ends
 
@@ -226,5 +244,6 @@ flake build examples/hello.flk -o hello.exe
 flake ir examples/hello.flk             # dump the custom IR
 ```
 
-The VM matches the interpreter on all examples. The native backend is a
-pure-Rust x86-64 encoder; see [codegen.md](codegen.md).
+The VM and native backend match the interpreter on all examples. Native code
+uses a linear-scan register allocator and the Windows x64 ABI; see
+[codegen.md](codegen.md).

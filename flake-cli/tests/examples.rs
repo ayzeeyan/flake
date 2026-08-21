@@ -64,6 +64,7 @@ fn all_examples_typecheck() {
         "borrow.flk",
         "enum.flk",
         "visible.flk",
+        "app.flk",
     ] {
         check_example(name);
     }
@@ -149,6 +150,14 @@ fn visible_output() {
 }
 
 #[test]
+fn app_output() {
+    assert_eq!(
+        run_example("app.flk"),
+        "sum = 6\nok 42\nfail negative\nFLAKE\n"
+    );
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",
@@ -163,6 +172,7 @@ fn native_matches_interpreter_on_all_examples() {
         "borrow.flk",
         "enum.flk",
         "visible.flk",
+        "app.flk",
     ] {
         let interp = run_example(name);
         let output = flake_bin()
@@ -196,6 +206,7 @@ fn vm_matches_interpreter_on_all_examples() {
         "borrow.flk",
         "enum.flk",
         "visible.flk",
+        "app.flk",
     ] {
         let interp = run_example(name);
         let vm = run_example_vm(name);

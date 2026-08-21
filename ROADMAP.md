@@ -1,9 +1,9 @@
 # Flake Roadmap
 
-**v0.4 is in progress.** v0.3 delivered practical native x86-64, modules, stronger
-ownership, and a small standard library. v0.4 raises the native backend to
-production quality (register allocation, full ABI), matures ownership, and
-expands the language surface.
+**v0.4 is complete** except the final packaging commit. v0.3 delivered practical
+native x86-64, modules, stronger ownership, and a small standard library. v0.4
+raises the native backend to production quality (register allocation, full ABI),
+matures ownership, and expands the language surface.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -16,7 +16,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 3 | Language and module expansion | **done** |
 | 4 | Standard library maturity | **done** |
 | 5 | Cross-backend consistency and diagnostics | **done** |
-| 6 | Polish, documentation and examples | pending |
+| 6 | Polish, documentation and examples | **done** |
 | 7 | Flake v0.4 complete | pending |
 
 ## What v0.4 milestone 1 delivers
@@ -52,6 +52,11 @@ There is no LLVM, Cranelift, or C transpilation.
 - Cross-backend snippet tests (interpreter, VM, native) plus every example
 - `help:` notes for non-exhaustive `match`, unknown variants, missing exports, and similar names
 - Private-item errors suggest marking the declaration `pub`
+
+## What v0.4 milestone 6 delivers
+
+- Docs (README, tour, architecture, codegen, ownership, grammar) describe v0.4
+- Example: [app](examples/app.flk) — enums, stdlib, native-ready
 
 ## v0.3 milestones
 
@@ -138,12 +143,12 @@ There is no LLVM, Cranelift, or C transpilation.
 Lexer, parser, AST, gradual types/effects/ownership, interpreter, VM
 foundation, REPL. See git history milestones 0–10.
 
-## Later (not in v0.3)
+## Later (not in v0.4)
 
 1. Full lifetime/borrow checker on the level of Rust
 2. aarch64 and System V ELF objects
 3. Package manager / versioned dependencies / lockfile
 4. Async / structured concurrency as a `conc` effect
 5. Self-hosting
-6. Heavy optimisations (register allocation, inlining)
-7. Indirect calls and native floating-point
+6. Inlining and other optimisations beyond linear-scan register allocation
+7. Nested modules / dotted import paths

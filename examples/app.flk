@@ -1,0 +1,31 @@
+// A small program that uses enums, match, the stdlib, and runs natively.
+
+import list
+
+enum Status {
+    Ok(Int)
+    Fail(String)
+}
+
+fn score(n: Int) -> Status {
+    if n < 0 {
+        Status.Fail("negative")
+    } else {
+        Status.Ok(n * 2)
+    }
+}
+
+fn show(s: Status) -> String {
+    match s {
+        Status.Ok(v) => "ok {v}"
+        Status.Fail(m) => "fail {m}"
+    }
+}
+
+fn main() {
+    let xs = [1, 2, 3]
+    print("sum = {sum(xs)}")
+    print(show(score(21)))
+    print(show(score(-1)))
+    print(upper(trim("  flake  ")))
+}

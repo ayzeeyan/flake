@@ -47,13 +47,17 @@ A small hand-written runtime is linked into every image:
 | `rt_list_*` / `rt_map_*` | growable lists and linear maps |
 | `rt_display_*` | list / map / range interpolation |
 | `rt_read_file` | `CreateFileA` + `ReadFile` |
+| `rt_write_file` | `CreateFileA` + `WriteFile` |
+| `rt_trim` / `rt_upper` / `rt_lower` | string helpers |
+| `rt_file_exists` / `rt_env` / `rt_cwd` / `rt_remove_file` | OS |
 
 Imports are resolved from `KERNEL32.dll` via a standard PE import table.
 
 ## What compiles natively (v0.4)
 
-Integers, bools, floats (SSE2), strings, `if`/`while`/`for` (lists and ranges),
-functions (including more than four arguments and indirect `call r64`), structs,
-lists, maps, interpolation, `print`, modules, and the built-in helpers.
+Integers, bools, floats (SSE2), strings, `if`/`while`/`for`/`match`, enums
+(as tagged lists), functions (including more than four arguments and indirect
+`call r64`), structs, lists, maps, interpolation, `print`, modules, and the
+built-in helpers listed above.
 
 Register allocation keeps hot locals in callee-saved registers.

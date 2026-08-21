@@ -40,5 +40,7 @@ moved it.
 - `&mut` is exclusive: no other borrow of `x` while it is mutably borrowed.
 - You cannot move or assign `x` while it is borrowed.
 
+`match` arms are checked independently; the scrutinee is not moved.
+
 There is no full lifetime checker. Returning a reference to a local is not
-tracked as thoroughly as in Rust.
+tracked as thoroughly as in Rust. See also [the tour](tour.md).

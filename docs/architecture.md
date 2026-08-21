@@ -40,3 +40,6 @@ flake run --native file.flk   # compile + execute native image
 flake build file.flk -o out.exe
 flake ir file.flk             # dump IR
 ```
+
+Diagnostics use miette. Messages may include a `help:` line (ownership,
+non-exhaustive `match`, unknown variants, similar names, missing `pub`).

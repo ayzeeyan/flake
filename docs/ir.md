@@ -28,7 +28,8 @@ ordinary locals (the x86-64 backend maps them to stack slots).
 
 ## Units
 
-A **module** is a list of struct definitions and functions.
+A **module** is a list of struct definitions and functions. Enums lower to
+tagged lists (`[tag, field…]`) plus `match` as tag compares and branches.
 
 A **function** has:
 
