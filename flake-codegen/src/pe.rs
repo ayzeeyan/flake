@@ -48,12 +48,16 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
 
     let text_rva = SECT_ALIGN;
     let text_raw = FILE_ALIGN * 2; // 0x400
+    let text_vsize = align(compiled.code.len() as u32, SECT_ALIGN);
     let text_raw_size = align(compiled.code.len() as u32, FILE_ALIGN);
-    let rdata_rva = SECT_ALIGN * 2;
+    let rdata_rva = text_rva + text_vsize;
     let rdata_raw = text_raw + text_raw_size;
     let rdata_raw_size = align(rdata.len() as u32, FILE_ALIGN);
     let size_of_headers = text_raw;
-    let size_of_image = align(rdata_rva + align(rdata.len() as u32, SECT_ALIGN), SECT_ALIGN);
+    let size_of_image = align(
+        rdata_rva + align(rdata.len() as u32, SECT_ALIGN),
+        SECT_ALIGN,
+    );
 
     // Fill INT and IAT with RVAs of hint/name.
     for (i, hint) in hint_offs.iter().enumerate() {
@@ -131,7 +135,7 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
     write_section(
         &mut buf[sect..],
         b".text\0\0\0",
-        align(compiled.code.len() as u32, SECT_ALIGN),
+        text_vsize,
         text_rva,
         text_raw_size,
         text_raw,
@@ -152,7 +156,15 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
     buf
 }
 
-fn write_section(buf: &mut [u8], name: &[u8], vsize: u32, rva: u32, raw_size: u32, raw_ptr: u32, chr: u32) {
+fn write_section(
+    buf: &mut [u8],
+    name: &[u8],
+    vsize: u32,
+    rva: u32,
+    raw_size: u32,
+    raw_ptr: u32,
+    chr: u32,
+) {
     buf[..name.len()].copy_from_slice(name);
     buf[8..12].copy_from_slice(&vsize.to_le_bytes());
     buf[12..16].copy_from_slice(&rva.to_le_bytes());

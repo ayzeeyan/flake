@@ -15,8 +15,10 @@ fn pe_starts_with_mz() {
 
 #[test]
 fn asm_contains_main() {
-    let asm = compile_asm(&src("fn add(a: Int, b: Int) -> Int { a + b }\nfn main() { print(add(2, 40)) }"))
-        .expect("asm");
+    let asm = compile_asm(&src(
+        "fn add(a: Int, b: Int) -> Int { a + b }\nfn main() { print(add(2, 40)) }",
+    ))
+    .expect("asm");
     assert!(asm.contains("main:"), "{asm}");
     assert!(asm.contains("add:"), "{asm}");
 }
@@ -51,14 +53,12 @@ fn native_concat_int() {
 
 #[test]
 fn native_fibonacci() {
-    let out = run_native(&src(
-        r#"
+    let out = run_native(&src(r#"
 fn fib(n: Int) -> Int {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
 }
 fn main() { print(fib(10)) }
-"#,
-    ))
+"#))
     .expect("fib native");
     assert_eq!(out, "55\n");
 }
@@ -83,6 +83,126 @@ fn native_lists() {
     let text = include_str!("../../examples/lists.flk");
     let out = run_native(&src(text)).expect("lists native");
     assert!(out.contains("sum = 15"), "{out}");
+    assert!(out.contains("doubled = [2, 4, 6, 8, 10]"), "{out}");
+    assert!(out.contains("clarity, crystallized"), "{out}");
+}
+
+#[test]
+fn native_effects() {
+    let text = include_str!("../../examples/effects.flk");
+    let out = run_native(&src(text)).expect("effects native");
+    assert_eq!(out, "Hello, Flake!\n2 + 2 = 4\n");
+}
+
+#[test]
+fn native_ownership() {
+    let text = include_str!("../../examples/ownership.flk");
+    let out = run_native(&src(text)).expect("ownership native");
+    assert!(out.contains("consumed strict"), "{out}");
+    assert!(out.contains("once: gradual"), "{out}");
+    assert!(out.contains("twice: gradual"), "{out}");
+}
+
+#[test]
+fn native_maps() {
+    let out = run_native(&src(r#"
+fn main() {
+    let m = {"host": "localhost", "port": 8080}
+    print(m["host"])
+    print(m["port"])
+    print(len(m))
+    m["port"] = 9090
+    print(m["port"])
+}
+"#))
+    .expect("maps native");
+    assert_eq!(out, "localhost\n8080\n2\n9090\n");
+}
+
+#[test]
+fn native_abs_min_max() {
+    let out = run_native(&src(r#"
+fn main() {
+    print(abs(-7))
+    print(min(3, 1, 4))
+    print(max(3, 1, 4))
+}
+"#))
+    .expect("abs min max");
+    assert_eq!(out, "7\n1\n4\n");
+}
+
+#[test]
+fn native_range_builtin() {
+    let out = run_native(&src(r#"
+fn main() {
+    for n in range(3) {
+        print(n)
+    }
+    for n in range(2, 5) {
+        print(n)
+    }
+}
+"#))
+    .expect("range native");
+    assert_eq!(out, "0\n1\n2\n2\n3\n4\n");
+}
+
+#[test]
+fn native_pop_split_str_int() {
+    let out = run_native(&src(r#"
+fn main() {
+    var xs = [1, 2, 3]
+    print(pop(xs))
+    print(len(xs))
+    print(join(split("a,b,c", ","), "|"))
+    print(int("42") + 1)
+    print(str(7))
+    print(type_of(1))
+    print(len("flake"))
+    print("hi"[0])
+    assert(true)
+}
+"#))
+    .expect("stdlib natives");
+    assert_eq!(out, "3\n2\na|b|c\n43\n7\nInt\n5\nh\n");
+}
+
+#[test]
+fn native_five_args() {
+    let out = run_native(&src(r#"
+fn sum5(a: Int, b: Int, c: Int, d: Int, e: Int) -> Int {
+    a + b + c + d + e
+}
+fn main() { print(sum5(1, 2, 3, 4, 5)) }
+"#))
+    .expect("five args");
+    assert_eq!(out, "15\n");
+}
+
+#[test]
+fn native_string_eq() {
+    let out = run_native(&src(r#"
+fn main() {
+    print("flake" == "flake")
+    print("a" == "b")
+    print("x" != "y")
+}
+"#))
+    .expect("string eq");
+    assert_eq!(out, "true\nfalse\ntrue\n");
+}
+
+#[test]
+fn native_read_file() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("flake-read-{}.txt", std::process::id()));
+    std::fs::write(&path, "hello from disk").expect("write temp");
+    let posix = path.to_string_lossy().replace('\\', "/");
+    let program = format!("fn main() {{ print(read_file(\"{posix}\")) }}");
+    let out = run_native(&src(&program)).expect("read_file native");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(out, "hello from disk\n");
 }
 
 #[test]

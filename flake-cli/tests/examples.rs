@@ -110,8 +110,16 @@ fn config_output() {
 }
 
 #[test]
-fn native_hello_and_fizzbuzz() {
-    for name in ["hello.flk", "fizzbuzz.flk", "fibonacci.flk", "config.flk"] {
+fn native_matches_interpreter_on_all_examples() {
+    for name in [
+        "hello.flk",
+        "fibonacci.flk",
+        "fizzbuzz.flk",
+        "effects.flk",
+        "lists.flk",
+        "ownership.flk",
+        "config.flk",
+    ] {
         let interp = run_example(name);
         let output = flake_bin()
             .arg("run")

@@ -35,6 +35,11 @@ pub enum Cc {
     Ge,
     E,
     Ne,
+    /// Unsigned above (`ja`).
+    A,
+    /// Unsigned below (`jb`).
+    #[allow(dead_code)]
+    B,
 }
 
 pub struct Asm {
@@ -124,6 +129,21 @@ impl Asm {
         self.rex_wr(src, base);
         self.bytes.push(0x89);
         self.modrm_disp(src, base, disp);
+    }
+
+    /// `mov [rsp+disp], src` (SIB form; `rsp` cannot use a plain ModRM).
+    pub fn mov_mr_rsp(&mut self, disp: i32, src: Reg) {
+        self.rex_wr(src, Reg::Rsp);
+        self.bytes.push(0x89);
+        if (-128..128).contains(&disp) {
+            self.bytes.push(((src.id() & 7) << 3) | 0b01_000_100);
+            self.bytes.push(0x24);
+            self.bytes.push(disp as i8 as u8);
+        } else {
+            self.bytes.push(((src.id() & 7) << 3) | 0b10_000_100);
+            self.bytes.push(0x24);
+            self.bytes.extend_from_slice(&disp.to_le_bytes());
+        }
     }
 
     pub fn add_ri(&mut self, dst: Reg, imm: i32) {
@@ -339,6 +359,8 @@ fn setcc_op(cc: Cc) -> u8 {
         Cc::Le => 0x9E,
         Cc::G => 0x9F,
         Cc::Ge => 0x9D,
+        Cc::A => 0x97,
+        Cc::B => 0x92,
     }
 }
 
@@ -350,5 +372,7 @@ fn jcc_op(cc: Cc) -> u8 {
         Cc::Le => 0x8E,
         Cc::G => 0x8F,
         Cc::Ge => 0x8D,
+        Cc::A => 0x87,
+        Cc::B => 0x82,
     }
 }

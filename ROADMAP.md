@@ -1,8 +1,33 @@
 # Flake Roadmap
 
-**v0.2 is complete.** The language has interpreter/VM parity, a custom IR, and a
-pure-Rust x86-64 backend that emits Windows PE executables. There is no LLVM,
-Cranelift, or C transpilation.
+**v0.3 is in progress.** v0.2 delivered interpreter/VM parity, a custom IR, and a
+pure-Rust x86-64 backend. v0.3 expands that backend until existing programs
+compile to working native executables, then adds modules, stronger ownership,
+and a practical standard library.
+
+There is no LLVM, Cranelift, or C transpilation.
+
+## v0.3 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Expanded native x86-64 backend | **done** |
+| 2 | Modules and imports | next |
+| 3 | Stronger gradual ownership | pending |
+| 4 | Standard library expansion | pending |
+| 5 | Better diagnostics and comprehensive tests | pending |
+| 6 | Polish, documentation and examples | pending |
+| 7 | Flake v0.3 complete | pending |
+
+## What v0.3 milestone 1 delivers
+
+- Native path covers the majority of the language used by current examples:
+  control flow, functions (including 5+ arguments), locals, arithmetic, strings,
+  structs, lists, maps, ranges, interpolation, and `print`
+- Built-ins lowered natively: `len`, `push`, `pop`, `join`, `split`, `abs`,
+  `min`, `max`, `range`, `str`, `int`, `type_of`, `assert`, `read_file`
+- `flake run --native` matches the interpreter on every current example
+- Still no LLVM, Cranelift, or C transpilation
 
 ## v0.2 milestones
 
@@ -32,12 +57,12 @@ Cranelift, or C transpilation.
 Lexer, parser, AST, gradual types/effects/ownership, interpreter, VM
 foundation, REPL. See git history milestones 0–10.
 
-## Later (not in v0.2)
+## Later (not in v0.3)
 
 1. Full lifetime/borrow checker on the level of Rust
 2. aarch64 and System V ELF objects
-3. Package manager / real `import`
+3. Package manager / versioned dependencies / lockfile
 4. Async / structured concurrency as a `conc` effect
 5. Self-hosting
 6. Heavy optimisations (register allocation, inlining)
-7. Native maps and indirect calls
+7. Indirect calls and native floating-point

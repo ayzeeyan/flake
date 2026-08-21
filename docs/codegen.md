@@ -35,12 +35,18 @@ A small hand-written runtime is linked into every image:
 | `rt_itoa` | integer → heap C string |
 | `rt_alloc` | `HeapAlloc` |
 | `rt_join` | join a list of strings |
+| `rt_streq` / `rt_split` | string equality and split |
+| `rt_list_*` / `rt_map_*` | growable lists and linear maps |
+| `rt_display_*` | list / map / range interpolation |
+| `rt_read_file` | `CreateFileA` + `ReadFile` |
 
 Imports are resolved from `KERNEL32.dll` via a standard PE import table.
 
-## What compiles natively (v0.2)
+## What compiles natively (v0.3)
 
-Integers, bools, strings, `if`/`while`/`for` (lists and ranges), functions,
-structs, lists (`len`/`push`/`join`), interpolation, and `print`.
+Integers, bools, strings, `if`/`while`/`for` (lists and ranges), functions
+(including more than four arguments), structs, lists, maps, interpolation,
+`print`, and the built-in helpers (`len`, `push`, `pop`, `join`, `split`,
+`abs`, `min`, `max`, `range`, `str`, `int`, `type_of`, `assert`, `read_file`).
 
-Maps and indirect calls are not lowered yet.
+Indirect calls and floating-point values are not lowered yet.

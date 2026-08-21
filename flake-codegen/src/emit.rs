@@ -21,6 +21,10 @@ pub enum Import {
     ExitProcess = 2,
     GetProcessHeap = 3,
     HeapAlloc = 4,
+    CreateFileA = 5,
+    GetFileSize = 6,
+    ReadFile = 7,
+    CloseHandle = 8,
 }
 
 pub const IMPORTS: &[&str] = &[
@@ -29,6 +33,10 @@ pub const IMPORTS: &[&str] = &[
     "ExitProcess",
     "GetProcessHeap",
     "HeapAlloc",
+    "CreateFileA",
+    "GetFileSize",
+    "ReadFile",
+    "CloseHandle",
 ];
 
 pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
@@ -135,9 +143,12 @@ fn emit_function(
     asm.label(&func.name);
     gas.push_str(&format!("\n{}:\n", func.name));
     let n = func.locals.len() as i32;
-    let frame = ((n * 8 + 32) + 15) & !15;
+    // Extra slots: concat spill, plus padding for the Windows home space.
+    let frame = (((n + 3) * 8 + 32) + 15) & !15;
     prologue(asm, frame);
-    gas.push_str(&format!("    push rbp\n    mov rbp, rsp\n    sub rsp, {frame}\n"));
+    gas.push_str(&format!(
+        "    push rbp\n    mov rbp, rsp\n    sub rsp, {frame}\n"
+    ));
 
     let win_args = [Reg::Rcx, Reg::Rdx, Reg::R8, Reg::R9];
     for (i, _) in func.params.iter().enumerate() {
@@ -181,7 +192,10 @@ fn emit_inst(
             Const::Int(n) => {
                 asm.mov_ri(Reg::Rax, *n);
                 asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
-                gas.push_str(&format!("    mov rax, {n}\n    mov [rbp{:+}], rax\n", local_disp(*dest)));
+                gas.push_str(&format!(
+                    "    mov rax, {n}\n    mov [rbp{:+}], rax\n",
+                    local_disp(*dest)
+                ));
             }
             Const::Bool(v) => {
                 asm.mov_ri(Reg::Rax, if *v { 1 } else { 0 });
@@ -198,7 +212,9 @@ fn emit_inst(
                 asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
             }
             Const::Float(_) => {
-                return Err(CodegenError::new("native backend does not yet lower Float constants"));
+                return Err(CodegenError::new(
+                    "native backend does not yet lower Float constants",
+                ));
             }
         },
         Inst::Move { dest, src } => {
@@ -206,6 +222,22 @@ fn emit_inst(
             asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
         }
         Inst::Binary { dest, op, lhs, rhs } => {
+            if matches!(op, BinOp::Eq | BinOp::Ne)
+                && is_string_ty(&local_ty(func, *lhs))
+                && is_string_ty(&local_ty(func, *rhs))
+            {
+                asm.mov_rm_rbp(Reg::Rcx, local_disp(*lhs));
+                asm.mov_rm_rbp(Reg::Rdx, local_disp(*rhs));
+                asm.call_label("rt_streq");
+                if matches!(op, BinOp::Ne) {
+                    asm.test_rr(Reg::Rax, Reg::Rax);
+                    asm.mov_ri(Reg::Rax, 0);
+                    asm.setcc(Cc::Z, Reg::Rax);
+                    asm.movzx_rax_al();
+                }
+                asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+                return Ok(());
+            }
             asm.mov_rm_rbp(Reg::Rax, local_disp(*lhs));
             asm.mov_rm_rbp(Reg::R10, local_disp(*rhs));
             match op {
@@ -257,7 +289,7 @@ fn emit_inst(
             asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
         }
         Inst::Call { dest, callee, args } => {
-            emit_call(func, dest.as_ref(), callee, args, asm, strings, strs, gas)?;
+            emit_call(func, dest.as_ref(), callee, args, asm, strings, strs, uniq)?;
         }
         Inst::Concat { dest, parts } => {
             if parts.is_empty() {
@@ -304,43 +336,23 @@ fn emit_inst(
         Inst::MakeList { dest, items } => {
             let n = items.len() as i64;
             let cap = n.max(16);
-            asm.mov_ri(Reg::Rcx, 8 * (cap + 1));
+            asm.mov_ri(Reg::Rcx, 16 + 8 * cap);
             asm.call_label("rt_alloc");
             asm.mov_ri(Reg::R10, n);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.mov_ri(Reg::R10, cap);
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
             for (i, item) in items.iter().enumerate() {
                 asm.mov_rm_rbp(Reg::R10, local_disp(*item));
-                asm.mov_mr(Reg::Rax, 8 * (i as i32 + 1), Reg::R10);
+                asm.mov_mr(Reg::Rax, 16 + 8 * i as i32, Reg::R10);
             }
             asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
         }
         Inst::GetIndex { dest, obj, index } => {
-            let id = next_id(uniq);
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
-            asm.test_rr(Reg::R10, Reg::R10);
-            asm.jcc_label(Cc::Ge, format!(".idxpos{id}"));
-            asm.mov_rm(Reg::R11, Reg::Rax, 0);
-            asm.add_rr(Reg::R10, Reg::R11);
-            asm.label(format!(".idxpos{id}"));
-            asm.shl_ri(Reg::R10, 3);
-            asm.add_rr(Reg::Rax, Reg::R10);
-            asm.mov_rm(Reg::Rax, Reg::Rax, 8);
-            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+            emit_get_index(func, dest, obj, index, asm, uniq);
         }
         Inst::SetIndex { obj, index, value } => {
-            let id = next_id(uniq);
-            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
-            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
-            asm.test_rr(Reg::R10, Reg::R10);
-            asm.jcc_label(Cc::Ge, format!(".sidxpos{id}"));
-            asm.mov_rm(Reg::R11, Reg::Rax, 0);
-            asm.add_rr(Reg::R10, Reg::R11);
-            asm.label(format!(".sidxpos{id}"));
-            asm.shl_ri(Reg::R10, 3);
-            asm.add_rr(Reg::Rax, Reg::R10);
-            asm.mov_rm_rbp(Reg::R10, local_disp(*value));
-            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+            emit_set_index(func, obj, index, value, asm, uniq);
         }
         Inst::MakeStruct { dest, fields, .. } => {
             let n = fields.len() as i64;
@@ -379,8 +391,22 @@ fn emit_inst(
         Inst::IterNext { value, more, iter } => {
             emit_iter_next(value, more, iter, asm, uniq);
         }
-        Inst::MakeMap { .. } => {
-            return Err(CodegenError::new("native maps are not yet implemented"));
+        Inst::MakeMap { dest, keys, values } => {
+            let n = keys.len() as i64;
+            let cap = n.max(8);
+            asm.mov_ri(Reg::Rcx, 16 + 16 * cap);
+            asm.call_label("rt_alloc");
+            asm.mov_ri(Reg::R10, n);
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.mov_ri(Reg::R10, cap);
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+            for (i, (k, v)) in keys.iter().zip(values.iter()).enumerate() {
+                asm.mov_rm_rbp(Reg::R10, local_disp(*k));
+                asm.mov_mr(Reg::Rax, 16 + 16 * i as i32, Reg::R10);
+                asm.mov_rm_rbp(Reg::R10, local_disp(*v));
+                asm.mov_mr(Reg::Rax, 24 + 16 * i as i32, Reg::R10);
+            }
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
         }
     }
     let _ = gas;
@@ -401,7 +427,10 @@ fn load_as_cstr(
     strs: &mut Vec<(usize, usize)>,
     uniq: &mut u32,
 ) {
-    let ty = func.local(local).map(|l| l.ty.clone()).unwrap_or(IrType::Dyn);
+    let ty = func
+        .local(local)
+        .map(|l| l.ty.clone())
+        .unwrap_or(IrType::Dyn);
     asm.mov_rm_rbp(Reg::Rcx, local_disp(local));
     match ty {
         IrType::String => {
@@ -437,6 +466,13 @@ fn load_as_cstr(
             let at = asm.lea_rip(Reg::Rax);
             strs.push((at, intern_cstring(strings, "nil")));
         }
+        IrType::List(_) => asm.call_label("rt_display_list"),
+        IrType::Map(_, _) => asm.call_label("rt_display_map"),
+        IrType::Range => asm.call_label("rt_display_range"),
+        IrType::Struct(_) => {
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, intern_cstring(strings, "<struct>")));
+        }
         _ => asm.mov_rr(Reg::Rax, Reg::Rcx),
     }
 }
@@ -464,7 +500,10 @@ fn field_offset(
 }
 
 fn emit_make_iter(func: &Function, dest: &LocalId, src: &LocalId, asm: &mut Asm, uniq: &mut u32) {
-    let ty = func.local(*src).map(|l| l.ty.clone()).unwrap_or(IrType::Dyn);
+    let ty = func
+        .local(*src)
+        .map(|l| l.ty.clone())
+        .unwrap_or(IrType::Dyn);
     match ty {
         IrType::Range => {
             asm.mov_ri(Reg::Rcx, 32);
@@ -499,13 +538,7 @@ fn emit_make_iter(func: &Function, dest: &LocalId, src: &LocalId, asm: &mut Asm,
     }
 }
 
-fn emit_iter_next(
-    value: &LocalId,
-    more: &LocalId,
-    iter: &LocalId,
-    asm: &mut Asm,
-    uniq: &mut u32,
-) {
+fn emit_iter_next(value: &LocalId, more: &LocalId, iter: &LocalId, asm: &mut Asm, uniq: &mut u32) {
     let id = next_id(uniq);
     asm.mov_rm_rbp(Reg::Rax, local_disp(*iter));
     asm.mov_rm(Reg::R10, Reg::Rax, 0); // kind
@@ -522,7 +555,7 @@ fn emit_iter_next(
     asm.mov_rr(Reg::R11, Reg::R9);
     asm.shl_ri(Reg::R11, 3);
     asm.add_rr(Reg::R8, Reg::R11);
-    asm.mov_rm(Reg::R8, Reg::R8, 8);
+    asm.mov_rm(Reg::R8, Reg::R8, 16);
     asm.mov_mr_rbp(local_disp(*value), Reg::R8);
     asm.add_ri(Reg::R9, 1);
     asm.mov_mr(Reg::Rax, 16, Reg::R9);
@@ -564,97 +597,490 @@ fn emit_call(
     asm: &mut Asm,
     strings: &mut Vec<Vec<u8>>,
     strs: &mut Vec<(usize, usize)>,
-    _gas: &mut String,
+    uniq: &mut u32,
 ) -> Result<(), CodegenError> {
     match callee {
         Callee::Static(name) if name == "print" => {
-            for (i, arg) in args.iter().enumerate() {
-                if i > 0 {
-                    let at = asm.lea_rip(Reg::Rcx);
-                    strs.push((at, intern_cstring(strings, " ")));
-                    asm.call_label("rt_print_cstr");
-                }
-                let ty = func.local(*arg).map(|l| l.ty.clone()).unwrap_or(IrType::Dyn);
-                asm.mov_rm_rbp(Reg::Rcx, local_disp(*arg));
-                match ty {
-                    IrType::String => asm.call_label("rt_print_cstr"),
-                    IrType::Bool => {
-                        asm.test_rr(Reg::Rcx, Reg::Rcx);
-                        asm.jcc_label(Cc::Z, format!("{}_bfalse_{}", func.name, arg.0));
-                        let at = asm.lea_rip(Reg::Rcx);
-                        strs.push((at, intern_cstring(strings, "true")));
-                        asm.call_label("rt_print_cstr");
-                        asm.jmp_label(format!("{}_bdone_{}", func.name, arg.0));
-                        asm.label(format!("{}_bfalse_{}", func.name, arg.0));
-                        let at = asm.lea_rip(Reg::Rcx);
-                        strs.push((at, intern_cstring(strings, "false")));
-                        asm.call_label("rt_print_cstr");
-                        asm.label(format!("{}_bdone_{}", func.name, arg.0));
-                    }
-                    IrType::Nil => {
-                        let at = asm.lea_rip(Reg::Rcx);
-                        strs.push((at, intern_cstring(strings, "nil")));
-                        asm.call_label("rt_print_cstr");
-                    }
-                    _ => asm.call_label("rt_print_i64"),
-                }
-            }
-            asm.call_label("rt_print_nl");
-            if let Some(d) = dest {
-                asm.xor_rr(Reg::Rax, Reg::Rax);
-                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
-            }
-            Ok(())
+            emit_native_print(func, dest, args, asm, strings, strs, uniq)
         }
-        Callee::Static(name) if name == "len" => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-            asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
-            if let Some(d) = dest {
-                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
-            }
-            Ok(())
-        }
-        Callee::Static(name) if name == "push" => {
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
-            asm.mov_rm(Reg::R8, Reg::Rcx, 0); // len
-            asm.mov_rr(Reg::R9, Reg::R8);
-            asm.shl_ri(Reg::R9, 3);
-            asm.add_rr(Reg::Rcx, Reg::R9);
-            asm.mov_mr(Reg::Rcx, 8, Reg::Rdx);
-            asm.add_ri(Reg::R8, 1);
-            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-            asm.mov_mr(Reg::Rcx, 0, Reg::R8);
-            if let Some(d) = dest {
-                asm.xor_rr(Reg::Rax, Reg::Rax);
-                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
-            }
-            Ok(())
-        }
+        Callee::Static(name) if name == "len" => emit_native_len(func, dest, args, asm),
+        Callee::Static(name) if name == "push" => emit_native_push(dest, args, asm),
+        Callee::Static(name) if name == "pop" => emit_native_pop(dest, args, asm),
         Callee::Static(name) if name == "join" => {
+            emit_binary_rt("rt_join", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "split" => {
+            emit_binary_rt("rt_split", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "abs" => emit_native_abs(dest, args, asm, uniq),
+        Callee::Static(name) if name == "min" => emit_native_minmax(dest, args, asm, uniq, true),
+        Callee::Static(name) if name == "max" => emit_native_minmax(dest, args, asm, uniq, false),
+        Callee::Static(name) if name == "range" => emit_native_range(dest, args, asm),
+        Callee::Static(name) if name == "str" => {
+            if args.is_empty() {
+                return Err(CodegenError::new("str() expected 1 argument"));
+            }
+            load_as_cstr(func, args[0], asm, strings, strs, uniq);
+            store_rax(dest, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "int" => emit_native_int(func, dest, args, asm, uniq),
+        Callee::Static(name) if name == "type_of" => {
+            emit_native_type_of(func, dest, args, asm, strings, strs)
+        }
+        Callee::Static(name) if name == "assert" => {
+            emit_native_assert(dest, args, asm, strings, strs)
+        }
+        Callee::Static(name) if name == "read_file" => {
+            if args.is_empty() {
+                return Err(CodegenError::new("read_file() expected 1 argument"));
+            }
             asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
-            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
-            asm.call_label("rt_join");
-            if let Some(d) = dest {
-                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
-            }
+            asm.call_label("rt_read_file");
+            store_rax(dest, asm);
             Ok(())
         }
-        Callee::Static(name) => {
-            let win_args = [Reg::Rcx, Reg::Rdx, Reg::R8, Reg::R9];
-            if args.len() > 4 {
-                return Err(CodegenError::new("native backend supports at most 4 arguments"));
-            }
-            // load args into regs (use stack temps if they overlap)
-            for (i, a) in args.iter().enumerate() {
-                asm.mov_rm_rbp(win_args[i], local_disp(*a));
-            }
-            asm.call_label(name);
-            if let Some(d) = dest {
-                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
-            }
-            Ok(())
+        Callee::Static(name) if name == "float" => Err(CodegenError::new(
+            "native backend does not yet lower float()",
+        )),
+        Callee::Static(name) => emit_user_call(name, dest, args, asm),
+        Callee::Local(_) => Err(CodegenError::new(
+            "indirect calls are not yet natively compiled",
+        )),
+    }
+}
+
+fn store_rax(dest: Option<&LocalId>, asm: &mut Asm) {
+    if let Some(d) = dest {
+        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+    }
+}
+
+fn emit_binary_rt(label: &str, dest: Option<&LocalId>, args: &[LocalId], asm: &mut Asm) {
+    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+    asm.call_label(label);
+    store_rax(dest, asm);
+}
+
+fn emit_native_print(
+    func: &Function,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
+    uniq: &mut u32,
+) -> Result<(), CodegenError> {
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 {
+            let at = asm.lea_rip(Reg::Rcx);
+            strs.push((at, intern_cstring(strings, " ")));
+            asm.call_label("rt_print_cstr");
         }
-        Callee::Local(_) => Err(CodegenError::new("indirect calls are not yet natively compiled")),
+        let ty = local_ty(func, *arg);
+        asm.mov_rm_rbp(Reg::Rcx, local_disp(*arg));
+        match ty {
+            IrType::String => asm.call_label("rt_print_cstr"),
+            IrType::Int | IrType::Float => asm.call_label("rt_print_i64"),
+            IrType::Dyn | IrType::Unknown => {
+                let id = next_id(uniq);
+                asm.mov_ri(Reg::R10, 0x10000);
+                asm.cmp_rr(Reg::Rcx, Reg::R10);
+                asm.jcc_label(Cc::L, format!(".pri{id}"));
+                asm.call_label("rt_print_cstr");
+                asm.jmp_label(format!(".prd{id}"));
+                asm.label(format!(".pri{id}"));
+                asm.call_label("rt_print_i64");
+                asm.label(format!(".prd{id}"));
+            }
+            IrType::Bool => {
+                asm.test_rr(Reg::Rcx, Reg::Rcx);
+                asm.jcc_label(Cc::Z, format!("{}_bfalse_{}", func.name, arg.0));
+                let at = asm.lea_rip(Reg::Rcx);
+                strs.push((at, intern_cstring(strings, "true")));
+                asm.call_label("rt_print_cstr");
+                asm.jmp_label(format!("{}_bdone_{}", func.name, arg.0));
+                asm.label(format!("{}_bfalse_{}", func.name, arg.0));
+                let at = asm.lea_rip(Reg::Rcx);
+                strs.push((at, intern_cstring(strings, "false")));
+                asm.call_label("rt_print_cstr");
+                asm.label(format!("{}_bdone_{}", func.name, arg.0));
+            }
+            IrType::Nil => {
+                let at = asm.lea_rip(Reg::Rcx);
+                strs.push((at, intern_cstring(strings, "nil")));
+                asm.call_label("rt_print_cstr");
+            }
+            IrType::List(_) => {
+                asm.call_label("rt_display_list");
+                asm.mov_rr(Reg::Rcx, Reg::Rax);
+                asm.call_label("rt_print_cstr");
+            }
+            IrType::Map(_, _) => {
+                asm.call_label("rt_display_map");
+                asm.mov_rr(Reg::Rcx, Reg::Rax);
+                asm.call_label("rt_print_cstr");
+            }
+            IrType::Range => {
+                asm.call_label("rt_display_range");
+                asm.mov_rr(Reg::Rcx, Reg::Rax);
+                asm.call_label("rt_print_cstr");
+            }
+            IrType::Struct(_) => {
+                let at = asm.lea_rip(Reg::Rcx);
+                strs.push((at, intern_cstring(strings, "<struct>")));
+                asm.call_label("rt_print_cstr");
+            }
+            _ => asm.call_label("rt_print_i64"),
+        }
+    }
+    asm.call_label("rt_print_nl");
+    if let Some(d) = dest {
+        asm.xor_rr(Reg::Rax, Reg::Rax);
+        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+    }
+    Ok(())
+}
+
+fn emit_native_len(
+    func: &Function,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("len() expected 1 argument"));
+    }
+    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    match local_ty(func, args[0]) {
+        IrType::String => asm.call_label("rt_strlen"),
+        _ => asm.mov_rm(Reg::Rax, Reg::Rcx, 0),
+    }
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_push(
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    if args.len() < 2 {
+        return Err(CodegenError::new("push() expected 2 arguments"));
+    }
+    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+    asm.call_label("rt_list_push");
+    asm.mov_mr_rbp(local_disp(args[0]), Reg::Rax);
+    if let Some(d) = dest {
+        asm.xor_rr(Reg::Rax, Reg::Rax);
+        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+    }
+    Ok(())
+}
+
+fn emit_native_pop(
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("pop() expected 1 argument"));
+    }
+    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    asm.call_label("rt_list_pop");
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_abs(
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+    uniq: &mut u32,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("abs() expected 1 argument"));
+    }
+    let id = next_id(uniq);
+    asm.mov_rm_rbp(Reg::Rax, local_disp(args[0]));
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Ge, format!(".abs{id}"));
+    asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]);
+    asm.label(format!(".abs{id}"));
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_minmax(
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+    uniq: &mut u32,
+    is_min: bool,
+) -> Result<(), CodegenError> {
+    if args.len() < 2 {
+        return Err(CodegenError::new("min/max expected at least 2 arguments"));
+    }
+    asm.mov_rm_rbp(Reg::Rax, local_disp(args[0]));
+    for a in &args[1..] {
+        let id = next_id(uniq);
+        asm.mov_rm_rbp(Reg::R10, local_disp(*a));
+        asm.cmp_rr(Reg::Rax, Reg::R10);
+        let keep = format!(".mm{id}");
+        if is_min {
+            asm.jcc_label(Cc::Le, &keep);
+        } else {
+            asm.jcc_label(Cc::Ge, &keep);
+        }
+        asm.mov_rr(Reg::Rax, Reg::R10);
+        asm.label(keep);
+    }
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_range(
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    asm.mov_ri(Reg::Rcx, 16);
+    asm.call_label("rt_alloc");
+    match args.len() {
+        1 => {
+            asm.xor_rr(Reg::R10, Reg::R10);
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.mov_rm_rbp(Reg::R10, local_disp(args[0]));
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+        }
+        n if n >= 2 => {
+            asm.mov_rm_rbp(Reg::R10, local_disp(args[0]));
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.mov_rm_rbp(Reg::R10, local_disp(args[1]));
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+        }
+        _ => return Err(CodegenError::new("range() expected 1 or 2 arguments")),
+    }
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_int(
+    func: &Function,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+    uniq: &mut u32,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("int() expected 1 argument"));
+    }
+    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    match local_ty(func, args[0]) {
+        IrType::String => asm.call_label("rt_atoi"),
+        IrType::Int | IrType::Bool | IrType::Nil => asm.mov_rr(Reg::Rax, Reg::Rcx),
+        _ => {
+            let id = next_id(uniq);
+            asm.mov_ri(Reg::R10, 0x10000);
+            asm.cmp_rr(Reg::Rcx, Reg::R10);
+            asm.jcc_label(Cc::L, format!(".inti{id}"));
+            asm.call_label("rt_atoi");
+            asm.jmp_label(format!(".intd{id}"));
+            asm.label(format!(".inti{id}"));
+            asm.mov_rr(Reg::Rax, Reg::Rcx);
+            asm.label(format!(".intd{id}"));
+        }
+    }
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_type_of(
+    func: &Function,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("type_of() expected 1 argument"));
+    }
+    let name = ir_type_name(&local_ty(func, args[0]));
+    let at = asm.lea_rip(Reg::Rax);
+    strs.push((at, intern_cstring(strings, name)));
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_assert(
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+    _strings: &mut Vec<Vec<u8>>,
+    _strs: &mut Vec<(usize, usize)>,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("assert() expected 1 or 2 arguments"));
+    }
+    asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+    if args.len() >= 2 {
+        asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+    } else {
+        asm.xor_rr(Reg::Rdx, Reg::Rdx);
+    }
+    asm.call_label("rt_assert");
+    if let Some(d) = dest {
+        asm.xor_rr(Reg::Rax, Reg::Rax);
+        asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+    }
+    Ok(())
+}
+
+fn emit_user_call(
+    name: &str,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    let win_args = [Reg::Rcx, Reg::Rdx, Reg::R8, Reg::R9];
+    let extra = args.len().saturating_sub(4);
+    let mut space = 0i32;
+    if extra > 0 {
+        space = 32 + 8 * extra as i32;
+        if space % 16 != 0 {
+            space += 8;
+        }
+        asm.sub_ri(Reg::Rsp, space);
+        for (i, a) in args.iter().enumerate().skip(4) {
+            asm.mov_rm_rbp(Reg::Rax, local_disp(*a));
+            asm.mov_mr_rsp(32 + 8 * (i as i32 - 4), Reg::Rax);
+        }
+    }
+    for (i, a) in args.iter().enumerate().take(4) {
+        asm.mov_rm_rbp(win_args[i], local_disp(*a));
+    }
+    asm.call_label(name);
+    if extra > 0 {
+        asm.add_ri(Reg::Rsp, space);
+    }
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_get_index(
+    func: &Function,
+    dest: &LocalId,
+    obj: &LocalId,
+    index: &LocalId,
+    asm: &mut Asm,
+    uniq: &mut u32,
+) {
+    let obj_ty = local_ty(func, *obj);
+    let idx_ty = local_ty(func, *index);
+    match obj_ty {
+        IrType::Map(_, _) => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            asm.call_label("rt_map_get");
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        IrType::String => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            asm.call_label("rt_str_index");
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        IrType::Dyn | IrType::Unknown if is_string_ty(&idx_ty) => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            asm.call_label("rt_map_get");
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        _ => {
+            let id = next_id(uniq);
+            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::Ge, format!(".idxpos{id}"));
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.add_rr(Reg::R10, Reg::R11);
+            asm.label(format!(".idxpos{id}"));
+            asm.shl_ri(Reg::R10, 3);
+            asm.add_rr(Reg::Rax, Reg::R10);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 16);
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+    }
+}
+
+fn emit_set_index(
+    func: &Function,
+    obj: &LocalId,
+    index: &LocalId,
+    value: &LocalId,
+    asm: &mut Asm,
+    uniq: &mut u32,
+) {
+    let obj_ty = local_ty(func, *obj);
+    let idx_ty = local_ty(func, *index);
+    match obj_ty {
+        IrType::Map(_, _) => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            asm.mov_rm_rbp(Reg::R8, local_disp(*value));
+            asm.call_label("rt_map_set");
+            asm.mov_mr_rbp(local_disp(*obj), Reg::Rax);
+        }
+        IrType::Dyn | IrType::Unknown if is_string_ty(&idx_ty) => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(*index));
+            asm.mov_rm_rbp(Reg::R8, local_disp(*value));
+            asm.call_label("rt_map_set");
+            asm.mov_mr_rbp(local_disp(*obj), Reg::Rax);
+        }
+        _ => {
+            let id = next_id(uniq);
+            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::Ge, format!(".sidxpos{id}"));
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.add_rr(Reg::R10, Reg::R11);
+            asm.label(format!(".sidxpos{id}"));
+            asm.shl_ri(Reg::R10, 3);
+            asm.add_rr(Reg::Rax, Reg::R10);
+            asm.mov_rm_rbp(Reg::R10, local_disp(*value));
+            asm.mov_mr(Reg::Rax, 16, Reg::R10);
+        }
+    }
+}
+
+fn local_ty(func: &Function, id: LocalId) -> IrType {
+    func.local(id).map(|l| l.ty.clone()).unwrap_or(IrType::Dyn)
+}
+
+fn is_string_ty(ty: &IrType) -> bool {
+    matches!(ty, IrType::String)
+}
+
+fn ir_type_name(ty: &IrType) -> &'static str {
+    match ty {
+        IrType::Nil => "Nil",
+        IrType::Bool => "Bool",
+        IrType::Int => "Int",
+        IrType::Float => "Float",
+        IrType::String => "String",
+        IrType::List(_) => "List",
+        IrType::Map(_, _) => "Map",
+        IrType::Struct(_) => "Struct",
+        IrType::Range => "Range",
+        IrType::Iter => "Iter",
+        IrType::Func => "Function",
+        IrType::Dyn | IrType::Unknown => "dyn",
     }
 }

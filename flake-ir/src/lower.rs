@@ -1,8 +1,8 @@
 //! AST → Flake IR.
 
 use flake_ast::{
-    AssignOp, BinOp as AstBin, Block as AstBlock, Expr, FnDecl, InterpPart, Item, Literal,
-    Program, Source, Stmt, TypeExpr, UnOp as AstUn,
+    AssignOp, BinOp as AstBin, Block as AstBlock, Expr, FnDecl, InterpPart, Item, Literal, Program,
+    Source, Stmt, TypeExpr, UnOp as AstUn,
 };
 use flake_parser::parse;
 
@@ -135,7 +135,9 @@ fn lower_fn(func: &FnDecl) -> Function {
     let ret = lower_type(func.return_type.as_ref());
     let result = lower_block_value(&mut b, &func.body);
     if !b.sealed() {
-        b.emit(Inst::Return { value: Some(result) });
+        b.emit(Inst::Return {
+            value: Some(result),
+        });
     }
     for block in &mut b.blocks {
         if !block.insts.last().is_some_and(Inst::is_terminator) {
@@ -179,7 +181,17 @@ fn lower_stmt(b: &mut Builder, stmt: &Stmt) {
     match stmt {
         Stmt::Let(s) | Stmt::Var(s) => {
             let val = lower_expr(b, &s.value);
-            let dest = b.alloc(Some(s.name.name.clone()), lower_type(s.ty.as_ref()));
+            let ty =
+                s.ty.as_ref()
+                    .map(|t| lower_type(Some(t)))
+                    .unwrap_or_else(|| {
+                        b.locals
+                            .iter()
+                            .find(|l| l.id == val)
+                            .map(|l| l.ty.clone())
+                            .unwrap_or(IrType::Unknown)
+                    });
+            let dest = b.alloc(Some(s.name.name.clone()), ty);
             b.emit(Inst::Move { dest, src: val });
         }
         Stmt::Return { value, .. } => {
@@ -206,7 +218,9 @@ fn lower_stmt(b: &mut Builder, stmt: &Stmt) {
         }
         Stmt::While { cond, body, .. } => lower_while(b, cond, body),
         Stmt::Loop { body, .. } => lower_loop(b, body),
-        Stmt::For { name, iter, body, .. } => lower_for(b, &name.name, iter, body),
+        Stmt::For {
+            name, iter, body, ..
+        } => lower_for(b, &name.name, iter, body),
     }
 }
 
@@ -310,10 +324,7 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                 }
             }
             let dest = b.alloc(None, IrType::String);
-            b.emit(Inst::Concat {
-                dest,
-                parts: items,
-            });
+            b.emit(Inst::Concat { dest, parts: items });
             dest
         }
         Expr::List { elements, .. } => {
@@ -387,10 +398,11 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             });
             dest
         }
-        Expr::Assign { op, target, value, .. } => lower_assign(b, *op, target, value),
+        Expr::Assign {
+            op, target, value, ..
+        } => lower_assign(b, *op, target, value),
         Expr::Call { callee, args, .. } => {
             let arg_ids: Vec<_> = args.iter().map(|a| lower_expr(b, a)).collect();
-            let dest = b.alloc(None, IrType::Dyn);
             let callee = match callee.as_ref() {
                 Expr::Ident(id) => {
                     if lookup(b, &id.name).is_some() {
@@ -401,6 +413,11 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                 }
                 other => Callee::Local(lower_expr(b, other)),
             };
+            let dest_ty = match &callee {
+                Callee::Static(name) => native_result_ty(name),
+                Callee::Local(_) => IrType::Dyn,
+            };
+            let dest = b.alloc(None, dest_ty);
             b.emit(Inst::Call {
                 dest: Some(dest),
                 callee,
@@ -411,7 +428,13 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
         Expr::Index { target, index, .. } => {
             let obj = lower_expr(b, target);
             let idx = lower_expr(b, index);
-            let dest = b.alloc(None, IrType::Dyn);
+            let dest_ty = match b.locals.iter().find(|l| l.id == obj).map(|l| &l.ty) {
+                Some(IrType::String) => IrType::String,
+                Some(IrType::List(elem)) => (**elem).clone(),
+                Some(IrType::Map(_, value)) => (**value).clone(),
+                _ => IrType::Dyn,
+            };
+            let dest = b.alloc(None, dest_ty);
             b.emit(Inst::GetIndex {
                 dest,
                 obj,
@@ -551,7 +574,9 @@ fn lower_assign(b: &mut Builder, op: AssignOp, target: &Expr, value: &Expr) -> L
 
 fn lower_lvalue_load(b: &mut Builder, target: &Expr) -> LocalId {
     match target {
-        Expr::Ident(id) => lookup(b, &id.name).unwrap_or_else(|| b.alloc(Some(id.name.clone()), IrType::Dyn)),
+        Expr::Ident(id) => {
+            lookup(b, &id.name).unwrap_or_else(|| b.alloc(Some(id.name.clone()), IrType::Dyn))
+        }
         Expr::Index { target, index, .. } => {
             let obj = lower_expr(b, target);
             let idx = lower_expr(b, index);
@@ -661,5 +686,17 @@ fn lower_type(ty: Option<&TypeExpr>) -> IrType {
         | Some(TypeExpr::Ref { inner, .. })
         | Some(TypeExpr::Optional { inner, .. }) => lower_type(Some(inner)),
         Some(TypeExpr::Fn { .. }) => IrType::Func,
+    }
+}
+
+fn native_result_ty(name: &str) -> IrType {
+    match name {
+        "print" | "push" | "assert" => IrType::Nil,
+        "len" | "int" => IrType::Int,
+        "str" | "join" | "type_of" | "read_file" => IrType::String,
+        "range" => IrType::Range,
+        "split" => IrType::List(Box::new(IrType::String)),
+        "float" => IrType::Float,
+        _ => IrType::Dyn,
     }
 }
