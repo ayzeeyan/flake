@@ -12,7 +12,7 @@ pure-Rust x86-64 backend.
 | 3 | Native x86-64 codegen foundation | **done** |
 | 4 | Expanded native code generation | **done** |
 | 5 | Improved gradual ownership | **done** |
-| 6 | Polish, tests, documentation and examples | pending |
+| 6 | Polish, tests, documentation and examples | **done** |
 | 7 | Flake v0.2 complete | pending |
 
 ## v0.1 milestones

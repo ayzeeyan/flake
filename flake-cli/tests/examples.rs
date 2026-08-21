@@ -110,6 +110,26 @@ fn config_output() {
 }
 
 #[test]
+fn native_hello_and_fizzbuzz() {
+    for name in ["hello.flk", "fizzbuzz.flk", "fibonacci.flk", "config.flk"] {
+        let interp = run_example(name);
+        let output = flake_bin()
+            .arg("run")
+            .arg("--native")
+            .arg(example(name))
+            .output()
+            .expect("native");
+        assert!(
+            output.status.success(),
+            "{name} native failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let native = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(interp, native, "{name}: interpreter and native diverged");
+    }
+}
+
+#[test]
 fn vm_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",

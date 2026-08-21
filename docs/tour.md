@@ -2,7 +2,7 @@
 
 **Clarity, crystallized.**
 
-This is the v0.1 tour. Flake is a braced, immutable-by-default language with
+This is the v0.2 tour. Flake is a braced, immutable-by-default language with
 local type inference, an explicit `dyn` escape hatch, effect annotations, and
 opt-in ownership.
 
@@ -17,6 +17,8 @@ fn main() {
 
 ```bash
 flake run examples/hello.flk
+flake run --vm examples/hello.flk
+flake run --native examples/hello.flk
 flake check examples/hello.flk
 flake repl
 ```
@@ -161,12 +163,15 @@ print("Hello, {name}!")   // interpolation
 | `join(list, sep)` | concatenate | `alloc` |
 | `split(s, sep)` | split a string | `alloc` |
 
-## Running on the VM
+## Back ends
 
 ```bash
-flake run --vm examples/hello.flk
+flake run examples/hello.flk            # tree-walking interpreter
+flake run --vm examples/hello.flk       # bytecode VM (full language)
+flake run --native examples/hello.flk   # x86-64 PE (Windows)
+flake build examples/hello.flk -o hello.exe
+flake ir examples/hello.flk             # dump the custom IR
 ```
 
-The default `flake run` uses the tree-walking interpreter. `--vm` selects the
-stack-based bytecode VM (a subset of the language: `for`, structs, and maps are
-not compiled yet).
+The VM matches the interpreter on all examples. The native backend is a
+pure-Rust x86-64 encoder; see [codegen.md](codegen.md).

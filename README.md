@@ -43,8 +43,8 @@ between:
 
 ## Status
 
-**v0.1 complete** — lexer, parser, type/effect/ownership checker, tree-walking
-interpreter, bytecode VM foundation, and REPL.
+**v0.2** — full bytecode VM parity, a custom IR, and a pure-Rust x86-64
+backend that emits Windows PE executables. No LLVM or Cranelift.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
 for a language tour.
@@ -57,7 +57,10 @@ cargo test
 
 flake run examples/hello.flk
 flake run --vm examples/hello.flk
+flake run --native examples/hello.flk
+flake build examples/hello.flk -o hello.exe
 flake check examples/hello.flk
+flake ir examples/hello.flk
 flake repl
 ```
 
@@ -107,12 +110,16 @@ strict fn take(name: owned String) / io {
 | `flake-parser` | Recursive-descent parser |
 | `flake-types` | Types, effects, and gradual ownership |
 | `flake-interpreter` | Tree-walking interpreter |
-| `flake-vm` | Stack-based bytecode VM |
+| `flake-ir` | Custom CFG intermediate representation |
+| `flake-vm` | Stack-based bytecode VM (interpreter parity) |
+| `flake-codegen` | Pure-Rust x86-64 encoder and PE writer |
 | `flake-cli` | `flake` command-line interface |
 
 ## Docs
 
 - [Language tour](docs/tour.md)
+- [IR](docs/ir.md)
+- [Native codegen](docs/codegen.md)
 - [Grammar sketch](docs/grammar.md)
 - [Architecture](docs/architecture.md)
 - [Roadmap](ROADMAP.md)
