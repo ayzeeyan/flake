@@ -206,6 +206,52 @@ fn main() { }
 }
 
 #[test]
+fn reinit_after_move_is_allowed() {
+    ok(r#"
+strict fn f() {
+    var x: owned String = "a"
+    print(x)
+    x = "b"
+    print(x)
+}
+fn main() { f() }
+"#);
+}
+
+#[test]
+fn cannot_move_while_borrowed() {
+    let msg = err(
+        r#"
+strict fn f() {
+    let x: owned String = "hi"
+    let r = &x
+    print(x)
+    print(r)
+}
+fn main() { f() }
+"#,
+    );
+    assert!(msg.contains("borrow"), "{msg}");
+}
+
+#[test]
+fn exclusive_mut_borrow() {
+    let msg = err(
+        r#"
+strict fn f() {
+    var x: owned String = "hi"
+    let a = &mut x
+    let b = &mut x
+    print(a)
+    print(b)
+}
+fn main() { f() }
+"#,
+    );
+    assert!(msg.contains("borrow"), "{msg}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

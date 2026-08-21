@@ -1,13 +1,14 @@
 //! Gradual ownership: enforced only in `strict` / `owned` contexts.
 //!
-//! Ordinary Flake code does not need annotations and is not move-checked.
-//! In a `strict` or `owned` function, `owned` values are moved on use,
-//! `ref` values may be used many times, and using a binding after a move
-//! is an error. Copy types (`Int`, `Float`, `Bool`, `Nil`) never move.
+//! Ordinary Flake is not move-checked. In a `strict` or `owned` function:
+//! - `owned` values are moved on use in move positions
+//! - `ref` values may be used many times but cannot be assigned or moved
+//! - `&x` / `&mut x` borrow without moving
+//! - a value cannot be moved while borrowed, and `&mut` is exclusive
 
 use std::collections::HashMap;
 
-use flake_ast::{Block, Expr, FnDecl, InterpPart, Item, Program, Span, Stmt, TypeExpr};
+use flake_ast::{Block, Expr, FnDecl, InterpPart, Item, Program, Span, Stmt, TypeExpr, UnOp};
 
 use crate::error::TypeError;
 
@@ -19,10 +20,17 @@ enum Kind {
     Copy,
 }
 
+#[derive(Clone, Copy)]
+enum State {
+    Available,
+    Moved(Span),
+    Borrowed { mutable: bool, at: Span },
+}
+
 #[derive(Clone)]
 struct Binding {
     kind: Kind,
-    moved_at: Option<Span>,
+    state: State,
 }
 
 struct OwnCx {
@@ -49,7 +57,7 @@ impl OwnCx {
             name,
             Binding {
                 kind,
-                moved_at: None,
+                state: State::Available,
             },
         );
     }
@@ -153,7 +161,6 @@ fn check_stmt(cx: &mut OwnCx, stmt: &Stmt) -> Result<(), TypeError> {
     }
 }
 
-/// `move_ok` is true when this expression is in a move position (return, argument, binding).
 fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeError> {
     match expr {
         Expr::Ident(id) => use_binding(cx, &id.name, id.span, move_ok),
@@ -161,6 +168,7 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
         Expr::Interpolated { parts, .. } => {
             for part in parts {
                 if let InterpPart::Expr(e) = part {
+                    // Interpolation borrows; it does not consume.
                     check_expr(cx, e, false)?;
                 }
             }
@@ -179,11 +187,11 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             }
             Ok(())
         }
-        Expr::Unary { op, expr, .. } => {
-            // `&x` / `&mut x` borrow; they do not move.
-            let moving = !matches!(op, flake_ast::UnOp::Ref | flake_ast::UnOp::RefMut);
-            check_expr(cx, expr, moving && move_ok)
-        }
+        Expr::Unary { op, expr, span, .. } => match op {
+            UnOp::Ref => borrow(cx, expr, false, *span),
+            UnOp::RefMut => borrow(cx, expr, true, *span),
+            UnOp::Neg | UnOp::Not => check_expr(cx, expr, false),
+        },
         Expr::Binary { left, right, .. } => {
             check_expr(cx, left, false)?;
             check_expr(cx, right, false)
@@ -191,13 +199,26 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
         Expr::Assign { target, value, .. } => {
             if let Expr::Ident(id) = target.as_ref() {
                 if let Some(binding) = cx.lookup_mut(&id.name) {
-                    if binding.kind == Kind::Ref {
-                        return Err(TypeError::new(
-                            id.span,
-                            format!("cannot assign to `ref` binding `{}`", id.name),
-                        ));
+                    match binding.kind {
+                        Kind::Ref => {
+                            return Err(TypeError::new(
+                                id.span,
+                                format!("cannot assign to `ref` binding `{}`", id.name),
+                            ));
+                        }
+                        Kind::Copy | Kind::Owned | Kind::Mut => {
+                            if let State::Borrowed { mutable: true, at } = binding.state {
+                                return Err(TypeError::new(
+                                    id.span,
+                                    format!(
+                                        "cannot assign to `{}` while it is mutably borrowed (borrow at byte {})",
+                                        id.name, at.start
+                                    ),
+                                ));
+                            }
+                            binding.state = State::Available;
+                        }
                     }
-                    binding.moved_at = None;
                 }
             } else {
                 check_expr(cx, target, false)?;
@@ -243,18 +264,89 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
     }
 }
 
+fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), TypeError> {
+    if let Expr::Ident(id) = expr {
+        let Some(binding) = cx.lookup_mut(&id.name) else {
+            return Ok(());
+        };
+        match binding.state {
+            State::Moved(at) => {
+                return Err(TypeError::new(
+                    span,
+                    format!(
+                        "cannot borrow `{name}` because it was moved (at byte {moved})",
+                        name = id.name,
+                        moved = at.start
+                    ),
+                ));
+            }
+            State::Borrowed {
+                mutable: true,
+                at,
+            } => {
+                return Err(TypeError::new(
+                    span,
+                    format!(
+                        "cannot borrow `{name}` because it is already mutably borrowed (at byte {b})",
+                        name = id.name,
+                        b = at.start
+                    ),
+                ));
+            }
+            State::Borrowed {
+                mutable: false, ..
+            } if mutable => {
+                return Err(TypeError::new(
+                    span,
+                    format!(
+                        "cannot mutably borrow `{name}` because it is already borrowed",
+                        name = id.name
+                    ),
+                ));
+            }
+            State::Available | State::Borrowed { mutable: false, .. } => {
+                if binding.kind == Kind::Ref && mutable {
+                    return Err(TypeError::new(
+                        span,
+                        format!("cannot mutably borrow `ref` binding `{}`", id.name),
+                    ));
+                }
+                binding.state = State::Borrowed {
+                    mutable,
+                    at: span,
+                };
+            }
+        }
+        Ok(())
+    } else {
+        check_expr(cx, expr, false)
+    }
+}
+
 fn use_binding(cx: &mut OwnCx, name: &str, span: Span, move_ok: bool) -> Result<(), TypeError> {
     let Some(binding) = cx.lookup_mut(name) else {
         return Ok(());
     };
-    if let Some(moved_at) = binding.moved_at {
-        return Err(TypeError::new(
-            span,
-            format!("use of moved value `{name}` (moved at byte {})", moved_at.start),
-        ));
+    match binding.state {
+        State::Moved(at) => {
+            return Err(TypeError::new(
+                span,
+                format!("use of moved value `{name}`; it was moved at byte {}", at.start),
+            ));
+        }
+        State::Borrowed { at, .. } if move_ok && binding.kind == Kind::Owned => {
+            return Err(TypeError::new(
+                span,
+                format!(
+                    "cannot move `{name}` while it is borrowed (borrow at byte {})",
+                    at.start
+                ),
+            ));
+        }
+        _ => {}
     }
     if move_ok && binding.kind == Kind::Owned {
-        binding.moved_at = Some(span);
+        binding.state = State::Moved(span);
     }
     Ok(())
 }
