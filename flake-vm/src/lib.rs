@@ -2,6 +2,7 @@
 
 mod compiler;
 mod error;
+mod natives;
 mod opcode;
 mod value;
 mod vm;

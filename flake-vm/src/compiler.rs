@@ -12,32 +12,71 @@ pub struct Compiled {
     pub functions: Vec<Function>,
 }
 
+struct Local {
+    name: String,
+    depth: u32,
+}
+
+struct LoopCtx {
+    continue_target: u16,
+    break_jumps: Vec<usize>,
+}
+
 struct FnCompiler {
     chunk: Chunk,
-    locals: Vec<String>,
+    locals: Vec<Local>,
+    scope: u32,
+    max_locals: u16,
+    loops: Vec<LoopCtx>,
 }
 
 impl FnCompiler {
     fn new(params: Vec<String>) -> Self {
+        let locals = params
+            .into_iter()
+            .map(|name| Local { name, depth: 0 })
+            .collect::<Vec<_>>();
+        let max_locals = locals.len() as u16;
         Self {
             chunk: Chunk::new(),
-            locals: params,
+            locals,
+            scope: 0,
+            max_locals,
+            loops: Vec::new(),
         }
     }
 
     fn finish(self, name: String, arity: u8) -> Function {
-        let locals = self.locals.len() as u16;
         Function {
             name,
             arity,
             chunk: self.chunk,
-            locals,
+            locals: self.max_locals,
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scope += 1;
+    }
+
+    fn pop_scope(&mut self) {
+        self.scope = self.scope.saturating_sub(1);
+        while self
+            .locals
+            .last()
+            .is_some_and(|local| local.depth > self.scope)
+        {
+            self.locals.pop();
         }
     }
 
     fn add_local(&mut self, name: String) -> u16 {
         let i = self.locals.len() as u16;
-        self.locals.push(name);
+        self.locals.push(Local {
+            name,
+            depth: self.scope,
+        });
+        self.max_locals = self.max_locals.max(self.locals.len() as u16);
         i
     }
 
@@ -46,11 +85,14 @@ impl FnCompiler {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, n)| n.as_str() == name)
+            .find(|(_, local)| local.name == name)
             .map(|(i, _)| i as u16)
     }
 
-    fn compile_block_value(&mut self, block: &Block) -> Result<(), VmError> {
+    fn compile_block_value(&mut self, block: &Block, scoped: bool) -> Result<(), VmError> {
+        if scoped {
+            self.push_scope();
+        }
         for stmt in &block.stmts {
             self.compile_stmt(stmt)?;
         }
@@ -59,11 +101,14 @@ impl FnCompiler {
         } else {
             self.chunk.emit(Op::Nil);
         }
+        if scoped {
+            self.pop_scope();
+        }
         Ok(())
     }
 
     fn compile_block_as_stmt(&mut self, block: &Block) -> Result<(), VmError> {
-        self.compile_block_value(block)?;
+        self.compile_block_value(block, true)?;
         self.chunk.emit(Op::Pop);
         Ok(())
     }
@@ -91,32 +136,98 @@ impl FnCompiler {
                 self.chunk.emit(Op::Pop);
                 Ok(())
             }
-            Stmt::While { cond, body, .. } => {
-                let start = self.chunk.ops.len() as u16;
-                self.compile_expr(cond)?;
-                let exit = self.chunk.emit(Op::JumpIfFalse(0));
-                self.chunk.emit(Op::Pop);
-                self.compile_block_as_stmt(body)?;
-                self.chunk.emit(Op::Jump(start));
-                let end = self.chunk.ops.len();
-                self.chunk.patch_jump(exit, end);
-                self.chunk.emit(Op::Pop);
+            Stmt::While { cond, body, .. } => self.compile_while(cond, body),
+            Stmt::Loop { body, .. } => self.compile_loop(body),
+            Stmt::For { name, iter, body, .. } => self.compile_for(&name.name, iter, body),
+            Stmt::Break { span } => {
+                let jump = self.chunk.emit(Op::Jump(0));
+                match self.loops.last_mut() {
+                    Some(ctx) => {
+                        ctx.break_jumps.push(jump);
+                        Ok(())
+                    }
+                    None => Err(VmError::new(*span, "`break` outside of a loop")),
+                }
+            }
+            Stmt::Continue { span } => {
+                let target = self
+                    .loops
+                    .last()
+                    .map(|ctx| ctx.continue_target)
+                    .ok_or_else(|| VmError::new(*span, "`continue` outside of a loop"))?;
+                self.chunk.emit(Op::Jump(target));
                 Ok(())
             }
-            Stmt::Loop { body, .. } => {
-                let start = self.chunk.ops.len() as u16;
-                self.compile_block_as_stmt(body)?;
-                self.chunk.emit(Op::Jump(start));
-                Ok(())
+        }
+    }
+
+    fn compile_while(&mut self, cond: &Expr, body: &Block) -> Result<(), VmError> {
+        let start = self.chunk.ops.len() as u16;
+        self.loops.push(LoopCtx {
+            continue_target: start,
+            break_jumps: Vec::new(),
+        });
+        self.compile_expr(cond)?;
+        let false_jump = self.chunk.emit(Op::JumpIfFalse(0));
+        self.chunk.emit(Op::Pop);
+        self.compile_block_as_stmt(body)?;
+        self.chunk.emit(Op::Jump(start));
+        let false_exit = self.chunk.ops.len();
+        self.chunk.patch_jump(false_jump, false_exit);
+        self.chunk.emit(Op::Pop);
+        let end = self.chunk.ops.len();
+        self.patch_breaks(end);
+        Ok(())
+    }
+
+    fn compile_loop(&mut self, body: &Block) -> Result<(), VmError> {
+        let start = self.chunk.ops.len() as u16;
+        self.loops.push(LoopCtx {
+            continue_target: start,
+            break_jumps: Vec::new(),
+        });
+        self.compile_block_as_stmt(body)?;
+        self.chunk.emit(Op::Jump(start));
+        let end = self.chunk.ops.len();
+        self.patch_breaks(end);
+        Ok(())
+    }
+
+    fn compile_for(&mut self, name: &str, iter: &Expr, body: &Block) -> Result<(), VmError> {
+        self.compile_expr(iter)?;
+        self.chunk.emit(Op::MakeIter);
+        self.push_scope();
+        let iter_slot = self.add_local(format!("__iter_{name}"));
+        self.chunk.emit(Op::SetLocal(iter_slot));
+        self.chunk.emit(Op::Pop);
+        let var_slot = self.add_local(name.to_string());
+
+        let start = self.chunk.ops.len() as u16;
+        self.loops.push(LoopCtx {
+            continue_target: start,
+            break_jumps: Vec::new(),
+        });
+        self.chunk.emit(Op::GetLocal(iter_slot));
+        let done_jump = self.chunk.emit(Op::IterNext(0));
+        self.chunk.emit(Op::SetLocal(var_slot));
+        self.chunk.emit(Op::Pop); // item
+        self.chunk.emit(Op::Pop); // iterator copy
+        self.compile_block_as_stmt(body)?;
+        self.chunk.emit(Op::Jump(start));
+        let exhausted = self.chunk.ops.len();
+        self.chunk.patch_jump(done_jump, exhausted);
+        self.chunk.emit(Op::Pop); // leftover iterator copy
+        let end = self.chunk.ops.len();
+        self.patch_breaks(end);
+        self.pop_scope();
+        Ok(())
+    }
+
+    fn patch_breaks(&mut self, end: usize) {
+        if let Some(ctx) = self.loops.pop() {
+            for jump in ctx.break_jumps {
+                self.chunk.patch_jump(jump, end);
             }
-            Stmt::For { span, .. } => Err(VmError::new(
-                *span,
-                "the bytecode VM does not yet compile `for` loops; use `while` or run without `--vm`",
-            )),
-            Stmt::Break { span } | Stmt::Continue { span } => Err(VmError::new(
-                *span,
-                "`break`/`continue` are not yet compiled to bytecode",
-            )),
         }
     }
 
@@ -182,6 +293,27 @@ impl FnCompiler {
                 self.chunk.emit(Op::BuildList(elements.len() as u16));
                 Ok(())
             }
+            Expr::Map { entries, .. } => {
+                for (k, v) in entries {
+                    self.compile_expr(k)?;
+                    self.compile_expr(v)?;
+                }
+                self.chunk.emit(Op::BuildMap(entries.len() as u16));
+                Ok(())
+            }
+            Expr::StructInit { name, fields, .. } => {
+                let mut field_consts = Vec::new();
+                for (field, value) in fields {
+                    self.compile_expr(value)?;
+                    field_consts.push(self.chunk.add_constant(Value::from_string(field.name.clone())));
+                }
+                let name_c = self.chunk.add_constant(Value::from_string(name.name.clone()));
+                self.chunk.emit(Op::BuildStruct {
+                    name: name_c,
+                    fields: field_consts,
+                });
+                Ok(())
+            }
             Expr::Unary { op, expr, .. } => {
                 self.compile_expr(expr)?;
                 match op {
@@ -221,47 +353,18 @@ impl FnCompiler {
                 }
                 self.compile_expr(left)?;
                 self.compile_expr(right)?;
-                let op = match op {
-                    BinOp::Add => Op::Add,
-                    BinOp::Sub => Op::Sub,
-                    BinOp::Mul => Op::Mul,
-                    BinOp::Div => Op::Div,
-                    BinOp::Rem => Op::Rem,
-                    BinOp::Eq => Op::Eq,
-                    BinOp::Ne => Op::Ne,
-                    BinOp::Lt => Op::Lt,
-                    BinOp::Le => Op::Le,
-                    BinOp::Gt => Op::Gt,
-                    BinOp::Ge => Op::Ge,
-                    BinOp::And | BinOp::Or => unreachable!(),
-                };
-                self.chunk.emit(op);
+                self.chunk.emit(bin_op(*op));
                 Ok(())
             }
-            Expr::Assign { op, target, value, span } => {
-                if *op != AssignOp::Assign {
-                    return Err(VmError::new(*span, "compound assignment is not yet compiled"));
-                }
-                self.compile_expr(value)?;
-                match target.as_ref() {
-                    Expr::Ident(id) => {
-                        if let Some(slot) = self.resolve_local(&id.name) {
-                            self.chunk.emit(Op::SetLocal(slot));
-                        } else {
-                            let c = self.chunk.add_constant(Value::from_string(id.name.clone()));
-                            self.chunk.emit(Op::DefineGlobal(c));
-                        }
-                        Ok(())
-                    }
-                    Expr::Index { target, index, .. } => {
-                        self.compile_expr(target)?;
-                        self.compile_expr(index)?;
-                        self.chunk.emit(Op::SetIndex);
-                        Ok(())
-                    }
-                    _ => Err(VmError::new(*span, "invalid assignment target")),
-                }
+            Expr::Range { start, end, .. } => {
+                self.compile_expr(start)?;
+                self.compile_expr(end)?;
+                self.chunk.emit(Op::MakeRange);
+                Ok(())
             }
+            Expr::Assign {
+                op, target, value, span,
+            } => self.compile_assign(*op, target, value, *span),
             Expr::Call { callee, args, .. } => {
                 self.compile_expr(callee)?;
                 for arg in args {
@@ -276,6 +379,12 @@ impl FnCompiler {
                 self.chunk.emit(Op::GetIndex);
                 Ok(())
             }
+            Expr::Field { target, field, .. } => {
+                self.compile_expr(target)?;
+                let c = self.chunk.add_constant(Value::from_string(field.name.clone()));
+                self.chunk.emit(Op::GetField(c));
+                Ok(())
+            }
             Expr::If {
                 cond,
                 then_block,
@@ -285,7 +394,7 @@ impl FnCompiler {
                 self.compile_expr(cond)?;
                 let else_jump = self.chunk.emit(Op::JumpIfFalse(0));
                 self.chunk.emit(Op::Pop);
-                self.compile_block_value(then_block)?;
+                self.compile_block_value(then_block, true)?;
                 let end_jump = self.chunk.emit(Op::Jump(0));
                 let else_target = self.chunk.ops.len();
                 self.chunk.patch_jump(else_jump, else_target);
@@ -299,21 +408,122 @@ impl FnCompiler {
                 self.chunk.patch_jump(end_jump, end);
                 Ok(())
             }
-            Expr::Block(b) => self.compile_block_value(b),
-            Expr::Field { span, .. } => Err(VmError::new(
-                *span,
-                "field access is not yet compiled to bytecode",
-            )),
-            Expr::Range { span, .. } => Err(VmError::new(
-                *span,
-                "ranges are not yet compiled to bytecode",
-            )),
-            Expr::Map { span, .. } => Err(VmError::new(*span, "maps are not yet compiled to bytecode")),
-            Expr::StructInit { span, .. } => Err(VmError::new(
-                *span,
-                "struct literals are not yet compiled to bytecode",
-            )),
+            Expr::Block(b) => self.compile_block_value(b, true),
         }
+    }
+
+    fn compile_assign(
+        &mut self,
+        op: AssignOp,
+        target: &Expr,
+        value: &Expr,
+        span: flake_ast::Span,
+    ) -> Result<(), VmError> {
+        if op == AssignOp::Assign {
+            return self.compile_store(target, value, None, span);
+        }
+        let bin = match op {
+            AssignOp::AddAssign => BinOp::Add,
+            AssignOp::SubAssign => BinOp::Sub,
+            AssignOp::MulAssign => BinOp::Mul,
+            AssignOp::DivAssign => BinOp::Div,
+            AssignOp::RemAssign => BinOp::Rem,
+            AssignOp::Assign => unreachable!(),
+        };
+        self.compile_store(target, value, Some(bin), span)
+    }
+
+    fn compile_store(
+        &mut self,
+        target: &Expr,
+        value: &Expr,
+        compound: Option<BinOp>,
+        span: flake_ast::Span,
+    ) -> Result<(), VmError> {
+        match target {
+            Expr::Ident(id) => {
+                if let Some(bin) = compound {
+                    if let Some(slot) = self.resolve_local(&id.name) {
+                        self.chunk.emit(Op::GetLocal(slot));
+                    } else {
+                        let c = self.chunk.add_constant(Value::from_string(id.name.clone()));
+                        self.chunk.emit(Op::GetGlobal(c));
+                    }
+                    self.compile_expr(value)?;
+                    self.chunk.emit(bin_op(bin));
+                } else {
+                    self.compile_expr(value)?;
+                }
+                if let Some(slot) = self.resolve_local(&id.name) {
+                    self.chunk.emit(Op::SetLocal(slot));
+                } else {
+                    let c = self.chunk.add_constant(Value::from_string(id.name.clone()));
+                    self.chunk.emit(Op::DefineGlobal(c));
+                }
+                Ok(())
+            }
+            Expr::Index {
+                target: container,
+                index,
+                ..
+            } => {
+                if let Some(bin) = compound {
+                    self.compile_expr(container)?;
+                    self.compile_expr(index)?;
+                    self.chunk.emit(Op::DupTwo);
+                    self.chunk.emit(Op::GetIndex);
+                    self.compile_expr(value)?;
+                    self.chunk.emit(bin_op(bin));
+                    self.chunk.emit(Op::Rot3);
+                    self.chunk.emit(Op::SetIndex);
+                } else {
+                    self.compile_expr(value)?;
+                    self.compile_expr(container)?;
+                    self.compile_expr(index)?;
+                    self.chunk.emit(Op::SetIndex);
+                }
+                Ok(())
+            }
+            Expr::Field {
+                target: container,
+                field,
+                ..
+            } => {
+                let c = self.chunk.add_constant(Value::from_string(field.name.clone()));
+                if let Some(bin) = compound {
+                    self.compile_expr(container)?;
+                    self.chunk.emit(Op::Dup);
+                    self.chunk.emit(Op::GetField(c));
+                    self.compile_expr(value)?;
+                    self.chunk.emit(bin_op(bin));
+                    self.chunk.emit(Op::Swap);
+                    self.chunk.emit(Op::SetField(c));
+                } else {
+                    self.compile_expr(value)?;
+                    self.compile_expr(container)?;
+                    self.chunk.emit(Op::SetField(c));
+                }
+                Ok(())
+            }
+            _ => Err(VmError::new(span, "invalid assignment target")),
+        }
+    }
+}
+
+fn bin_op(op: BinOp) -> Op {
+    match op {
+        BinOp::Add => Op::Add,
+        BinOp::Sub => Op::Sub,
+        BinOp::Div => Op::Div,
+        BinOp::Mul => Op::Mul,
+        BinOp::Rem => Op::Rem,
+        BinOp::Eq => Op::Eq,
+        BinOp::Ne => Op::Ne,
+        BinOp::Lt => Op::Lt,
+        BinOp::Le => Op::Le,
+        BinOp::Gt => Op::Gt,
+        BinOp::Ge => Op::Ge,
+        BinOp::And | BinOp::Or => unreachable!("short-circuit ops are compiled separately"),
     }
 }
 
@@ -335,7 +545,7 @@ fn compile_fn(func: &FnDecl) -> Result<Function, VmError> {
     let params: Vec<String> = func.params.iter().map(|p| p.name.name.clone()).collect();
     let arity = params.len() as u8;
     let mut compiler = FnCompiler::new(params);
-    compiler.compile_block_value(&func.body)?;
+    compiler.compile_block_value(&func.body, false)?;
     compiler.chunk.emit(Op::Return);
     Ok(compiler.finish(func.name.name.clone(), arity))
 }

@@ -14,14 +14,23 @@ fn example(name: &str) -> std::path::PathBuf {
 }
 
 fn run_example(name: &str) -> String {
-    let output = flake_bin()
-        .arg("run")
-        .arg(example(name))
-        .output()
-        .expect("run example");
+    run_example_with(name, &[])
+}
+
+fn run_example_vm(name: &str) -> String {
+    run_example_with(name, &["--vm"])
+}
+
+fn run_example_with(name: &str, extra: &[&str]) -> String {
+    let mut cmd = flake_bin();
+    cmd.arg("run");
+    for flag in extra {
+        cmd.arg(flag);
+    }
+    let output = cmd.arg(example(name)).output().expect("run example");
     assert!(
         output.status.success(),
-        "{name} failed:\n{}",
+        "{name} {extra:?} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).into_owned()
@@ -98,4 +107,21 @@ fn ownership_output() {
 #[test]
 fn config_output() {
     assert_eq!(run_example("config.flk"), "listening on localhost:8080\n");
+}
+
+#[test]
+fn vm_matches_interpreter_on_all_examples() {
+    for name in [
+        "hello.flk",
+        "fibonacci.flk",
+        "fizzbuzz.flk",
+        "effects.flk",
+        "lists.flk",
+        "ownership.flk",
+        "config.flk",
+    ] {
+        let interp = run_example(name);
+        let vm = run_example_vm(name);
+        assert_eq!(interp, vm, "{name}: interpreter and VM diverged");
+    }
 }

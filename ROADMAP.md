@@ -1,7 +1,19 @@
 # Flake Roadmap
 
-**v0.1 is complete.** The language has a coherent front end, a type/effect/ownership
-checker, a tree-walking interpreter, a bytecode VM foundation, and a REPL.
+**v0.1 is complete.** v0.2 is in progress: full VM parity, a custom IR, and a
+pure-Rust x86-64 backend.
+
+## v0.2 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Bytecode VM feature parity | **done** |
+| 2 | Custom intermediate representation | pending |
+| 3 | Native x86-64 codegen foundation | pending |
+| 4 | Expanded native code generation | pending |
+| 5 | Improved gradual ownership | pending |
+| 6 | Polish, tests, documentation and examples | pending |
+| 7 | Flake v0.2 complete | pending |
 
 ## v0.1 milestones
 

@@ -24,7 +24,11 @@ impl Chunk {
     }
 
     pub fn add_constant(&mut self, value: Value) -> u16 {
-        if let Some(i) = self.constants.iter().position(|c| c == &value) {
+        if let Some(i) = self
+            .constants
+            .iter()
+            .position(|c| matches!(c, Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::String(_)) && c == &value)
+        {
             return i as u16;
         }
         let i = self.constants.len();
@@ -34,7 +38,7 @@ impl Chunk {
 
     pub fn patch_jump(&mut self, at: usize, target: usize) {
         match &mut self.ops[at] {
-            Op::Jump(offset) | Op::JumpIfFalse(offset) => {
+            Op::Jump(offset) | Op::JumpIfFalse(offset) | Op::IterNext(offset) => {
                 *offset = target as u16;
             }
             _ => {}
@@ -56,6 +60,10 @@ pub enum Op {
     True,
     False,
     Pop,
+    Dup,
+    DupTwo,
+    Swap,
+    Rot3,
     Add,
     Sub,
     Mul,
@@ -79,7 +87,17 @@ pub enum Op {
     Return,
     Print,
     BuildList(u16),
+    BuildMap(u16),
+    BuildStruct {
+        name: u16,
+        fields: Vec<u16>,
+    },
+    MakeRange,
+    MakeIter,
+    IterNext(u16),
     GetIndex,
     SetIndex,
+    GetField(u16),
+    SetField(u16),
     Concat(u8),
 }

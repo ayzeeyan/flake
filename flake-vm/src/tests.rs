@@ -49,6 +49,68 @@ fn while_loop() {
 }
 
 #[test]
+fn for_range_and_break() {
+    let src = main(
+        r#"
+        var s = 0
+        for n in 0..10 {
+            if n == 4 { break }
+            s = s + n
+        }
+        print(s)
+        "#,
+    );
+    assert_eq!(run(&src), "6\n");
+}
+
+#[test]
+fn for_list_and_continue() {
+    let src = main(
+        r#"
+        var s = 0
+        for n in [1, 2, 3, 4] {
+            if n == 2 { continue }
+            s = s + n
+        }
+        print(s)
+        "#,
+    );
+    assert_eq!(run(&src), "8\n");
+}
+
+#[test]
+fn compound_assignment() {
+    assert_eq!(run(&main("var x = 2 x += 3 print(x)")), "5\n");
+}
+
+#[test]
+fn maps() {
+    let src = main(
+        r#"
+        var m = { "a": 1, "b": 2 }
+        m["c"] = 3
+        print(m["a"])
+        print(len(m))
+        "#,
+    );
+    assert_eq!(run(&src), "1\n3\n");
+}
+
+#[test]
+fn structs() {
+    let src = r#"
+struct Point { x: Int y: Int }
+fn main() {
+    var p = Point { x: 1, y: 2 }
+    p.x += 7
+    print(p.x)
+    print(p.y)
+}
+"#;
+    assert_eq!(run(src), "8\n2\n");
+}
+
+#[test]
 fn function_call() {
     let src = r#"
 fn add(a, b) {
@@ -64,6 +126,53 @@ fn main() {
 #[test]
 fn lists() {
     assert_eq!(run(&main("let xs = [1, 2, 3] print(xs[1])")), "2\n");
+}
+
+#[test]
+fn natives_join_range() {
+    let src = main(
+        r#"
+        var s = 0
+        for n in range(4) { s = s + n }
+        print(s)
+        print(join(["a", "b"], "-"))
+        "#,
+    );
+    assert_eq!(run(&src), "6\na-b\n");
+}
+
+#[test]
+fn loop_break() {
+    assert_eq!(
+        run(&main(
+            r#"
+            var i = 0
+            loop {
+                i += 1
+                if i == 3 { break }
+            }
+            print(i)
+            "#
+        )),
+        "3\n"
+    );
+}
+
+#[test]
+fn all_examples() {
+    for (file, expect) in [
+        ("hello.flk", "Hello, World!\n"),
+        ("fibonacci.flk", "fib(10) = 55\n"),
+        ("config.flk", "listening on localhost:8080\n"),
+    ] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("examples")
+            .join(file);
+        let src = std::fs::read_to_string(&path).expect(file);
+        let out = run(&src);
+        assert_eq!(out, expect, "{file}");
+    }
 }
 
 #[test]
