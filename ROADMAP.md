@@ -1,7 +1,8 @@
 # Flake Roadmap
 
-**v0.1 is complete.** v0.2 is in progress: full VM parity, a custom IR, and a
-pure-Rust x86-64 backend.
+**v0.2 is complete.** The language has interpreter/VM parity, a custom IR, and a
+pure-Rust x86-64 backend that emits Windows PE executables. There is no LLVM,
+Cranelift, or C transpilation.
 
 ## v0.2 milestones
 
@@ -13,47 +14,30 @@ pure-Rust x86-64 backend.
 | 4 | Expanded native code generation | **done** |
 | 5 | Improved gradual ownership | **done** |
 | 6 | Polish, tests, documentation and examples | **done** |
-| 7 | Flake v0.2 complete | pending |
+| 7 | Flake v0.2 complete | **done** |
 
-## v0.1 milestones
+## What v0.2 delivers
 
-| # | Milestone | Status |
-| --- | --- | --- |
-| 0 | Project skeleton and workspace | **done** |
-| 1 | Lexer | **done** |
-| 2 | Parser and AST | **done** |
-| 3 | Basic tree-walking interpreter | **done** |
-| 4 | Type system foundation | **done** |
-| 5 | Effect system | **done** |
-| 6 | Gradual ownership foundation | **done** |
-| 7 | REPL and language expansion | **done** |
-| 8 | Bytecode VM foundation | **done** |
-| 9 | Polish, tests, documentation and examples | **done** |
-| 10 | Flake v0.1 complete | **done** |
+- `flake run --vm` runs every example (matches the tree-walker)
+- Custom CFG IR (`flake ir file.flk`)
+- Native path: `flake run --native` / `flake build` → PE32+ x86-64
+  (functions, integers, strings, control flow, structs, lists, `print`)
+- Stronger gradual ownership: borrows (`&` / `&mut`) in `strict` contexts,
+  exclusive mutable borrows, no move-while-borrowed; ordinary code still
+  needs no annotations
+- Docs: [IR](docs/ir.md), [codegen](docs/codegen.md), updated tour and architecture
 
-## What v0.1 delivers
+## v0.1 (complete)
 
-- `flake run examples/hello.flk` (tree-walker) and `flake run --vm examples/hello.flk`
-- `flake check` with gradual typing, effect checking, and optional ownership
-- `flake repl` with persistent bindings
-- Effect annotations (`/ io + alloc`) parsed and checked
-- `dyn` for gradual typing; omitted types inferred locally
-- `strict` / `owned` functions enforce move semantics; ordinary code does not
-- miette diagnostics
-- Examples, language tour, and a crate layout ready for a native backend
+Lexer, parser, AST, gradual types/effects/ownership, interpreter, VM
+foundation, REPL. See git history milestones 0–10.
 
-## After v0.1
+## Later (not in v0.2)
 
-These are explicitly out of this release:
-
-1. **Full ownership and borrowing** — lifetimes, reborrows, and non-lexical
-   scopes, still gradual.
-2. **Cranelift or LLVM backend** — compile the existing AST/bytecode to native
-   code and WebAssembly.
-3. **Package manager** — modules, `import` that actually loads files, a lockfile.
-4. **Async / structured concurrency** as a core `conc` effect.
-5. **Self-hosting** — a Flake compiler written in Flake.
-
-Near-term VM work (still post-v0.1): compile `for`, structs, maps, `break` /
-`continue`, and compound assignment so `--vm` covers the full interpreter
-language.
+1. Full lifetime/borrow checker on the level of Rust
+2. aarch64 and System V ELF objects
+3. Package manager / real `import`
+4. Async / structured concurrency as a `conc` effect
+5. Self-hosting
+6. Heavy optimisations (register allocation, inlining)
+7. Native maps and indirect calls
