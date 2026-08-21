@@ -8,6 +8,7 @@ members = [
     "flake-interpreter",
     "flake-vm",
     "flake-ir",
+    "flake-codegen",
     "flake-cli",
 ]
 default-members = ["flake-cli"]
@@ -32,6 +33,7 @@ flake-types = { path = "flake-types" }
 flake-interpreter = { path = "flake-interpreter" }
 flake-vm = { path = "flake-vm" }
 flake-ir = { path = "flake-ir" }
+flake-codegen = { path = "flake-codegen" }
 clap = { version = "4.5", features = ["derive"] }
 thiserror = "2.0"
 miette = { version = "7.6", features = ["fancy"] }

@@ -207,6 +207,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "flake-ast",
+ "flake-codegen",
  "flake-interpreter",
  "flake-ir",
  "flake-lexer",
@@ -215,6 +216,15 @@ dependencies = [
  "flake-vm",
  "miette",
  "rustyline",
+]
+
+[[package]]
+name = "flake-codegen"
+version = "0.1.0"
+dependencies = [
+ "flake-ast",
+ "flake-ir",
+ "thiserror",
 ]
 
 [[package]]

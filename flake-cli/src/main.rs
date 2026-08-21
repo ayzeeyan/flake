@@ -42,6 +42,17 @@ enum Commands {
         /// Execute on the bytecode VM instead of the tree-walking interpreter
         #[arg(long)]
         vm: bool,
+        /// Compile to native x86-64 and run the executable
+        #[arg(long)]
+        native: bool,
+    },
+    /// Compile a Flake program to a native x86-64 executable
+    Build {
+        /// Path to a `.flk` source file
+        file: PathBuf,
+        /// Output path (default: `<stem>.exe`)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
     /// Type-check a Flake program without running it
     Check {
@@ -60,7 +71,13 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Run { file, skip_check, vm } => run_file(&file, skip_check, vm),
+        Commands::Run {
+            file,
+            skip_check,
+            vm,
+            native,
+        } => run_file(&file, skip_check, vm, native),
+        Commands::Build { file, output } => build_file(&file, output),
         Commands::Check { file } => check_file(&file),
         Commands::Ir { file } => dump_ir(&file),
         Commands::Repl => {
@@ -80,7 +97,7 @@ fn load_source(path: &PathBuf) -> Result<Source, ExitCode> {
     }
 }
 
-fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool) -> ExitCode {
+fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> ExitCode {
     let source = match load_source(path) {
         Ok(s) => s,
         Err(code) => return code,
@@ -94,6 +111,18 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool) -> ExitCode {
             return ExitCode::from(1);
         }
     }
+    if native {
+        match flake_codegen::run_native(&source) {
+            Ok(out) => {
+                print!("{out}");
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                report::emit_message(&err.to_string());
+                ExitCode::from(1)
+            }
+        }
+    } else {
     let mut stdout = io::stdout();
     if use_vm {
         match flake_vm::execute(&source, &mut stdout) {
@@ -124,6 +153,29 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool) -> ExitCode {
                 }
                 ExitCode::from(1)
             }
+        }
+    }
+    }
+}
+
+fn build_file(path: &PathBuf, output: Option<PathBuf>) -> ExitCode {
+    let source = match load_source(path) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let out = output.unwrap_or_else(|| {
+        let mut p = path.clone();
+        p.set_extension("exe");
+        p
+    });
+    match flake_codegen::write_executable(&source, &out) {
+        Ok(()) => {
+            println!("wrote {}", out.display());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            report::emit_message(&err.to_string());
+            ExitCode::from(1)
         }
     }
 }

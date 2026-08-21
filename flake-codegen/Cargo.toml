@@ -1,0 +1,17 @@
+[package]
+name = "flake-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Pure-Rust x86-64 code generator for Flake (no LLVM/Cranelift)."
+
+[dependencies]
+flake-ast.workspace = true
+flake-ir.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

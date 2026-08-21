@@ -72,6 +72,26 @@ fn run_hello_example_vm() {
 }
 
 #[test]
+fn run_hello_example_native() {
+    let hello = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("examples")
+        .join("hello.flk");
+    let output = flake_bin()
+        .arg("run")
+        .arg("--native")
+        .arg(&hello)
+        .output()
+        .expect("run hello native");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "Hello, World!\n");
+}
+
+#[test]
 fn run_hello_example() {
     let hello = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")

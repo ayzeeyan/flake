@@ -21,6 +21,7 @@ flake-types.workspace = true
 flake-interpreter.workspace = true
 flake-vm.workspace = true
 flake-ir.workspace = true
+flake-codegen.workspace = true
 miette.workspace = true
 rustyline.workspace = true
 

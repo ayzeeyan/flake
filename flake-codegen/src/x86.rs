@@ -1,0 +1,328 @@
+//! Minimal x86-64 assembler (Intel-ish helpers, raw machine code).
+
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum Reg {
+    Rax = 0,
+    Rcx = 1,
+    Rdx = 2,
+    Rbx = 3,
+    Rsp = 4,
+    Rbp = 5,
+    Rsi = 6,
+    Rdi = 7,
+    R8 = 8,
+    R9 = 9,
+    R10 = 10,
+    R11 = 11,
+}
+
+impl Reg {
+    fn id(self) -> u8 {
+        self as u8
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cc {
+    Z,
+    NZ,
+    L,
+    Le,
+    G,
+    Ge,
+    E,
+    Ne,
+}
+
+pub struct Asm {
+    pub bytes: Vec<u8>,
+    labels: HashMap<String, usize>,
+    patches: Vec<Patch>,
+}
+
+struct Patch {
+    at: usize,
+    label: String,
+    /// true = rel32 from at+4, false = abs64 (not used)
+    rel32: bool,
+}
+
+impl Asm {
+    pub fn new() -> Self {
+        Self {
+            bytes: Vec::new(),
+            labels: HashMap::new(),
+            patches: Vec::new(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn label(&mut self, name: impl Into<String>) {
+        self.labels.insert(name.into(), self.bytes.len());
+    }
+
+    #[allow(dead_code)]
+    pub fn here(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn push(&mut self, r: Reg) {
+        self.rex_b(r);
+        self.bytes.push(0x50 + (r.id() & 7));
+    }
+
+    pub fn pop(&mut self, r: Reg) {
+        self.rex_b(r);
+        self.bytes.push(0x58 + (r.id() & 7));
+    }
+
+    pub fn ret(&mut self) {
+        self.bytes.push(0xC3);
+    }
+
+    pub fn mov_rr(&mut self, dst: Reg, src: Reg) {
+        // mov dst, src  (89 /r)  dst = r/m, src = reg
+        self.rex_wr(src, dst);
+        self.bytes.push(0x89);
+        self.modrm_rr(src, dst);
+    }
+
+    pub fn mov_ri(&mut self, dst: Reg, imm: i64) {
+        self.rex_wb(dst);
+        self.bytes.push(0xB8 + (dst.id() & 7));
+        self.bytes.extend_from_slice(&imm.to_le_bytes());
+    }
+
+    pub fn mov_rm_rbp(&mut self, dst: Reg, disp: i32) {
+        // mov dst, [rbp+disp]
+        self.rex_wr_rm(dst, Reg::Rbp);
+        self.bytes.push(0x8B);
+        self.modrm_disp(dst, Reg::Rbp, disp);
+    }
+
+    pub fn mov_mr_rbp(&mut self, disp: i32, src: Reg) {
+        // mov [rbp+disp], src
+        self.rex_wr_rm(src, Reg::Rbp);
+        self.bytes.push(0x89);
+        self.modrm_disp(src, Reg::Rbp, disp);
+    }
+
+    pub fn add_rr(&mut self, dst: Reg, src: Reg) {
+        self.rex_wr(src, dst);
+        self.bytes.push(0x01);
+        self.modrm_rr(src, dst);
+    }
+
+    pub fn sub_rr(&mut self, dst: Reg, src: Reg) {
+        self.rex_wr(src, dst);
+        self.bytes.push(0x29);
+        self.modrm_rr(src, dst);
+    }
+
+    pub fn sub_ri(&mut self, dst: Reg, imm: i32) {
+        self.rex_wb(dst);
+        self.bytes.push(0x81);
+        self.modrm_rr_op(5, dst);
+        self.bytes.extend_from_slice(&imm.to_le_bytes());
+    }
+
+    pub fn imul_rr(&mut self, dst: Reg, src: Reg) {
+        self.rex_wr(dst, src);
+        self.bytes.push(0x0F);
+        self.bytes.push(0xAF);
+        self.modrm_rr(dst, src);
+    }
+
+    pub fn cqo(&mut self) {
+        self.bytes.push(0x48);
+        self.bytes.push(0x99);
+    }
+
+    pub fn idiv(&mut self, src: Reg) {
+        self.rex_wb(src);
+        self.bytes.push(0xF7);
+        self.modrm_rr_op(7, src);
+    }
+
+    pub fn xor_rr(&mut self, dst: Reg, src: Reg) {
+        self.rex_wr(src, dst);
+        self.bytes.push(0x31);
+        self.modrm_rr(src, dst);
+    }
+
+    pub fn cmp_rr(&mut self, a: Reg, b: Reg) {
+        self.rex_wr(b, a);
+        self.bytes.push(0x39);
+        self.modrm_rr(b, a);
+    }
+
+    pub fn test_rr(&mut self, a: Reg, b: Reg) {
+        self.rex_wr(b, a);
+        self.bytes.push(0x85);
+        self.modrm_rr(b, a);
+    }
+
+    pub fn setcc(&mut self, cc: Cc, dst: Reg) {
+        // setcc r/m8 — use low byte of dst, then movzx
+        if dst.id() >= 8 {
+            self.bytes.push(0x41); // REX.B
+        } else if matches!(dst, Reg::Rsi | Reg::Rdi | Reg::Rsp | Reg::Rbp) {
+            self.bytes.push(0x40);
+        }
+        self.bytes.push(0x0F);
+        self.bytes.push(setcc_op(cc));
+        self.modrm_rr_op(0, dst);
+    }
+
+    pub fn movzx_rax_al(&mut self) {
+        self.bytes.extend_from_slice(&[0x48, 0x0F, 0xB6, 0xC0]);
+    }
+
+    pub fn jmp_label(&mut self, label: impl Into<String>) {
+        self.bytes.push(0xE9);
+        self.reloc_rel32(label.into());
+    }
+
+    pub fn jcc_label(&mut self, cc: Cc, label: impl Into<String>) {
+        self.bytes.push(0x0F);
+        self.bytes.push(jcc_op(cc));
+        self.reloc_rel32(label.into());
+    }
+
+    pub fn call_label(&mut self, label: impl Into<String>) {
+        self.bytes.push(0xE8);
+        self.reloc_rel32(label.into());
+    }
+
+    /// `call qword ptr [rip+rel32]` — IAT import. `disp` is patched later as absolute RVA diff.
+    pub fn call_indirect_rip(&mut self) -> usize {
+        self.bytes.extend_from_slice(&[0xFF, 0x15]);
+        let at = self.bytes.len();
+        self.bytes.extend_from_slice(&0i32.to_le_bytes());
+        at
+    }
+
+    pub fn lea_rip(&mut self, dst: Reg) -> usize {
+        self.rex_wr_rm(dst, Reg::Rbp); // r/m unused; we emit RIP form
+        self.bytes.push(0x8D);
+        // mod=00, r/m=101 means RIP+disp32 in 64-bit
+        let modrm = ((dst.id() & 7) << 3) | 0b101;
+        self.bytes.push(modrm);
+        let at = self.bytes.len();
+        self.bytes.extend_from_slice(&0i32.to_le_bytes());
+        at
+    }
+
+    #[allow(dead_code)]
+    pub fn patch_rip(&mut self, at: usize, target_rva: u32, instr_end_rva: u32) {
+        let rel = target_rva as i32 - instr_end_rva as i32;
+        self.bytes[at..at + 4].copy_from_slice(&rel.to_le_bytes());
+    }
+
+    fn reloc_rel32(&mut self, label: String) {
+        let at = self.bytes.len();
+        self.bytes.extend_from_slice(&0i32.to_le_bytes());
+        self.patches.push(Patch {
+            at,
+            label,
+            rel32: true,
+        });
+    }
+
+    pub fn finish(&mut self) -> Result<(), String> {
+        let patches = std::mem::take(&mut self.patches);
+        for p in patches {
+            let target = *self
+                .labels
+                .get(&p.label)
+                .ok_or_else(|| format!("undefined label {}", p.label))?;
+            if p.rel32 {
+                let next = (p.at + 4) as i32;
+                let rel = target as i32 - next;
+                self.bytes[p.at..p.at + 4].copy_from_slice(&rel.to_le_bytes());
+            }
+        }
+        Ok(())
+    }
+
+    fn rex_b(&mut self, r: Reg) {
+        if r.id() >= 8 {
+            self.bytes.push(0x41);
+        }
+    }
+
+    fn rex_wb(&mut self, r: Reg) {
+        let mut rex = 0x48;
+        if r.id() >= 8 {
+            rex |= 0x01;
+        }
+        self.bytes.push(rex);
+    }
+
+    fn rex_wr(&mut self, reg: Reg, rm: Reg) {
+        let mut rex = 0x48;
+        if reg.id() >= 8 {
+            rex |= 0x04;
+        }
+        if rm.id() >= 8 {
+            rex |= 0x01;
+        }
+        self.bytes.push(rex);
+    }
+
+    fn rex_wr_rm(&mut self, reg: Reg, rm: Reg) {
+        self.rex_wr(reg, rm);
+    }
+
+    fn modrm_rr(&mut self, reg: Reg, rm: Reg) {
+        let byte = 0b11_000_000 | ((reg.id() & 7) << 3) | (rm.id() & 7);
+        self.bytes.push(byte);
+    }
+
+    fn modrm_rr_op(&mut self, op: u8, rm: Reg) {
+        let byte = 0b11_000_000 | (op << 3) | (rm.id() & 7);
+        self.bytes.push(byte);
+    }
+
+    fn modrm_disp(&mut self, reg: Reg, rm: Reg, disp: i32) {
+        // rbp as r/m requires a displacement
+        if disp >= -128 && disp <= 127 {
+            let byte = 0b01_000_000 | ((reg.id() & 7) << 3) | (rm.id() & 7);
+            self.bytes.push(byte);
+            self.bytes.push(disp as i8 as u8);
+        } else {
+            let byte = 0b10_000_000 | ((reg.id() & 7) << 3) | (rm.id() & 7);
+            self.bytes.push(byte);
+            self.bytes.extend_from_slice(&disp.to_le_bytes());
+        }
+    }
+}
+
+fn setcc_op(cc: Cc) -> u8 {
+    match cc {
+        Cc::Z | Cc::E => 0x94,
+        Cc::NZ | Cc::Ne => 0x95,
+        Cc::L => 0x9C,
+        Cc::Le => 0x9E,
+        Cc::G => 0x9F,
+        Cc::Ge => 0x9D,
+    }
+}
+
+fn jcc_op(cc: Cc) -> u8 {
+    match cc {
+        Cc::Z | Cc::E => 0x84,
+        Cc::NZ | Cc::Ne => 0x85,
+        Cc::L => 0x8C,
+        Cc::Le => 0x8E,
+        Cc::G => 0x8F,
+        Cc::Ge => 0x8D,
+    }
+}
