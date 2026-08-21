@@ -8,7 +8,7 @@ pure-Rust x86-64 backend.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Bytecode VM feature parity | **done** |
-| 2 | Custom intermediate representation | pending |
+| 2 | Custom intermediate representation | **done** |
 | 3 | Native x86-64 codegen foundation | pending |
 | 4 | Expanded native code generation | pending |
 | 5 | Improved gradual ownership | pending |

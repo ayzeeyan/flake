@@ -1,0 +1,17 @@
+[package]
+name = "flake-ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Custom intermediate representation for the Flake compiler pipeline."
+
+[dependencies]
+flake-ast.workspace = true
+flake-parser.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

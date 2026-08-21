@@ -48,6 +48,11 @@ enum Commands {
         /// Path to a `.flk` source file
         file: PathBuf,
     },
+    /// Dump Flake IR for a program
+    Ir {
+        /// Path to a `.flk` source file
+        file: PathBuf,
+    },
     /// Start an interactive Flake REPL
     Repl,
 }
@@ -57,6 +62,7 @@ fn main() -> ExitCode {
     match cli.command {
         Commands::Run { file, skip_check, vm } => run_file(&file, skip_check, vm),
         Commands::Check { file } => check_file(&file),
+        Commands::Ir { file } => dump_ir(&file),
         Commands::Repl => {
             let code = repl::run();
             ExitCode::from(code as u8)
@@ -118,6 +124,27 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool) -> ExitCode {
                 }
                 ExitCode::from(1)
             }
+        }
+    }
+}
+
+fn dump_ir(path: &PathBuf) -> ExitCode {
+    let source = match load_source(path) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    match flake_ir::lower(&source) {
+        Ok(module) => {
+            print!("{}", flake_ir::print_module(&module));
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            if let Some(span) = err.span() {
+                report::emit(&source, span, &err.to_string());
+            } else {
+                report::emit_message(&err.to_string());
+            }
+            ExitCode::from(1)
         }
     }
 }

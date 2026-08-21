@@ -208,6 +208,7 @@ dependencies = [
  "clap",
  "flake-ast",
  "flake-interpreter",
+ "flake-ir",
  "flake-lexer",
  "flake-parser",
  "flake-types",
@@ -218,6 +219,15 @@ dependencies = [
 
 [[package]]
 name = "flake-interpreter"
+version = "0.1.0"
+dependencies = [
+ "flake-ast",
+ "flake-parser",
+ "thiserror",
+]
+
+[[package]]
+name = "flake-ir"
 version = "0.1.0"
 dependencies = [
  "flake-ast",
