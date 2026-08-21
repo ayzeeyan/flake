@@ -9,6 +9,9 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_print_i64(asm, iat);
     emit_print_nl(asm);
     emit_concat(asm, iat);
+    emit_alloc(asm, iat);
+    emit_itoa(asm, iat);
+    emit_join(asm);
 }
 
 fn prologue(asm: &mut Asm, frame: i32) {
@@ -184,6 +187,102 @@ fn emit_concat(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     copy_bytes(asm, ".cp2");
     asm.bytes.extend_from_slice(&[0xC6, 0x00, 0x00]); // *rax = 0
     asm.mov_rm_rbp(Reg::Rax, -48);
+    epilogue(asm);
+}
+
+fn emit_alloc(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // rcx = size → rax = pointer
+    asm.label("rt_alloc");
+    prologue(asm, 48);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    call_import(asm, iat, Import::GetProcessHeap);
+    asm.mov_rr(Reg::Rcx, Reg::Rax);
+    asm.xor_rr(Reg::Rdx, Reg::Rdx);
+    asm.mov_rm_rbp(Reg::R8, -8);
+    call_import(asm, iat, Import::HeapAlloc);
+    epilogue(asm);
+}
+
+fn emit_itoa(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // rcx = i64 → rax = pointer to decimal cstring (inside a 32-byte heap buffer).
+    asm.label("rt_itoa");
+    prologue(asm, 48);
+    asm.mov_mr_rbp(-8, Reg::Rcx); // n
+    asm.mov_ri(Reg::Rcx, 32);
+    asm.call_label("rt_alloc");
+    asm.mov_mr_rbp(-16, Reg::Rax); // buf
+    // r10 = cursor at buf+31
+    asm.mov_rr(Reg::R10, Reg::Rax);
+    asm.add_ri(Reg::R10, 31);
+    asm.bytes.extend_from_slice(&[0x41, 0xC6, 0x02, 0x00]); // *r10 = 0
+    asm.mov_rm_rbp(Reg::Rax, -8);
+    asm.xor_rr(Reg::R11, Reg::R11);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Ge, ".itoa2_pos");
+    asm.mov_ri(Reg::R11, 1);
+    asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]); // neg rax
+    asm.label(".itoa2_pos");
+    asm.label(".itoa2_loop");
+    asm.cqo();
+    asm.mov_ri(Reg::Rcx, 10);
+    asm.idiv(Reg::Rcx); // rax=quot rdx=rem
+    asm.bytes.extend_from_slice(&[0x48, 0x83, 0xC2, 0x30]); // rem + '0'
+    asm.bytes.extend_from_slice(&[0x49, 0xFF, 0xCA]); // dec r10
+    asm.bytes.extend_from_slice(&[0x41, 0x88, 0x12]); // [r10] = dl
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::NZ, ".itoa2_loop");
+    asm.test_rr(Reg::R11, Reg::R11);
+    asm.jcc_label(Cc::Z, ".itoa2_done");
+    asm.bytes.extend_from_slice(&[0x49, 0xFF, 0xCA]);
+    asm.bytes.extend_from_slice(&[0x41, 0xC6, 0x02, 0x2D]); // '-'
+    asm.label(".itoa2_done");
+    asm.mov_rr(Reg::Rax, Reg::R10);
+    epilogue(asm);
+    let _ = iat;
+}
+
+fn emit_join(asm: &mut Asm) {
+    // rcx = list, rdx = sep → rax = string
+    asm.label("rt_join");
+    prologue(asm, 80);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 0); // len
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::NZ, ".join_go");
+    asm.mov_ri(Reg::Rcx, 1);
+    asm.call_label("rt_alloc");
+    asm.bytes.extend_from_slice(&[0xC6, 0x00, 0x00]);
+    epilogue(asm);
+    asm.label(".join_go");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 8); // first item
+    asm.mov_mr_rbp(-24, Reg::Rax); // acc
+    asm.mov_ri(Reg::R8, 1); // i
+    asm.mov_mr_rbp(-32, Reg::R8);
+    asm.label(".join_loop");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm(Reg::R9, Reg::Rcx, 0); // len
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".join_done");
+    asm.mov_rm_rbp(Reg::Rcx, -24);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.call_label("rt_concat2");
+    asm.mov_rr(Reg::Rcx, Reg::Rax);
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.shl_ri(Reg::R8, 3);
+    asm.mov_rm_rbp(Reg::R9, -8);
+    asm.add_rr(Reg::R9, Reg::R8);
+    asm.mov_rm(Reg::Rdx, Reg::R9, 8);
+    asm.call_label("rt_concat2");
+    asm.mov_mr_rbp(-24, Reg::Rax);
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-32, Reg::R8);
+    asm.jmp_label(".join_loop");
+    asm.label(".join_done");
+    asm.mov_rm_rbp(Reg::Rax, -24);
     epilogue(asm);
 }
 

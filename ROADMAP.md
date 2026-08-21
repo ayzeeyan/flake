@@ -10,7 +10,7 @@ pure-Rust x86-64 backend.
 | 1 | Bytecode VM feature parity | **done** |
 | 2 | Custom intermediate representation | **done** |
 | 3 | Native x86-64 codegen foundation | **done** |
-| 4 | Expanded native code generation | pending |
+| 4 | Expanded native code generation | **done** |
 | 5 | Improved gradual ownership | pending |
 | 6 | Polish, tests, documentation and examples | pending |
 | 7 | Flake v0.2 complete | pending |

@@ -44,6 +44,48 @@ fn native_hello() {
 }
 
 #[test]
+fn native_concat_int() {
+    let out = run_native(&src(r#"fn main() { print("n={40+2}") }"#)).expect("concat");
+    assert_eq!(out, "n=42\n");
+}
+
+#[test]
+fn native_fibonacci() {
+    let out = run_native(&src(
+        r#"
+fn fib(n: Int) -> Int {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+fn main() { print(fib(10)) }
+"#,
+    ))
+    .expect("fib native");
+    assert_eq!(out, "55\n");
+}
+
+#[test]
+fn native_config() {
+    let text = include_str!("../../examples/config.flk");
+    let out = run_native(&src(text)).expect("config native");
+    assert_eq!(out, "listening on localhost:8080\n");
+}
+
+#[test]
+fn native_fizzbuzz() {
+    let text = include_str!("../../examples/fizzbuzz.flk");
+    let out = run_native(&src(text)).expect("fizzbuzz native");
+    assert!(out.contains("FizzBuzz"), "{out}");
+    assert!(out.contains("Fizz\n"), "{out}");
+}
+
+#[test]
+fn native_lists() {
+    let text = include_str!("../../examples/lists.flk");
+    let out = run_native(&src(text)).expect("lists native");
+    assert!(out.contains("sum = 15"), "{out}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

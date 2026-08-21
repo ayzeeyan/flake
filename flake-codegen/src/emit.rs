@@ -49,14 +49,17 @@ pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
     emit_start(&mut asm, &mut iat_patches, &mut gas);
     crate::runtime::emit_runtime(&mut asm, &mut iat_patches);
 
+    let mut uniq = 0u32;
     for func in &module.functions {
         emit_function(
+            module,
             func,
             &mut asm,
             &mut strings,
             &mut iat_patches,
             &mut str_patches,
             &mut gas,
+            &mut uniq,
         )?;
     }
 
@@ -119,12 +122,14 @@ fn epilogue(asm: &mut Asm) {
 }
 
 fn emit_function(
+    module: &Module,
     func: &Function,
     asm: &mut Asm,
     strings: &mut Vec<Vec<u8>>,
     iat: &mut Vec<(usize, usize)>,
     strs: &mut Vec<(usize, usize)>,
     gas: &mut String,
+    uniq: &mut u32,
 ) -> Result<(), CodegenError> {
     let _ = iat;
     asm.label(&func.name);
@@ -151,7 +156,7 @@ fn emit_function(
         asm.label(&lab);
         gas.push_str(&format!(".{lab}:\n"));
         for inst in &block.insts {
-            emit_inst(func, inst, asm, strings, strs, gas)?;
+            emit_inst(module, func, inst, asm, strings, strs, gas, uniq)?;
         }
     }
     Ok(())
@@ -162,12 +167,14 @@ fn local_disp(id: LocalId) -> i32 {
 }
 
 fn emit_inst(
+    module: &Module,
     func: &Function,
     inst: &Inst,
     asm: &mut Asm,
     strings: &mut Vec<Vec<u8>>,
     strs: &mut Vec<(usize, usize)>,
     gas: &mut String,
+    uniq: &mut u32,
 ) -> Result<(), CodegenError> {
     match inst {
         Inst::LoadConst { dest, value } => match value {
@@ -223,7 +230,6 @@ fn emit_inst(
                         BinOp::Ge => Cc::Ge,
                         _ => unreachable!(),
                     };
-                    asm.xor_rr(Reg::Rax, Reg::Rax);
                     asm.setcc(cc, Reg::Rax);
                     asm.movzx_rax_al();
                 }
@@ -260,12 +266,17 @@ fn emit_inst(
                 strs.push((at, idx));
                 asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
             } else {
-                asm.mov_rm_rbp(Reg::Rcx, local_disp(parts[0]));
+                let spill = local_disp(LocalId(func.locals.len() as u32));
+                load_as_cstr(func, parts[0], asm, strings, strs, uniq);
+                asm.mov_mr_rbp(spill, Reg::Rax);
                 for p in &parts[1..] {
-                    asm.mov_rm_rbp(Reg::Rdx, local_disp(*p));
+                    load_as_cstr(func, *p, asm, strings, strs, uniq);
+                    asm.mov_rr(Reg::Rdx, Reg::Rax);
+                    asm.mov_rm_rbp(Reg::Rcx, spill);
                     asm.call_label("rt_concat2");
-                    asm.mov_rr(Reg::Rcx, Reg::Rax);
+                    asm.mov_mr_rbp(spill, Reg::Rax);
                 }
+                asm.mov_rm_rbp(Reg::Rax, spill);
                 asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
             }
         }
@@ -290,23 +301,259 @@ fn emit_inst(
             }
             epilogue(asm);
         }
-        Inst::GetIndex { .. }
-        | Inst::SetIndex { .. }
-        | Inst::GetField { .. }
-        | Inst::SetField { .. }
-        | Inst::MakeList { .. }
-        | Inst::MakeMap { .. }
-        | Inst::MakeStruct { .. }
-        | Inst::MakeRange { .. }
-        | Inst::MakeIter { .. }
-        | Inst::IterNext { .. } => {
-            return Err(CodegenError::new(format!(
-                "native backend (v0.2 foundation) cannot yet lower {inst:?}",
-            )));
+        Inst::MakeList { dest, items } => {
+            let n = items.len() as i64;
+            let cap = n.max(16);
+            asm.mov_ri(Reg::Rcx, 8 * (cap + 1));
+            asm.call_label("rt_alloc");
+            asm.mov_ri(Reg::R10, n);
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            for (i, item) in items.iter().enumerate() {
+                asm.mov_rm_rbp(Reg::R10, local_disp(*item));
+                asm.mov_mr(Reg::Rax, 8 * (i as i32 + 1), Reg::R10);
+            }
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        Inst::GetIndex { dest, obj, index } => {
+            let id = next_id(uniq);
+            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::Ge, format!(".idxpos{id}"));
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.add_rr(Reg::R10, Reg::R11);
+            asm.label(format!(".idxpos{id}"));
+            asm.shl_ri(Reg::R10, 3);
+            asm.add_rr(Reg::Rax, Reg::R10);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 8);
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        Inst::SetIndex { obj, index, value } => {
+            let id = next_id(uniq);
+            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::R10, local_disp(*index));
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::Ge, format!(".sidxpos{id}"));
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.add_rr(Reg::R10, Reg::R11);
+            asm.label(format!(".sidxpos{id}"));
+            asm.shl_ri(Reg::R10, 3);
+            asm.add_rr(Reg::Rax, Reg::R10);
+            asm.mov_rm_rbp(Reg::R10, local_disp(*value));
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+        }
+        Inst::MakeStruct { dest, fields, .. } => {
+            let n = fields.len() as i64;
+            asm.mov_ri(Reg::Rcx, 8 * n.max(1));
+            asm.call_label("rt_alloc");
+            for (i, (_, val)) in fields.iter().enumerate() {
+                asm.mov_rm_rbp(Reg::R10, local_disp(*val));
+                asm.mov_mr(Reg::Rax, 8 * i as i32, Reg::R10);
+            }
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        Inst::GetField { dest, obj, field } => {
+            let off = field_offset(module, func, *obj, field)?;
+            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
+            asm.mov_rm(Reg::Rax, Reg::Rax, off);
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        Inst::SetField { obj, field, value } => {
+            let off = field_offset(module, func, *obj, field)?;
+            asm.mov_rm_rbp(Reg::Rax, local_disp(*obj));
+            asm.mov_rm_rbp(Reg::R10, local_disp(*value));
+            asm.mov_mr(Reg::Rax, off, Reg::R10);
+        }
+        Inst::MakeRange { dest, start, end } => {
+            asm.mov_ri(Reg::Rcx, 16);
+            asm.call_label("rt_alloc");
+            asm.mov_rm_rbp(Reg::R10, local_disp(*start));
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.mov_rm_rbp(Reg::R10, local_disp(*end));
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        Inst::MakeIter { dest, src } => {
+            emit_make_iter(func, dest, src, asm, uniq);
+        }
+        Inst::IterNext { value, more, iter } => {
+            emit_iter_next(value, more, iter, asm, uniq);
+        }
+        Inst::MakeMap { .. } => {
+            return Err(CodegenError::new("native maps are not yet implemented"));
         }
     }
     let _ = gas;
     Ok(())
+}
+
+fn next_id(uniq: &mut u32) -> u32 {
+    let id = *uniq;
+    *uniq += 1;
+    id
+}
+
+fn load_as_cstr(
+    func: &Function,
+    local: LocalId,
+    asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
+    uniq: &mut u32,
+) {
+    let ty = func.local(local).map(|l| l.ty.clone()).unwrap_or(IrType::Dyn);
+    asm.mov_rm_rbp(Reg::Rcx, local_disp(local));
+    match ty {
+        IrType::String => {
+            asm.mov_rr(Reg::Rax, Reg::Rcx);
+        }
+        IrType::Int => {
+            asm.call_label("rt_itoa");
+        }
+        IrType::Unknown | IrType::Dyn => {
+            asm.mov_ri(Reg::R10, 0x10000);
+            asm.cmp_rr(Reg::Rcx, Reg::R10);
+            let id = next_id(uniq);
+            asm.jcc_label(Cc::L, format!(".dyni{id}"));
+            asm.mov_rr(Reg::Rax, Reg::Rcx);
+            asm.jmp_label(format!(".dynd{id}"));
+            asm.label(format!(".dyni{id}"));
+            asm.call_label("rt_itoa");
+            asm.label(format!(".dynd{id}"));
+        }
+        IrType::Bool => {
+            asm.test_rr(Reg::Rcx, Reg::Rcx);
+            let id = next_id(uniq);
+            asm.jcc_label(Cc::Z, format!(".boolz{id}"));
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, intern_cstring(strings, "true")));
+            asm.jmp_label(format!(".boold{id}"));
+            asm.label(format!(".boolz{id}"));
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, intern_cstring(strings, "false")));
+            asm.label(format!(".boold{id}"));
+        }
+        IrType::Nil => {
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, intern_cstring(strings, "nil")));
+        }
+        _ => asm.mov_rr(Reg::Rax, Reg::Rcx),
+    }
+}
+
+fn field_offset(
+    module: &Module,
+    func: &Function,
+    obj: LocalId,
+    field: &str,
+) -> Result<i32, CodegenError> {
+    let ty = func.local(obj).map(|l| &l.ty);
+    if let Some(IrType::Struct(name)) = ty {
+        if let Some(st) = module.structs.iter().find(|s| s.name == *name) {
+            if let Some(i) = st.fields.iter().position(|(n, _)| n == field) {
+                return Ok(8 * i as i32);
+            }
+        }
+    }
+    for st in &module.structs {
+        if let Some(i) = st.fields.iter().position(|(n, _)| n == field) {
+            return Ok(8 * i as i32);
+        }
+    }
+    Err(CodegenError::new(format!("unknown field `{field}`")))
+}
+
+fn emit_make_iter(func: &Function, dest: &LocalId, src: &LocalId, asm: &mut Asm, uniq: &mut u32) {
+    let ty = func.local(*src).map(|l| l.ty.clone()).unwrap_or(IrType::Dyn);
+    match ty {
+        IrType::Range => {
+            asm.mov_ri(Reg::Rcx, 32);
+            asm.call_label("rt_alloc");
+            asm.mov_rm_rbp(Reg::R11, local_disp(*src));
+            asm.mov_rm(Reg::R8, Reg::R11, 0);
+            asm.mov_rm(Reg::R9, Reg::R11, 8);
+            asm.mov_ri(Reg::R10, 1);
+            let id = next_id(uniq);
+            asm.cmp_rr(Reg::R9, Reg::R8);
+            asm.jcc_label(Cc::Ge, format!(".rpos{id}"));
+            asm.mov_ri(Reg::R10, -1);
+            asm.label(format!(".rpos{id}"));
+            asm.mov_ri(Reg::R11, 1); // kind = range
+            asm.mov_mr(Reg::Rax, 0, Reg::R11);
+            asm.mov_mr(Reg::Rax, 8, Reg::R8);
+            asm.mov_mr(Reg::Rax, 16, Reg::R9);
+            asm.mov_mr(Reg::Rax, 24, Reg::R10);
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+        _ => {
+            asm.mov_ri(Reg::Rcx, 24);
+            asm.call_label("rt_alloc");
+            asm.mov_ri(Reg::R11, 2); // kind = list
+            asm.mov_mr(Reg::Rax, 0, Reg::R11);
+            asm.mov_rm_rbp(Reg::R10, local_disp(*src));
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+            asm.xor_rr(Reg::R10, Reg::R10);
+            asm.mov_mr(Reg::Rax, 16, Reg::R10);
+            asm.mov_mr_rbp(local_disp(*dest), Reg::Rax);
+        }
+    }
+}
+
+fn emit_iter_next(
+    value: &LocalId,
+    more: &LocalId,
+    iter: &LocalId,
+    asm: &mut Asm,
+    uniq: &mut u32,
+) {
+    let id = next_id(uniq);
+    asm.mov_rm_rbp(Reg::Rax, local_disp(*iter));
+    asm.mov_rm(Reg::R10, Reg::Rax, 0); // kind
+    asm.mov_ri(Reg::R11, 1);
+    asm.cmp_rr(Reg::R10, Reg::R11);
+    asm.jcc_label(Cc::E, format!(".nrange{id}"));
+
+    // list: [kind, list, idx]
+    asm.mov_rm(Reg::R8, Reg::Rax, 8); // list
+    asm.mov_rm(Reg::R9, Reg::Rax, 16); // idx
+    asm.mov_rm(Reg::R10, Reg::R8, 0); // len
+    asm.cmp_rr(Reg::R9, Reg::R10);
+    asm.jcc_label(Cc::Ge, format!(".ndone{id}"));
+    asm.mov_rr(Reg::R11, Reg::R9);
+    asm.shl_ri(Reg::R11, 3);
+    asm.add_rr(Reg::R8, Reg::R11);
+    asm.mov_rm(Reg::R8, Reg::R8, 8);
+    asm.mov_mr_rbp(local_disp(*value), Reg::R8);
+    asm.add_ri(Reg::R9, 1);
+    asm.mov_mr(Reg::Rax, 16, Reg::R9);
+    asm.mov_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(local_disp(*more), Reg::R8);
+    asm.jmp_label(format!(".nend{id}"));
+
+    asm.label(format!(".nrange{id}"));
+    asm.mov_rm(Reg::R8, Reg::Rax, 8); // next
+    asm.mov_rm(Reg::R9, Reg::Rax, 16); // end
+    asm.mov_rm(Reg::R10, Reg::Rax, 24); // step
+    asm.test_rr(Reg::R10, Reg::R10);
+    asm.jcc_label(Cc::L, format!(".nrev{id}"));
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, format!(".ndone{id}"));
+    asm.jmp_label(format!(".nyield{id}"));
+    asm.label(format!(".nrev{id}"));
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Le, format!(".ndone{id}"));
+    asm.label(format!(".nyield{id}"));
+    asm.mov_mr_rbp(local_disp(*value), Reg::R8);
+    asm.add_rr(Reg::R8, Reg::R10);
+    asm.mov_mr(Reg::Rax, 8, Reg::R8);
+    asm.mov_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(local_disp(*more), Reg::R8);
+    asm.jmp_label(format!(".nend{id}"));
+
+    asm.label(format!(".ndone{id}"));
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(local_disp(*more), Reg::R8);
+    asm.label(format!(".nend{id}"));
 }
 
 fn emit_call(
@@ -355,6 +602,40 @@ fn emit_call(
             asm.call_label("rt_print_nl");
             if let Some(d) = dest {
                 asm.xor_rr(Reg::Rax, Reg::Rax);
+                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+            }
+            Ok(())
+        }
+        Callee::Static(name) if name == "len" => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
+            if let Some(d) = dest {
+                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+            }
+            Ok(())
+        }
+        Callee::Static(name) if name == "push" => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+            asm.mov_rm(Reg::R8, Reg::Rcx, 0); // len
+            asm.mov_rr(Reg::R9, Reg::R8);
+            asm.shl_ri(Reg::R9, 3);
+            asm.add_rr(Reg::Rcx, Reg::R9);
+            asm.mov_mr(Reg::Rcx, 8, Reg::Rdx);
+            asm.add_ri(Reg::R8, 1);
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            asm.mov_mr(Reg::Rcx, 0, Reg::R8);
+            if let Some(d) = dest {
+                asm.xor_rr(Reg::Rax, Reg::Rax);
+                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+            }
+            Ok(())
+        }
+        Callee::Static(name) if name == "join" => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+            asm.call_label("rt_join");
+            if let Some(d) = dest {
                 asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
             }
             Ok(())

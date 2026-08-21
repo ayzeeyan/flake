@@ -114,6 +114,32 @@ impl Asm {
         self.modrm_disp(src, Reg::Rbp, disp);
     }
 
+    pub fn mov_rm(&mut self, dst: Reg, base: Reg, disp: i32) {
+        self.rex_wr(dst, base);
+        self.bytes.push(0x8B);
+        self.modrm_disp(dst, base, disp);
+    }
+
+    pub fn mov_mr(&mut self, base: Reg, disp: i32, src: Reg) {
+        self.rex_wr(src, base);
+        self.bytes.push(0x89);
+        self.modrm_disp(src, base, disp);
+    }
+
+    pub fn add_ri(&mut self, dst: Reg, imm: i32) {
+        self.rex_wb(dst);
+        self.bytes.push(0x81);
+        self.modrm_rr_op(0, dst);
+        self.bytes.extend_from_slice(&imm.to_le_bytes());
+    }
+
+    pub fn shl_ri(&mut self, dst: Reg, imm: u8) {
+        self.rex_wb(dst);
+        self.bytes.push(0xC1);
+        self.modrm_rr_op(4, dst);
+        self.bytes.push(imm);
+    }
+
     pub fn add_rr(&mut self, dst: Reg, src: Reg) {
         self.rex_wr(src, dst);
         self.bytes.push(0x01);
