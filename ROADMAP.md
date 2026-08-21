@@ -1,9 +1,10 @@
 # Flake Roadmap
 
-**v0.3 is in progress.** v0.2 delivered interpreter/VM parity, a custom IR, and a
-pure-Rust x86-64 backend. v0.3 expands that backend until existing programs
-compile to working native executables, then adds modules, stronger ownership,
-and a practical standard library.
+**v0.3 is complete.** A useful subset of Flake compiles to working native
+x86-64 PE executables, programs can be split across `.flk` files with `import`,
+gradual ownership is stronger but still optional, and a small standard library
+exists. Interpreter, VM, and native stay consistent. There is no LLVM,
+Cranelift, or C transpilation.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -17,7 +18,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 4 | Standard library expansion | **done** |
 | 5 | Better diagnostics and comprehensive tests | **done** |
 | 6 | Polish, documentation and examples | **done** |
-| 7 | Flake v0.3 complete | pending |
+| 7 | Flake v0.3 complete | **done** |
 
 ## What v0.3 milestone 1 delivers
 
