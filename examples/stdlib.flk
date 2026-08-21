@@ -1,0 +1,14 @@
+// Prelude natives plus `import list` from the `std/` directory.
+
+import list
+
+fn main() {
+    let xs = [1, 2, 3]
+    print("first = {first(xs)} last = {last(xs)}")
+    print("rest = {rest(xs)}")
+    print(starts_with("flake", "fl"))
+    print(ends_with("flake", "ke"))
+    print(contains("clarity", "lar"))
+    print(contains(xs, 2))
+    print(is_empty([]))
+}

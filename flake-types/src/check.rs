@@ -89,6 +89,26 @@ impl Checker {
             "split".into(),
             mk(vec![Type::String, Type::String], Type::list(Type::String), &["alloc"]),
         );
+        self.functions.insert(
+            "write_file".into(),
+            mk(vec![Type::String, Type::Dyn], Type::Nil, &["io"]),
+        );
+        self.functions.insert(
+            "contains".into(),
+            mk(vec![Type::Dyn, Type::Dyn], Type::Bool, &[]),
+        );
+        self.functions.insert(
+            "starts_with".into(),
+            mk(vec![Type::String, Type::String], Type::Bool, &[]),
+        );
+        self.functions.insert(
+            "ends_with".into(),
+            mk(vec![Type::String, Type::String], Type::Bool, &[]),
+        );
+        self.functions
+            .insert("first".into(), mk(vec![Type::Dyn], Type::Dyn, &[]));
+        self.functions
+            .insert("last".into(), mk(vec![Type::Dyn], Type::Dyn, &[]));
     }
 
     fn resolve(&self, ty: &Type) -> Type {

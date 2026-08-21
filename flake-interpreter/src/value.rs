@@ -61,6 +61,12 @@ pub enum NativeFn {
     Range,
     Join,
     Split,
+    WriteFile,
+    Contains,
+    StartsWith,
+    EndsWith,
+    First,
+    Last,
 }
 
 impl NativeFn {
@@ -83,6 +89,12 @@ impl NativeFn {
             Self::Range => "range",
             Self::Join => "join",
             Self::Split => "split",
+            Self::WriteFile => "write_file",
+            Self::Contains => "contains",
+            Self::StartsWith => "starts_with",
+            Self::EndsWith => "ends_with",
+            Self::First => "first",
+            Self::Last => "last",
         }
     }
 }

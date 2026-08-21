@@ -118,14 +118,18 @@ fn load_one(
     for item in &program.items {
         if let Item::Import(import) = item {
             let child_name = import.path.name.clone();
-            let path = sibling_path(source.name(), &child_name);
-            let text = fs::read_to_string(&path).map_err(|e| {
+            let path = find_module(source.name(), &child_name).ok_or_else(|| {
                 ResolveError::new(
                     import.span,
                     format!(
-                        "cannot find module `{child_name}` (looked for {}) : {e}",
-                        path.display()
+                        "cannot find module `{child_name}` (looked next to the importer and in `std/`)"
                     ),
+                )
+            })?;
+            let text = fs::read_to_string(&path).map_err(|e| {
+                ResolveError::new(
+                    import.span,
+                    format!("cannot read {}: {e}", path.display()),
                 )
             })?;
             let child = Source::new(path.display().to_string(), text);
@@ -154,6 +158,36 @@ fn sibling_path(importer: &str, module: &str) -> PathBuf {
         _ => Path::new("."),
     };
     dir.join(format!("{module}.flk"))
+}
+
+fn find_module(importer: &str, module: &str) -> Option<PathBuf> {
+    let sibling = sibling_path(importer, module);
+    if sibling.is_file() {
+        return Some(sibling);
+    }
+    let file = format!("{module}.flk");
+    let mut dir = Path::new(importer)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    loop {
+        let candidate = dir.join("std").join(&file);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent.to_path_buf(),
+            None => break,
+        }
+    }
+    if let Ok(root) = std::env::var("FLAKE_STD") {
+        let candidate = PathBuf::from(root).join(&file);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn module_stem(source_name: &str) -> String {

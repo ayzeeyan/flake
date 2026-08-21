@@ -1,0 +1,9 @@
+// String helpers. `import string` (resolved from the `std/` directory).
+
+fn is_blank(s: String) -> Bool {
+    len(s) == 0
+}
+
+fn surround(s: String, left: String, right: String) -> String {
+    "{left}{s}{right}"
+}

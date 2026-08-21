@@ -30,6 +30,11 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_atoi(asm);
     emit_assert(asm, iat);
     emit_read_file(asm, iat);
+    emit_ends_with(asm);
+    emit_contains(asm);
+    emit_list_contains(asm);
+    emit_list_first_last(asm);
+    emit_write_file(asm, iat);
 }
 
 fn prologue(asm: &mut Asm, frame: i32) {
@@ -1019,5 +1024,168 @@ fn emit_read_file(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.mov_ri(Reg::Rcx, 1);
     asm.call_label("rt_alloc");
     asm.bytes.extend_from_slice(&[0xC6, 0x00, 0x00]);
+    epilogue(asm);
+}
+
+fn emit_ends_with(asm: &mut Asm) {
+    // rcx = s, rdx = suffix → rax = 1/0
+    asm.label("rt_ends_with");
+    prologue(asm, 48);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.call_label("rt_strlen");
+    asm.mov_mr_rbp(-24, Reg::Rax); // slen
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.call_label("rt_strlen");
+    asm.mov_mr_rbp(-32, Reg::Rax); // plen
+    asm.mov_rm_rbp(Reg::Rdx, -24);
+    asm.cmp_rr(Reg::Rax, Reg::Rdx);
+    asm.jcc_label(Cc::A, ".ew_no"); // suffix longer
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.add_rr(Reg::Rcx, Reg::Rdx);
+    asm.sub_rr(Reg::Rcx, Reg::Rax); // s + slen - plen
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.call_label("rt_streq");
+    epilogue(asm);
+    asm.label(".ew_no");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+}
+
+fn emit_contains(asm: &mut Asm) {
+    // rcx = haystack, rdx = needle → rax = 1/0 (substring)
+    asm.label("rt_contains");
+    prologue(asm, 48);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.call_label("rt_strlen");
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::NZ, ".ct_go");
+    asm.mov_ri(Reg::Rax, 1); // empty needle
+    epilogue(asm);
+    asm.label(".ct_go");
+    asm.mov_rm_rbp(Reg::Rax, -8);
+    asm.mov_mr_rbp(-24, Reg::Rax); // p
+    asm.label(".ct_loop");
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    asm.bytes.extend_from_slice(&[0x80, 0x38, 0x00]);
+    asm.jcc_label(Cc::E, ".ct_no");
+    asm.mov_rr(Reg::Rcx, Reg::Rax);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.call_label("rt_starts_with");
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::NZ, ".ct_yes");
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC0]);
+    asm.mov_mr_rbp(-24, Reg::Rax);
+    asm.jmp_label(".ct_loop");
+    asm.label(".ct_yes");
+    asm.mov_ri(Reg::Rax, 1);
+    epilogue(asm);
+    asm.label(".ct_no");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+}
+
+fn emit_list_contains(asm: &mut Asm) {
+    // rcx = list, rdx = item (int or string pointer)
+    asm.label("rt_list_contains");
+    prologue(asm, 48);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(-24, Reg::R8);
+    asm.label(".lc_loop");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm(Reg::R9, Reg::Rcx, 0);
+    asm.mov_rm_rbp(Reg::R8, -24);
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".lc_no");
+    asm.shl_ri(Reg::R8, 3);
+    asm.add_rr(Reg::Rcx, Reg::R8);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.cmp_rr(Reg::Rax, Reg::Rdx);
+    asm.jcc_label(Cc::E, ".lc_yes");
+    // string compare if both look like pointers
+    asm.mov_ri(Reg::R10, 0x10000);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::L, ".lc_next");
+    asm.cmp_rr(Reg::Rdx, Reg::R10);
+    asm.jcc_label(Cc::L, ".lc_next");
+    asm.mov_rr(Reg::Rcx, Reg::Rax);
+    asm.call_label("rt_streq");
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::NZ, ".lc_yes");
+    asm.label(".lc_next");
+    asm.mov_rm_rbp(Reg::R8, -24);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-24, Reg::R8);
+    asm.jmp_label(".lc_loop");
+    asm.label(".lc_yes");
+    asm.mov_ri(Reg::Rax, 1);
+    epilogue(asm);
+    asm.label(".lc_no");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+}
+
+fn emit_list_first_last(asm: &mut Asm) {
+    asm.label("rt_list_first");
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".lf_empty");
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.ret();
+    asm.label("rt_list_last");
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".lf_empty");
+    asm.add_ri(Reg::Rax, -1);
+    asm.shl_ri(Reg::Rax, 3);
+    asm.add_rr(Reg::Rcx, Reg::Rax);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.ret();
+    asm.label(".lf_empty");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.ret();
+}
+
+fn emit_write_file(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // rcx = path, rdx = contents
+    asm.label("rt_write_file");
+    prologue(asm, 96);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_ri(Reg::Rdx, 0x4000_0000); // GENERIC_WRITE
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.xor_rr(Reg::R9, Reg::R9);
+    asm.mov_ri(Reg::Rax, 2); // CREATE_ALWAYS
+    mov_mr_rsp(asm, 32, Reg::Rax);
+    asm.mov_ri(Reg::Rax, 0x80);
+    mov_mr_rsp(asm, 40, Reg::Rax);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    mov_mr_rsp(asm, 48, Reg::Rax);
+    call_import(asm, iat, Import::CreateFileA);
+    asm.mov_ri(Reg::R10, -1);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".wf_done");
+    asm.mov_mr_rbp(-24, Reg::Rax); // handle
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.call_label("rt_strlen");
+    asm.mov_mr_rbp(-32, Reg::Rax); // len
+    asm.mov_rm_rbp(Reg::Rcx, -24);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.mov_rm_rbp(Reg::R8, -32);
+    lea_rbp(asm, Reg::R9, -40);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    mov_mr_rsp(asm, 32, Reg::Rax);
+    call_import(asm, iat, Import::WriteFile);
+    asm.mov_rm_rbp(Reg::Rcx, -24);
+    call_import(asm, iat, Import::CloseHandle);
+    asm.label(".wf_done");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
     epilogue(asm);
 }

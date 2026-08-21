@@ -1,0 +1,15 @@
+// List helpers. `import list` (resolved from the `std/` directory).
+
+fn is_empty(xs) -> Bool {
+    len(xs) == 0
+}
+
+fn rest(xs) -> [dyn] {
+    var out = []
+    var i = 1
+    while i < len(xs) {
+        push(out, xs[i])
+        i = i + 1
+    }
+    out
+}

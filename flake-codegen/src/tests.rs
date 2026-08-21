@@ -194,6 +194,24 @@ fn main() {
 }
 
 #[test]
+fn native_stdlib_natives() {
+    let out = run_native(&src(
+        r#"
+fn main() {
+    print(first([9, 8, 7]))
+    print(last([9, 8, 7]))
+    print(starts_with("flake", "fl"))
+    print(ends_with("flake", "ke"))
+    print(contains("abc", "b"))
+    print(contains([1, 2, 3], 2))
+}
+"#,
+    ))
+    .expect("stdlib natives");
+    assert_eq!(out, "9\n7\ntrue\ntrue\ntrue\ntrue\n");
+}
+
+#[test]
 fn native_modules() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("examples");
     let path = dir.join("modules.flk");

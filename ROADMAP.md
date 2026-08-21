@@ -14,7 +14,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Expanded native x86-64 backend | **done** |
 | 2 | Modules and imports | **done** |
 | 3 | Stronger gradual ownership | **done** |
-| 4 | Standard library expansion | pending |
+| 4 | Standard library expansion | **done** |
 | 5 | Better diagnostics and comprehensive tests | pending |
 | 6 | Polish, documentation and examples | pending |
 | 7 | Flake v0.3 complete | pending |
@@ -43,6 +43,12 @@ There is no LLVM, Cranelift, or C transpilation.
 - Moving an `owned` value inside a loop is rejected
 - If/else: a value is moved after the `if` only if both branches move it
 - Unannotated code is unchanged
+
+## What v0.3 milestone 4 delivers
+
+- Prelude natives: `write_file`, `contains`, `starts_with`, `ends_with`, `first`, `last`
+- Flake modules under `std/` (`list`, `string`), found by walking up from the importer
+- Example: [examples/stdlib.flk](examples/stdlib.flk)
 
 ## v0.2 milestones
 

@@ -28,10 +28,11 @@ struct Builder {
     next_local: u32,
     next_block: u32,
     names: Names,
+    fn_rets: HashMap<String, IrType>,
 }
 
 impl Builder {
-    fn new(names: Names) -> Self {
+    fn new(names: Names, fn_rets: HashMap<String, IrType>) -> Self {
         let entry = BlockId(0);
         Self {
             locals: Vec::new(),
@@ -44,6 +45,7 @@ impl Builder {
             next_local: 0,
             next_block: 1,
             names,
+            fn_rets,
         }
     }
 
@@ -104,25 +106,32 @@ pub fn lower(source: &Source) -> Result<Module, IrError> {
 }
 
 pub fn lower_program(name: &str, program: &Program) -> Module {
-    lower_program_with(
-        name,
-        program,
-        &Names {
-            prefix: None,
-            imports: HashMap::new(),
-            local_fns: fn_names(program),
-            imported_fns: HashMap::new(),
-        },
-    )
+    let names = Names {
+        prefix: None,
+        imports: HashMap::new(),
+        local_fns: fn_names(program),
+        imported_fns: HashMap::new(),
+    };
+    let mut fn_rets = HashMap::new();
+    for item in &program.items {
+        if let Item::Fn(func) = item {
+            fn_rets.insert(
+                names.global(&func.name.name),
+                lower_type(func.return_type.as_ref()),
+            );
+        }
+    }
+    lower_program_with(name, program, &names, &fn_rets)
 }
 
 pub fn lower_graph(graph: &ModuleGraph) -> Module {
     let mut structs = Vec::new();
     let mut functions = Vec::new();
     let entry = graph.entry().name.as_str();
+    let fn_rets = collect_fn_rets(graph);
     for module in &graph.modules {
         let names = names_for(graph, module, module.name == entry);
-        let part = lower_program_with(&module.name, &module.program, &names);
+        let part = lower_program_with(&module.name, &module.program, &names, &fn_rets);
         structs.extend(part.structs);
         functions.extend(part.functions);
     }
@@ -201,7 +210,29 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
     }
 }
 
-fn lower_program_with(name: &str, program: &Program, names: &Names) -> Module {
+fn collect_fn_rets(graph: &ModuleGraph) -> HashMap<String, IrType> {
+    let mut fn_rets = HashMap::new();
+    let entry = graph.entry().name.as_str();
+    for module in &graph.modules {
+        let names = names_for(graph, module, module.name == entry);
+        for item in &module.program.items {
+            if let Item::Fn(func) = item {
+                fn_rets.insert(
+                    names.global(&func.name.name),
+                    lower_type(func.return_type.as_ref()),
+                );
+            }
+        }
+    }
+    fn_rets
+}
+
+fn lower_program_with(
+    name: &str,
+    program: &Program,
+    names: &Names,
+    fn_rets: &HashMap<String, IrType>,
+) -> Module {
     let mut structs = Vec::new();
     let mut functions = Vec::new();
     for item in &program.items {
@@ -216,7 +247,7 @@ fn lower_program_with(name: &str, program: &Program, names: &Names) -> Module {
                         .collect(),
                 });
             }
-            Item::Fn(func) => functions.push(lower_fn(func, names)),
+            Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets)),
             Item::Type(_) | Item::Import(_) => {}
         }
     }
@@ -227,8 +258,8 @@ fn lower_program_with(name: &str, program: &Program, names: &Names) -> Module {
     }
 }
 
-fn lower_fn(func: &FnDecl, names: &Names) -> Function {
-    let mut b = Builder::new(names.clone());
+fn lower_fn(func: &FnDecl, names: &Names, fn_rets: &HashMap<String, IrType>) -> Function {
+    let mut b = Builder::new(names.clone(), fn_rets.clone());
     let mut params = Vec::new();
     for p in &func.params {
         let ty = lower_type(p.ty.as_ref());
@@ -527,7 +558,14 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                 other => Callee::Local(lower_expr(b, other)),
             };
             let dest_ty = match &callee {
-                Callee::Static(name) => native_result_ty(name),
+                Callee::Static(name) => {
+                    let native = native_result_ty(name);
+                    if !matches!(native, IrType::Dyn) || is_native_name(name) {
+                        native
+                    } else {
+                        b.fn_rets.get(name).cloned().unwrap_or(IrType::Dyn)
+                    }
+                }
                 Callee::Local(_) => IrType::Dyn,
             };
             let dest = b.alloc(None, dest_ty);
@@ -802,11 +840,40 @@ fn lower_type(ty: Option<&TypeExpr>) -> IrType {
     }
 }
 
+fn is_native_name(name: &str) -> bool {
+    matches!(
+        name,
+        "print"
+            | "len"
+            | "push"
+            | "pop"
+            | "str"
+            | "int"
+            | "float"
+            | "type_of"
+            | "assert"
+            | "read_file"
+            | "write_file"
+            | "abs"
+            | "min"
+            | "max"
+            | "range"
+            | "join"
+            | "split"
+            | "contains"
+            | "starts_with"
+            | "ends_with"
+            | "first"
+            | "last"
+    )
+}
+
 fn native_result_ty(name: &str) -> IrType {
     match name {
-        "print" | "push" | "assert" => IrType::Nil,
+        "print" | "push" | "assert" | "write_file" => IrType::Nil,
         "len" | "int" => IrType::Int,
         "str" | "join" | "type_of" | "read_file" => IrType::String,
+        "contains" | "starts_with" | "ends_with" => IrType::Bool,
         "range" => IrType::Range,
         "split" => IrType::List(Box::new(IrType::String)),
         "float" => IrType::Float,

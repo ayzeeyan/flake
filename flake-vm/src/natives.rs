@@ -196,6 +196,80 @@ pub fn call_native(
             };
             Ok(Value::List(Rc::new(RefCell::new(parts))))
         }
+        Native::WriteFile => {
+            expect_arity("write_file", args, 2)?;
+            let path = match &args[0] {
+                Value::String(s) => s.to_string(),
+                other => {
+                    return Err(VmError::new(
+                        span,
+                        format!("write_file() expected String path, found {}", other.type_name()),
+                    ));
+                }
+            };
+            let text = args[1].display_value();
+            std::fs::write(&path, text).map_err(|e| {
+                VmError::new(span, format!("failed to write `{path}`: {e}"))
+            })?;
+            Ok(Value::Nil)
+        }
+        Native::Contains => {
+            expect_arity("contains", args, 2)?;
+            match &args[0] {
+                Value::String(s) => Ok(Value::Bool(s.contains(&args[1].display_value()))),
+                Value::List(items) => {
+                    Ok(Value::Bool(items.borrow().iter().any(|v| v.equals(&args[1]))))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("contains() expected String or List, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::StartsWith => {
+            expect_arity("starts_with", args, 2)?;
+            match (&args[0], &args[1]) {
+                (Value::String(s), Value::String(p)) => Ok(Value::Bool(s.starts_with(p.as_ref()))),
+                _ => Err(VmError::new(span, "starts_with() expected two Strings")),
+            }
+        }
+        Native::EndsWith => {
+            expect_arity("ends_with", args, 2)?;
+            match (&args[0], &args[1]) {
+                (Value::String(s), Value::String(p)) => Ok(Value::Bool(s.ends_with(p.as_ref()))),
+                _ => Err(VmError::new(span, "ends_with() expected two Strings")),
+            }
+        }
+        Native::First => {
+            expect_arity("first", args, 1)?;
+            match &args[0] {
+                Value::List(v) => Ok(v.borrow().first().cloned().unwrap_or(Value::Nil)),
+                Value::String(s) => Ok(s
+                    .chars()
+                    .next()
+                    .map(|c| Value::from_string(c.to_string()))
+                    .unwrap_or(Value::Nil)),
+                other => Err(VmError::new(
+                    span,
+                    format!("first() expected List or String, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::Last => {
+            expect_arity("last", args, 1)?;
+            match &args[0] {
+                Value::List(v) => Ok(v.borrow().last().cloned().unwrap_or(Value::Nil)),
+                Value::String(s) => Ok(s
+                    .chars()
+                    .last()
+                    .map(|c| Value::from_string(c.to_string()))
+                    .unwrap_or(Value::Nil)),
+                other => Err(VmError::new(
+                    span,
+                    format!("last() expected List or String, found {}", other.type_name()),
+                )),
+            }
+        }
     }
 }
 

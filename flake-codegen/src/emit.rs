@@ -642,6 +642,31 @@ fn emit_call(
             store_rax(dest, asm);
             Ok(())
         }
+        Callee::Static(name) if name == "write_file" => {
+            if args.len() < 2 {
+                return Err(CodegenError::new("write_file() expected 2 arguments"));
+            }
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            load_as_cstr(func, args[1], asm, strings, strs, uniq);
+            asm.mov_rr(Reg::Rdx, Reg::Rax);
+            asm.call_label("rt_write_file");
+            if let Some(d) = dest {
+                asm.xor_rr(Reg::Rax, Reg::Rax);
+                asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
+            }
+            Ok(())
+        }
+        Callee::Static(name) if name == "starts_with" => {
+            emit_binary_rt("rt_starts_with", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "ends_with" => {
+            emit_binary_rt("rt_ends_with", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "contains" => emit_native_contains(func, dest, args, asm),
+        Callee::Static(name) if name == "first" => emit_native_first_last(func, dest, args, asm, true),
+        Callee::Static(name) if name == "last" => emit_native_first_last(func, dest, args, asm, false),
         Callee::Static(name) if name == "float" => Err(CodegenError::new(
             "native backend does not yet lower float()",
         )),
@@ -938,6 +963,64 @@ fn emit_native_assert(
         asm.xor_rr(Reg::Rax, Reg::Rax);
         asm.mov_mr_rbp(local_disp(*d), Reg::Rax);
     }
+    Ok(())
+}
+
+fn emit_native_contains(
+    func: &Function,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    if args.len() < 2 {
+        return Err(CodegenError::new("contains() expected 2 arguments"));
+    }
+    match local_ty(func, args[0]) {
+        IrType::List(_) => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+            asm.call_label("rt_list_contains");
+        }
+        _ => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            asm.mov_rm_rbp(Reg::Rdx, local_disp(args[1]));
+            asm.call_label("rt_contains");
+        }
+    }
+    store_rax(dest, asm);
+    Ok(())
+}
+
+fn emit_native_first_last(
+    func: &Function,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+    first: bool,
+) -> Result<(), CodegenError> {
+    if args.is_empty() {
+        return Err(CodegenError::new("first/last expected 1 argument"));
+    }
+    match local_ty(func, args[0]) {
+        IrType::String => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            if first {
+                asm.xor_rr(Reg::Rdx, Reg::Rdx);
+            } else {
+                asm.mov_ri(Reg::Rdx, -1);
+            }
+            asm.call_label("rt_str_index");
+        }
+        _ => {
+            asm.mov_rm_rbp(Reg::Rcx, local_disp(args[0]));
+            if first {
+                asm.call_label("rt_list_first");
+            } else {
+                asm.call_label("rt_list_last");
+            }
+        }
+    }
+    store_rax(dest, asm);
     Ok(())
 }
 

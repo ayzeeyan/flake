@@ -155,6 +155,12 @@ fn install_builtins(env: &Env) {
         NativeFn::Range,
         NativeFn::Join,
         NativeFn::Split,
+        NativeFn::WriteFile,
+        NativeFn::Contains,
+        NativeFn::StartsWith,
+        NativeFn::EndsWith,
+        NativeFn::First,
+        NativeFn::Last,
     ] {
         env.define(native.name(), Value::Native(native), false);
     }
@@ -830,6 +836,79 @@ impl<'io> Interpreter<'io> {
                     s.split(&sep).map(Value::from_string).collect()
                 };
                 Ok(Value::List(Rc::new(RefCell::new(parts))))
+            }
+            NativeFn::WriteFile => {
+                expect_arity("write_file", args, 2, span)?;
+                let path = match &args[0] {
+                    Value::String(s) => s.to_string(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            span,
+                            format!("write_file() expected String path, found {}", other.type_name()),
+                        )
+                        .into());
+                    }
+                };
+                let text = args[1].display_value();
+                std::fs::write(&path, text).map_err(|e| {
+                    RuntimeError::new(span, format!("failed to write `{path}`: {e}"))
+                })?;
+                Ok(Value::Nil)
+            }
+            NativeFn::Contains => {
+                expect_arity("contains", args, 2, span)?;
+                match &args[0] {
+                    Value::String(s) => {
+                        let needle = args[1].display_value();
+                        Ok(Value::Bool(s.contains(&needle)))
+                    }
+                    Value::List(items) => {
+                        Ok(Value::Bool(items.borrow().iter().any(|v| v.equals(&args[1]))))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("contains() expected String or List, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::StartsWith => {
+                expect_arity("starts_with", args, 2, span)?;
+                match (&args[0], &args[1]) {
+                    (Value::String(s), Value::String(p)) => Ok(Value::Bool(s.starts_with(p.as_ref()))),
+                    _ => Err(RuntimeError::new(span, "starts_with() expected two Strings").into()),
+                }
+            }
+            NativeFn::EndsWith => {
+                expect_arity("ends_with", args, 2, span)?;
+                match (&args[0], &args[1]) {
+                    (Value::String(s), Value::String(p)) => Ok(Value::Bool(s.ends_with(p.as_ref()))),
+                    _ => Err(RuntimeError::new(span, "ends_with() expected two Strings").into()),
+                }
+            }
+            NativeFn::First => {
+                expect_arity("first", args, 1, span)?;
+                match &args[0] {
+                    Value::List(v) => Ok(v.borrow().first().cloned().unwrap_or(Value::Nil)),
+                    Value::String(s) => Ok(s.chars().next().map(|c| Value::from_string(c.to_string())).unwrap_or(Value::Nil)),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("first() expected List or String, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Last => {
+                expect_arity("last", args, 1, span)?;
+                match &args[0] {
+                    Value::List(v) => Ok(v.borrow().last().cloned().unwrap_or(Value::Nil)),
+                    Value::String(s) => Ok(s.chars().last().map(|c| Value::from_string(c.to_string())).unwrap_or(Value::Nil)),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("last() expected List or String, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
             }
         }
     }

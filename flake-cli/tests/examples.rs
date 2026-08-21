@@ -60,6 +60,7 @@ fn all_examples_typecheck() {
         "ownership.flk",
         "config.flk",
         "modules.flk",
+        "stdlib.flk",
     ] {
         check_example(name);
     }
@@ -119,6 +120,14 @@ fn modules_output() {
 }
 
 #[test]
+fn stdlib_output() {
+    let out = run_example("stdlib.flk");
+    assert!(out.contains("first = 1 last = 3"), "{out}");
+    assert!(out.contains("rest = [2, 3]"), "{out}");
+    assert!(out.contains("true"), "{out}");
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",
@@ -129,6 +138,7 @@ fn native_matches_interpreter_on_all_examples() {
         "ownership.flk",
         "config.flk",
         "modules.flk",
+        "stdlib.flk",
     ] {
         let interp = run_example(name);
         let output = flake_bin()
@@ -158,6 +168,7 @@ fn vm_matches_interpreter_on_all_examples() {
         "ownership.flk",
         "config.flk",
         "modules.flk",
+        "stdlib.flk",
     ] {
         let interp = run_example(name);
         let vm = run_example_vm(name);

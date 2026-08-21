@@ -77,10 +77,16 @@ pub enum Native {
     Range,
     Join,
     Split,
+    WriteFile,
+    Contains,
+    StartsWith,
+    EndsWith,
+    First,
+    Last,
 }
 
 impl Native {
-    pub fn all() -> [Native; 16] {
+    pub fn all() -> [Native; 22] {
         [
             Native::Print,
             Native::Len,
@@ -98,6 +104,12 @@ impl Native {
             Native::Range,
             Native::Join,
             Native::Split,
+            Native::WriteFile,
+            Native::Contains,
+            Native::StartsWith,
+            Native::EndsWith,
+            Native::First,
+            Native::Last,
         ]
     }
 
@@ -120,6 +132,12 @@ impl Native {
             Self::Range => "range",
             Self::Join => "join",
             Self::Split => "split",
+            Self::WriteFile => "write_file",
+            Self::Contains => "contains",
+            Self::StartsWith => "starts_with",
+            Self::EndsWith => "ends_with",
+            Self::First => "first",
+            Self::Last => "last",
         }
     }
 }
