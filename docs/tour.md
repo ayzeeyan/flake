@@ -122,6 +122,10 @@ fn reuse(name: owned String) / io {
 
 Copy types (`Int`, `Float`, `Bool`, `Nil`) never move.
 
+Borrows (`&x` / `&mut x`) last until the end of the current block. Moving an
+`owned` value inside a loop is an error. After `if`/`else`, a value is treated
+as moved only if both branches moved it.
+
 ## Control flow
 
 ```flake

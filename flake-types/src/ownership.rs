@@ -6,7 +6,7 @@
 //! - `&x` / `&mut x` borrow without moving
 //! - a value cannot be moved while borrowed, and `&mut` is exclusive
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use flake_ast::{Block, Expr, FnDecl, InterpPart, Item, Program, Span, Stmt, TypeExpr, UnOp};
 
@@ -24,7 +24,11 @@ enum Kind {
 enum State {
     Available,
     Moved(Span),
-    Borrowed { mutable: bool, at: Span },
+    Borrowed {
+        mutable: bool,
+        at: Span,
+        depth: usize,
+    },
 }
 
 #[derive(Clone)]
@@ -49,7 +53,51 @@ impl OwnCx {
     }
 
     fn pop(&mut self) {
+        let depth = self.scopes.len().saturating_sub(1);
         self.scopes.pop();
+        // Scope-based borrows: a borrow ends when its block ends.
+        for scope in &mut self.scopes {
+            for binding in scope.values_mut() {
+                if let State::Borrowed { depth: d, .. } = binding.state {
+                    if d >= depth {
+                        binding.state = State::Available;
+                    }
+                }
+            }
+        }
+    }
+
+    fn depth(&self) -> usize {
+        self.scopes.len().saturating_sub(1)
+    }
+
+    fn snapshot(&self) -> Vec<(String, State)> {
+        let mut out = Vec::new();
+        for scope in &self.scopes {
+            for (name, binding) in scope {
+                out.push((name.clone(), binding.state));
+            }
+        }
+        out
+    }
+
+    fn restore_states(&mut self, snap: &[(String, State)]) {
+        for (name, state) in snap {
+            if let Some(binding) = self.lookup_mut(name) {
+                binding.state = *state;
+            }
+        }
+    }
+
+    fn merge_after_branches(&mut self, a: &[(String, State)], b: &[(String, State)]) {
+        let names: HashSet<_> = a.iter().map(|(n, _)| n.clone()).chain(b.iter().map(|(n, _)| n.clone())).collect();
+        for name in names {
+            let sa = a.iter().find(|(n, _)| n == &name).map(|(_, s)| *s);
+            let sb = b.iter().find(|(n, _)| n == &name).map(|(_, s)| *s);
+            if let Some(binding) = self.lookup_mut(&name) {
+                binding.state = merge_state(sa, sb);
+            }
+        }
     }
 
     fn define(&mut self, name: String, kind: Kind) {
@@ -146,17 +194,17 @@ fn check_stmt(cx: &mut OwnCx, stmt: &Stmt) -> Result<(), TypeError> {
         Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => Ok(()),
         Stmt::While { cond, body, .. } => {
             check_expr(cx, cond, false)?;
-            check_block(cx, body)
+            check_loop_body(cx, body)
         }
         Stmt::For { iter, body, name, .. } => {
             check_expr(cx, iter, false)?;
             cx.push();
             cx.define(name.name.clone(), Kind::Copy);
-            check_block(cx, body)?;
+            check_loop_body(cx, body)?;
             cx.pop();
             Ok(())
         }
-        Stmt::Loop { body, .. } => check_block(cx, body),
+        Stmt::Loop { body, .. } => check_loop_body(cx, body),
         Stmt::Expr(e) => check_expr(cx, e, false),
     }
 }
@@ -207,12 +255,12 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
                             ));
                         }
                         Kind::Copy | Kind::Owned | Kind::Mut => {
-                            if let State::Borrowed { mutable: true, at } = binding.state {
+                            if let State::Borrowed { mutable: true, .. } = binding.state {
                                 return Err(TypeError::new(
                                     id.span,
                                     format!(
-                                        "cannot assign to `{}` while it is mutably borrowed (borrow at byte {})",
-                                        id.name, at.start
+                                        "cannot assign to `{}` while it is mutably borrowed",
+                                        id.name
                                     ),
                                 ));
                             }
@@ -248,9 +296,16 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             ..
         } => {
             check_expr(cx, cond, false)?;
+            let before = cx.snapshot();
             check_block(cx, then_block)?;
+            let after_then = cx.snapshot();
+            cx.restore_states(&before);
             if let Some(els) = else_block {
                 check_expr(cx, els, move_ok)?;
+                let after_else = cx.snapshot();
+                cx.merge_after_branches(&after_then, &after_else);
+            } else {
+                cx.restore_states(&before);
             }
             Ok(())
         }
@@ -266,30 +321,26 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
 
 fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), TypeError> {
     if let Expr::Ident(id) = expr {
+        let depth = cx.depth();
         let Some(binding) = cx.lookup_mut(&id.name) else {
             return Ok(());
         };
         match binding.state {
-            State::Moved(at) => {
+            State::Moved(_) => {
                 return Err(TypeError::new(
                     span,
                     format!(
-                        "cannot borrow `{name}` because it was moved (at byte {moved})",
-                        name = id.name,
-                        moved = at.start
+                        "cannot borrow `{}` because it was already moved",
+                        id.name
                     ),
                 ));
             }
-            State::Borrowed {
-                mutable: true,
-                at,
-            } => {
+            State::Borrowed { mutable: true, .. } => {
                 return Err(TypeError::new(
                     span,
                     format!(
-                        "cannot borrow `{name}` because it is already mutably borrowed (at byte {b})",
-                        name = id.name,
-                        b = at.start
+                        "cannot borrow `{}` because it is already mutably borrowed",
+                        id.name
                     ),
                 ));
             }
@@ -299,8 +350,8 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
                 return Err(TypeError::new(
                     span,
                     format!(
-                        "cannot mutably borrow `{name}` because it is already borrowed",
-                        name = id.name
+                        "cannot mutably borrow `{}` because it is already borrowed",
+                        id.name
                     ),
                 ));
             }
@@ -314,6 +365,7 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
                 binding.state = State::Borrowed {
                     mutable,
                     at: span,
+                    depth,
                 };
             }
         }
@@ -328,18 +380,19 @@ fn use_binding(cx: &mut OwnCx, name: &str, span: Span, move_ok: bool) -> Result<
         return Ok(());
     };
     match binding.state {
-        State::Moved(at) => {
-            return Err(TypeError::new(
-                span,
-                format!("use of moved value `{name}`; it was moved at byte {}", at.start),
-            ));
-        }
-        State::Borrowed { at, .. } if move_ok && binding.kind == Kind::Owned => {
+        State::Moved(_) => {
             return Err(TypeError::new(
                 span,
                 format!(
-                    "cannot move `{name}` while it is borrowed (borrow at byte {})",
-                    at.start
+                    "use of moved value `{name}`\nhelp: in `strict` functions, `owned` values are moved on use; take `ref T` to reuse"
+                ),
+            ));
+        }
+        State::Borrowed { .. } if move_ok && binding.kind == Kind::Owned => {
+            return Err(TypeError::new(
+                span,
+                format!(
+                    "cannot move `{name}` while it is borrowed\nhelp: the borrow lasts until the end of the current block"
                 ),
             ));
         }
@@ -349,4 +402,50 @@ fn use_binding(cx: &mut OwnCx, name: &str, span: Span, move_ok: bool) -> Result<
         binding.state = State::Moved(span);
     }
     Ok(())
+}
+
+fn check_loop_body(cx: &mut OwnCx, body: &Block) -> Result<(), TypeError> {
+    let before = cx.snapshot();
+    check_block(cx, body)?;
+    let after = cx.snapshot();
+    for (name, state) in &after {
+        if matches!(state, State::Moved(_)) {
+            let was_moved = before
+                .iter()
+                .find(|(n, _)| n == name)
+                .is_some_and(|(_, s)| matches!(s, State::Moved(_)));
+            if !was_moved {
+                return Err(TypeError::new(
+                    body.span,
+                    format!(
+                        "cannot move `{name}` inside a loop\nhelp: `owned` values can be moved only once"
+                    ),
+                ));
+            }
+        }
+    }
+    cx.restore_states(&before);
+    Ok(())
+}
+
+fn merge_state(a: Option<State>, b: Option<State>) -> State {
+    match (a, b) {
+        (Some(State::Moved(s)), Some(State::Moved(_))) => State::Moved(s),
+        (Some(State::Borrowed { mutable: m1, at, depth }), Some(State::Borrowed { mutable: m2, .. })) => {
+            State::Borrowed {
+                mutable: m1 || m2,
+                at,
+                depth,
+            }
+        }
+        (Some(State::Borrowed { mutable, at, depth }), _)
+        | (_, Some(State::Borrowed { mutable, at, depth })) => State::Borrowed { mutable, at, depth },
+        (Some(State::Moved(_)), _) | (_, Some(State::Moved(_))) => {
+            // Only one branch moved: the value is not definitely moved.
+            State::Available
+        }
+        (Some(s), _) => s,
+        (_, Some(s)) => s,
+        _ => State::Available,
+    }
 }

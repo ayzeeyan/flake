@@ -252,6 +252,56 @@ fn main() { f() }
 }
 
 #[test]
+fn borrow_ends_at_end_of_block() {
+    ok(r#"
+strict fn f() {
+    let x: owned String = "hi"
+    {
+        let r = &x
+        print(r)
+    }
+    print(x)
+}
+fn main() { f() }
+"#);
+}
+
+#[test]
+fn cannot_move_owned_inside_loop() {
+    let msg = err(
+        r#"
+strict fn f() {
+    let x: owned String = "hi"
+    loop {
+        print(x)
+    }
+}
+fn main() { f() }
+"#,
+    );
+    assert!(msg.contains("loop") || msg.contains("moved"), "{msg}");
+}
+
+#[test]
+fn if_else_move_both_branches_then_unusable() {
+    let msg = err(
+        r#"
+strict fn f(b: Bool) {
+    let x: owned String = "hi"
+    if b {
+        print(x)
+    } else {
+        print(x)
+    }
+    print(x)
+}
+fn main() { f(true) }
+"#,
+    );
+    assert!(msg.contains("moved"), "{msg}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
