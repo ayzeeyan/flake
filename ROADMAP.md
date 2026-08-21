@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | High-quality native x86-64 backend | **done** |
-| 2 | Mature gradual ownership | next |
+| 2 | Mature gradual ownership | **done** |
 | 3 | Language and module expansion | pending |
 | 4 | Standard library maturity | pending |
 | 5 | Cross-backend consistency and diagnostics | pending |
@@ -25,6 +25,12 @@ There is no LLVM, Cranelift, or C transpilation.
 - Solid Windows x64 ABI (home space, stack args, callee-saved save/restore)
 - Native floats via SSE2; indirect calls via `call r64`
 - Existing examples still match the interpreter on `flake run --native`
+
+## What v0.4 milestone 2 delivers
+
+- Temporary borrows (`print(&x)`) end after the statement
+- Assignment is forbidden while a value is borrowed at all, not only `&mut`
+- Ownership model documented in [docs/ownership.md](docs/ownership.md)
 
 ## v0.3 milestones
 

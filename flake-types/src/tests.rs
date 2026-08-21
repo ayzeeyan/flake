@@ -252,6 +252,34 @@ fn main() { f() }
 }
 
 #[test]
+fn temp_borrow_ends_after_statement() {
+    ok(r#"
+strict fn f() {
+    let x: owned String = "hi"
+    print(&x)
+    print(x)
+}
+fn main() { f() }
+"#);
+}
+
+#[test]
+fn cannot_assign_while_shared_borrow() {
+    let msg = err(
+        r#"
+strict fn f() {
+    var x: owned String = "hi"
+    let r = &x
+    x = "no"
+    print(r)
+}
+fn main() { f() }
+"#,
+    );
+    assert!(msg.contains("borrow"), "{msg}");
+}
+
+#[test]
 fn borrow_ends_at_end_of_block() {
     ok(r#"
 strict fn f() {

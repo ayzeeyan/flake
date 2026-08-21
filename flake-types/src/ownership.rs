@@ -28,6 +28,8 @@ enum State {
         mutable: bool,
         at: Span,
         depth: usize,
+        /// Statement-local borrow (e.g. a call argument `&x`). Ends after the statement.
+        temp: bool,
     },
 }
 
@@ -118,6 +120,26 @@ impl OwnCx {
         }
         None
     }
+
+    fn pin_temps(&mut self) {
+        for scope in &mut self.scopes {
+            for binding in scope.values_mut() {
+                if let State::Borrowed { temp, .. } = &mut binding.state {
+                    *temp = false;
+                }
+            }
+        }
+    }
+
+    fn clear_temps(&mut self) {
+        for scope in &mut self.scopes {
+            for binding in scope.values_mut() {
+                if let State::Borrowed { temp: true, .. } = binding.state {
+                    binding.state = State::Available;
+                }
+            }
+        }
+    }
 }
 
 /// Check ownership rules on `strict` / `owned` functions. Other items are ignored.
@@ -188,9 +210,14 @@ fn check_stmt(cx: &mut OwnCx, stmt: &Stmt) -> Result<(), TypeError> {
             check_expr(cx, &s.value, true)?;
             let kind = kind_from_type(s.ty.as_ref(), true);
             cx.define(s.name.name.clone(), kind);
+            cx.pin_temps();
             Ok(())
         }
-        Stmt::Return { value: Some(v), .. } => check_expr(cx, v, true),
+        Stmt::Return { value: Some(v), .. } => {
+            check_expr(cx, v, true)?;
+            cx.clear_temps();
+            Ok(())
+        }
         Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => Ok(()),
         Stmt::While { cond, body, .. } => {
             check_expr(cx, cond, false)?;
@@ -205,7 +232,11 @@ fn check_stmt(cx: &mut OwnCx, stmt: &Stmt) -> Result<(), TypeError> {
             Ok(())
         }
         Stmt::Loop { body, .. } => check_loop_body(cx, body),
-        Stmt::Expr(e) => check_expr(cx, e, false),
+        Stmt::Expr(e) => {
+            check_expr(cx, e, false)?;
+            cx.clear_temps();
+            Ok(())
+        }
     }
 }
 
@@ -255,11 +286,11 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
                             ));
                         }
                         Kind::Copy | Kind::Owned | Kind::Mut => {
-                            if let State::Borrowed { mutable: true, .. } = binding.state {
+                            if let State::Borrowed { .. } = binding.state {
                                 return Err(TypeError::new(
                                     id.span,
                                     format!(
-                                        "cannot assign to `{}` while it is mutably borrowed",
+                                        "cannot assign to `{}` while it is borrowed\nhelp: the borrow must end before the value is assigned",
                                         id.name
                                     ),
                                 ));
@@ -366,6 +397,7 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
                     mutable,
                     at: span,
                     depth,
+                    temp: true,
                 };
             }
         }
@@ -431,15 +463,43 @@ fn check_loop_body(cx: &mut OwnCx, body: &Block) -> Result<(), TypeError> {
 fn merge_state(a: Option<State>, b: Option<State>) -> State {
     match (a, b) {
         (Some(State::Moved(s)), Some(State::Moved(_))) => State::Moved(s),
-        (Some(State::Borrowed { mutable: m1, at, depth }), Some(State::Borrowed { mutable: m2, .. })) => {
-            State::Borrowed {
-                mutable: m1 || m2,
+        (
+            Some(State::Borrowed {
+                mutable: m1,
                 at,
                 depth,
-            }
-        }
-        (Some(State::Borrowed { mutable, at, depth }), _)
-        | (_, Some(State::Borrowed { mutable, at, depth })) => State::Borrowed { mutable, at, depth },
+                temp,
+            }),
+            Some(State::Borrowed { mutable: m2, .. }),
+        ) => State::Borrowed {
+            mutable: m1 || m2,
+            at,
+            depth,
+            temp,
+        },
+        (
+            Some(State::Borrowed {
+                mutable,
+                at,
+                depth,
+                temp,
+            }),
+            _,
+        )
+        | (
+            _,
+            Some(State::Borrowed {
+                mutable,
+                at,
+                depth,
+                temp,
+            }),
+        ) => State::Borrowed {
+            mutable,
+            at,
+            depth,
+            temp,
+        },
         (Some(State::Moved(_)), _) | (_, Some(State::Moved(_))) => {
             // Only one branch moved: the value is not definitely moved.
             State::Available
