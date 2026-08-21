@@ -18,7 +18,12 @@ pub fn render(source: &Source, span: Span, kind: &str, message: &str) -> String 
 
     let mut out = String::new();
     out.push_str(&format!("{kind}: {message}\n"));
-    out.push_str(&format!(" --> {}:{}:{}\n", source.name(), start.line, start.column));
+    out.push_str(&format!(
+        " --> {}:{}:{}\n",
+        source.name(),
+        start.line,
+        start.column
+    ));
     out.push_str("  |\n");
     out.push_str(&format!("{:>4} | {}\n", start.line, line_text));
     out.push_str(&format!(

@@ -34,10 +34,7 @@ pub enum CheckError {
     Type(#[from] TypeError),
     /// Type error whose span belongs to an imported file.
     #[error("{error}")]
-    TypeIn {
-        origin: Source,
-        error: TypeError,
-    },
+    TypeIn { origin: Source, error: TypeError },
     #[error(transparent)]
     Resolve(#[from] flake_parser::ResolveError),
 }

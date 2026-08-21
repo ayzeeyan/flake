@@ -92,7 +92,11 @@ impl OwnCx {
     }
 
     fn merge_after_branches(&mut self, a: &[(String, State)], b: &[(String, State)]) {
-        let names: HashSet<_> = a.iter().map(|(n, _)| n.clone()).chain(b.iter().map(|(n, _)| n.clone())).collect();
+        let names: HashSet<_> = a
+            .iter()
+            .map(|(n, _)| n.clone())
+            .chain(b.iter().map(|(n, _)| n.clone()))
+            .collect();
         for name in names {
             let sa = a.iter().find(|(n, _)| n == &name).map(|(_, s)| *s);
             let sb = b.iter().find(|(n, _)| n == &name).map(|(_, s)| *s);
@@ -181,7 +185,10 @@ fn kind_from_type(ty: Option<&TypeExpr>, default_owned: bool) -> Kind {
 fn is_copy_type(ty: &TypeExpr) -> bool {
     match ty {
         TypeExpr::Named { name, .. } => {
-            matches!(name.name.as_str(), "Int" | "Float" | "Bool" | "Nil" | "Unit")
+            matches!(
+                name.name.as_str(),
+                "Int" | "Float" | "Bool" | "Nil" | "Unit"
+            )
         }
         TypeExpr::Dyn { .. } => false,
         TypeExpr::Owned { inner, .. }
@@ -223,7 +230,9 @@ fn check_stmt(cx: &mut OwnCx, stmt: &Stmt) -> Result<(), TypeError> {
             check_expr(cx, cond, false)?;
             check_loop_body(cx, body)
         }
-        Stmt::For { iter, body, name, .. } => {
+        Stmt::For {
+            iter, body, name, ..
+        } => {
             check_expr(cx, iter, false)?;
             cx.push();
             cx.define(name.name.clone(), Kind::Copy);
@@ -347,6 +356,15 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             }
             Ok(())
         }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            check_expr(cx, scrutinee, false)?;
+            for arm in arms {
+                check_expr(cx, &arm.body, move_ok)?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -360,10 +378,7 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
             State::Moved(_) => {
                 return Err(TypeError::new(
                     span,
-                    format!(
-                        "cannot borrow `{}` because it was already moved",
-                        id.name
-                    ),
+                    format!("cannot borrow `{}` because it was already moved", id.name),
                 ));
             }
             State::Borrowed { mutable: true, .. } => {
@@ -375,9 +390,7 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
                     ),
                 ));
             }
-            State::Borrowed {
-                mutable: false, ..
-            } if mutable => {
+            State::Borrowed { mutable: false, .. } if mutable => {
                 return Err(TypeError::new(
                     span,
                     format!(

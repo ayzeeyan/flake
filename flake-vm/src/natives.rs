@@ -31,7 +31,10 @@ pub fn call_native(
                 Value::Map(m) => Ok(Value::Int(m.borrow().len() as i64)),
                 other => Err(VmError::new(
                     span,
-                    format!("len() expected List, String, or Map, found {}", other.type_name()),
+                    format!(
+                        "len() expected List, String, or Map, found {}",
+                        other.type_name()
+                    ),
                 )),
             }
         }
@@ -78,10 +81,7 @@ pub fn call_native(
             if args.is_empty() || args.len() > 2 {
                 return Err(VmError::new(span, "assert() expected 1 or 2 arguments"));
             }
-            if !args[0]
-                .as_bool()
-                .map_err(|m| VmError::new(span, m))?
-            {
+            if !args[0].as_bool().map_err(|m| VmError::new(span, m))? {
                 let msg = if args.len() == 2 {
                     args[1].display_value()
                 } else {
@@ -154,7 +154,10 @@ pub fn call_native(
                 other => {
                     return Err(VmError::new(
                         span,
-                        format!("join() separator expected String, found {}", other.type_name()),
+                        format!(
+                            "join() separator expected String, found {}",
+                            other.type_name()
+                        ),
                     ));
                 }
             };
@@ -185,12 +188,17 @@ pub fn call_native(
                 other => {
                     return Err(VmError::new(
                         span,
-                        format!("split() separator expected String, found {}", other.type_name()),
+                        format!(
+                            "split() separator expected String, found {}",
+                            other.type_name()
+                        ),
                     ));
                 }
             };
             let parts: Vec<_> = if sep.is_empty() {
-                s.chars().map(|c| Value::from_string(c.to_string())).collect()
+                s.chars()
+                    .map(|c| Value::from_string(c.to_string()))
+                    .collect()
             } else {
                 s.split(&sep).map(Value::from_string).collect()
             };
@@ -203,26 +211,31 @@ pub fn call_native(
                 other => {
                     return Err(VmError::new(
                         span,
-                        format!("write_file() expected String path, found {}", other.type_name()),
+                        format!(
+                            "write_file() expected String path, found {}",
+                            other.type_name()
+                        ),
                     ));
                 }
             };
             let text = args[1].display_value();
-            std::fs::write(&path, text).map_err(|e| {
-                VmError::new(span, format!("failed to write `{path}`: {e}"))
-            })?;
+            std::fs::write(&path, text)
+                .map_err(|e| VmError::new(span, format!("failed to write `{path}`: {e}")))?;
             Ok(Value::Nil)
         }
         Native::Contains => {
             expect_arity("contains", args, 2)?;
             match &args[0] {
                 Value::String(s) => Ok(Value::Bool(s.contains(&args[1].display_value()))),
-                Value::List(items) => {
-                    Ok(Value::Bool(items.borrow().iter().any(|v| v.equals(&args[1]))))
-                }
+                Value::List(items) => Ok(Value::Bool(
+                    items.borrow().iter().any(|v| v.equals(&args[1])),
+                )),
                 other => Err(VmError::new(
                     span,
-                    format!("contains() expected String or List, found {}", other.type_name()),
+                    format!(
+                        "contains() expected String or List, found {}",
+                        other.type_name()
+                    ),
                 )),
             }
         }
@@ -251,7 +264,10 @@ pub fn call_native(
                     .unwrap_or(Value::Nil)),
                 other => Err(VmError::new(
                     span,
-                    format!("first() expected List or String, found {}", other.type_name()),
+                    format!(
+                        "first() expected List or String, found {}",
+                        other.type_name()
+                    ),
                 )),
             }
         }
@@ -266,7 +282,10 @@ pub fn call_native(
                     .unwrap_or(Value::Nil)),
                 other => Err(VmError::new(
                     span,
-                    format!("last() expected List or String, found {}", other.type_name()),
+                    format!(
+                        "last() expected List or String, found {}",
+                        other.type_name()
+                    ),
                 )),
             }
         }

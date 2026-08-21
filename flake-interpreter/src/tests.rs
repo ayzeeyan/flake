@@ -245,6 +245,25 @@ fn write_file_roundtrip() {
 }
 
 #[test]
+fn enums_and_match() {
+    let src = include_str!("../../examples/enum.flk");
+    let (_, out) = run(src);
+    assert_eq!(out, "red\nrgb 1,2,3\nok 42\nerr nope\n");
+}
+
+#[test]
+fn enum_equality() {
+    let (_, out) = run(r#"
+enum Color { Red Green }
+fn main() {
+    print(Color.Red == Color.Red)
+    print(Color.Red == Color.Green)
+}
+"#);
+    assert_eq!(out, "true\nfalse\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

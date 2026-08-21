@@ -55,8 +55,14 @@ pub fn print_function(func: &Function, out: &mut String) {
         if func.params.contains(&local.id) {
             continue;
         }
-        let name = local.name.clone().unwrap_or_else(|| format!("t{}", local.id.0));
-        out.push_str(&format!("    local %{} {} : {}\n", local.id.0, name, local.ty));
+        let name = local
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("t{}", local.id.0));
+        out.push_str(&format!(
+            "    local %{} {} : {}\n",
+            local.id.0, name, local.ty
+        ));
     }
     for block in &func.blocks {
         out.push_str(&format!("  bb{}:\n", block.id.0));
@@ -101,7 +107,11 @@ fn format_inst(inst: &Inst) -> String {
         Inst::GetField { dest, obj, field } => format!("%{} = %{}.{}", dest.0, obj.0, field),
         Inst::SetField { obj, field, value } => format!("%{}.{} = %{}", obj.0, field, value.0),
         Inst::MakeList { dest, items } => {
-            let items = items.iter().map(|i| format!("%{}", i.0)).collect::<Vec<_>>().join(", ");
+            let items = items
+                .iter()
+                .map(|i| format!("%{}", i.0))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("%{} = list [{items}]", dest.0)
         }
         Inst::MakeMap { dest, keys, values } => {
@@ -127,7 +137,11 @@ fn format_inst(inst: &Inst) -> String {
             format!("%{}, %{} = iternext %{}", value.0, more.0, iter.0)
         }
         Inst::Concat { dest, parts } => {
-            let parts = parts.iter().map(|p| format!("%{}", p.0)).collect::<Vec<_>>().join(", ");
+            let parts = parts
+                .iter()
+                .map(|p| format!("%{}", p.0))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("%{} = concat {parts}", dest.0)
         }
         Inst::Jump { target } => format!("goto bb{}", target.0),

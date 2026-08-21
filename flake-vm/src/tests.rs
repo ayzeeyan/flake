@@ -176,6 +176,12 @@ fn all_examples() {
 }
 
 #[test]
+fn enums_and_match() {
+    let src = include_str!("../../examples/enum.flk");
+    assert_eq!(run(src), "red\nrgb 1,2,3\nok 42\nerr nope\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

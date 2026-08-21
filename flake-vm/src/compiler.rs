@@ -3,9 +3,10 @@
 use std::collections::{HashMap, HashSet};
 
 use flake_ast::{
-    AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, Stmt, UnOp,
+    AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, MatchArm, Pattern, Program,
+    Stmt, UnOp,
 };
-use flake_parser::{import_alias, qualify, ModuleGraph};
+use flake_parser::{ModuleGraph, import_alias, is_exported, qualify};
 
 use crate::error::VmError;
 use crate::opcode::{Chunk, Op};
@@ -19,6 +20,9 @@ struct Names {
     local_fns: HashSet<String>,
     /// bare imported name → qualified name
     imported_fns: HashMap<String, String>,
+    /// alias → exported function names (empty set means nothing is exported)
+    exported: HashMap<String, HashSet<String>>,
+    enums: HashMap<String, Vec<String>>,
 }
 
 impl Names {
@@ -35,7 +39,28 @@ impl Names {
     }
 
     fn field_global(&self, alias: &str, field: &str) -> Option<String> {
-        self.imports.get(alias).map(|module| qualify(module, field))
+        let module = self.imports.get(alias)?;
+        if let Some(exports) = self.exported.get(alias) {
+            if !exports.contains(field) {
+                return None;
+            }
+        }
+        Some(qualify(module, field))
+    }
+
+    fn enum_variants(&self, target: &Expr) -> Option<&[String]> {
+        match target {
+            Expr::Ident(id) => self.enums.get(&id.name).map(Vec::as_slice),
+            Expr::Field { target, field, .. } => {
+                if let Expr::Ident(module) = target.as_ref() {
+                    if self.imports.contains_key(&module.name) {
+                        return self.enums.get(&field.name).map(Vec::as_slice);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 }
 
@@ -171,7 +196,9 @@ impl<'a> FnCompiler<'a> {
             }
             Stmt::While { cond, body, .. } => self.compile_while(cond, body),
             Stmt::Loop { body, .. } => self.compile_loop(body),
-            Stmt::For { name, iter, body, .. } => self.compile_for(&name.name, iter, body),
+            Stmt::For {
+                name, iter, body, ..
+            } => self.compile_for(&name.name, iter, body),
             Stmt::Break { span } => {
                 let jump = self.chunk.emit(Op::Jump(0));
                 match self.loops.last_mut() {
@@ -339,9 +366,14 @@ impl<'a> FnCompiler<'a> {
                 let mut field_consts = Vec::new();
                 for (field, value) in fields {
                     self.compile_expr(value)?;
-                    field_consts.push(self.chunk.add_constant(Value::from_string(field.name.clone())));
+                    field_consts.push(
+                        self.chunk
+                            .add_constant(Value::from_string(field.name.clone())),
+                    );
                 }
-                let name_c = self.chunk.add_constant(Value::from_string(name.name.clone()));
+                let name_c = self
+                    .chunk
+                    .add_constant(Value::from_string(name.name.clone()));
                 self.chunk.emit(Op::BuildStruct {
                     name: name_c,
                     fields: field_consts,
@@ -397,9 +429,25 @@ impl<'a> FnCompiler<'a> {
                 Ok(())
             }
             Expr::Assign {
-                op, target, value, span,
+                op,
+                target,
+                value,
+                span,
             } => self.compile_assign(*op, target, value, *span),
             Expr::Call { callee, args, .. } => {
+                if let Expr::Field { target, field, .. } = callee.as_ref() {
+                    if let Some(vars) = self.names.enum_variants(target) {
+                        if let Some(tag) = vars.iter().position(|n| n == &field.name) {
+                            let c = self.chunk.add_constant(Value::Int(tag as i64));
+                            self.chunk.emit(Op::Constant(c));
+                            for arg in args {
+                                self.compile_expr(arg)?;
+                            }
+                            self.chunk.emit(Op::BuildList((args.len() + 1) as u16));
+                            return Ok(());
+                        }
+                    }
+                }
                 self.compile_expr(callee)?;
                 for arg in args {
                     self.compile_expr(arg)?;
@@ -414,6 +462,14 @@ impl<'a> FnCompiler<'a> {
                 Ok(())
             }
             Expr::Field { target, field, .. } => {
+                if let Some(vars) = self.names.enum_variants(target) {
+                    if let Some(tag) = vars.iter().position(|n| n == &field.name) {
+                        let c = self.chunk.add_constant(Value::Int(tag as i64));
+                        self.chunk.emit(Op::Constant(c));
+                        self.chunk.emit(Op::BuildList(1));
+                        return Ok(());
+                    }
+                }
                 if let Expr::Ident(id) = target.as_ref() {
                     if let Some(global) = self.names.field_global(&id.name, &field.name) {
                         let c = self.chunk.add_constant(Value::from_string(global));
@@ -422,7 +478,9 @@ impl<'a> FnCompiler<'a> {
                     }
                 }
                 self.compile_expr(target)?;
-                let c = self.chunk.add_constant(Value::from_string(field.name.clone()));
+                let c = self
+                    .chunk
+                    .add_constant(Value::from_string(field.name.clone()));
                 self.chunk.emit(Op::GetField(c));
                 Ok(())
             }
@@ -449,8 +507,97 @@ impl<'a> FnCompiler<'a> {
                 self.chunk.patch_jump(end_jump, end);
                 Ok(())
             }
+            Expr::Match {
+                scrutinee, arms, ..
+            } => self.compile_match(scrutinee, arms),
             Expr::Block(b) => self.compile_block_value(b, true),
         }
+    }
+
+    fn compile_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) -> Result<(), VmError> {
+        if arms.is_empty() {
+            self.chunk.emit(Op::Nil);
+            return Ok(());
+        }
+        self.compile_expr(scrutinee)?;
+        self.push_scope();
+        let src_slot = self.add_local("__match_src".into());
+        self.chunk.emit(Op::SetLocal(src_slot));
+        self.chunk.emit(Op::Pop);
+
+        self.chunk.emit(Op::GetLocal(src_slot));
+        let zero = self.chunk.add_constant(Value::Int(0));
+        self.chunk.emit(Op::Constant(zero));
+        self.chunk.emit(Op::GetIndex);
+        let tag_slot = self.add_local("__match_tag".into());
+        self.chunk.emit(Op::SetLocal(tag_slot));
+        self.chunk.emit(Op::Pop);
+
+        let mut end_jumps = Vec::new();
+        let mut last_was_variant = false;
+        for (i, arm) in arms.iter().enumerate() {
+            let last = i + 1 == arms.len();
+            last_was_variant = false;
+            match &arm.pattern {
+                Pattern::Wildcard { .. } | Pattern::Ident(_) => {
+                    self.push_scope();
+                    if let Pattern::Ident(id) = &arm.pattern {
+                        self.chunk.emit(Op::GetLocal(src_slot));
+                        let slot = self.add_local(id.name.clone());
+                        self.chunk.emit(Op::SetLocal(slot));
+                        self.chunk.emit(Op::Pop);
+                    }
+                    self.compile_expr(&arm.body)?;
+                    self.pop_scope();
+                    if !last {
+                        end_jumps.push(self.chunk.emit(Op::Jump(0)));
+                    }
+                }
+                Pattern::Variant {
+                    variant, binds, ty, ..
+                } => {
+                    last_was_variant = true;
+                    let ename = ty.as_ref().map(|t| t.name.as_str()).unwrap_or("");
+                    let tag_val = self
+                        .names
+                        .enums
+                        .get(ename)
+                        .and_then(|vs| vs.iter().position(|n| n == &variant.name))
+                        .unwrap_or(0) as i64;
+                    self.chunk.emit(Op::GetLocal(tag_slot));
+                    let want = self.chunk.add_constant(Value::Int(tag_val));
+                    self.chunk.emit(Op::Constant(want));
+                    self.chunk.emit(Op::Eq);
+                    let miss = self.chunk.emit(Op::JumpIfFalse(0));
+                    self.chunk.emit(Op::Pop);
+                    self.push_scope();
+                    for (fi, bind) in binds.iter().enumerate() {
+                        self.chunk.emit(Op::GetLocal(src_slot));
+                        let idx = self.chunk.add_constant(Value::Int((fi + 1) as i64));
+                        self.chunk.emit(Op::Constant(idx));
+                        self.chunk.emit(Op::GetIndex);
+                        let slot = self.add_local(bind.name.clone());
+                        self.chunk.emit(Op::SetLocal(slot));
+                        self.chunk.emit(Op::Pop);
+                    }
+                    self.compile_expr(&arm.body)?;
+                    self.pop_scope();
+                    end_jumps.push(self.chunk.emit(Op::Jump(0)));
+                    let miss_target = self.chunk.ops.len();
+                    self.chunk.patch_jump(miss, miss_target);
+                    self.chunk.emit(Op::Pop);
+                }
+            }
+        }
+        if last_was_variant {
+            self.chunk.emit(Op::Nil);
+        }
+        let end = self.chunk.ops.len();
+        for jump in end_jumps {
+            self.chunk.patch_jump(jump, end);
+        }
+        self.pop_scope();
+        Ok(())
     }
 
     fn compile_assign(
@@ -530,7 +677,9 @@ impl<'a> FnCompiler<'a> {
                 field,
                 ..
             } => {
-                let c = self.chunk.add_constant(Value::from_string(field.name.clone()));
+                let c = self
+                    .chunk
+                    .add_constant(Value::from_string(field.name.clone()));
                 if let Some(bin) = compound {
                     self.compile_expr(container)?;
                     self.chunk.emit(Op::Dup);
@@ -570,19 +719,24 @@ fn bin_op(op: BinOp) -> Op {
 
 #[allow(dead_code)]
 pub fn compile(program: &Program) -> Result<Compiled, VmError> {
-    compile_with_names(program, &Names {
-        prefix: None,
-        imports: HashMap::new(),
-        local_fns: program
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Fn(f) => Some(f.name.name.clone()),
-                _ => None,
-            })
-            .collect(),
-        imported_fns: HashMap::new(),
-    })
+    compile_with_names(
+        program,
+        &Names {
+            prefix: None,
+            imports: HashMap::new(),
+            local_fns: program
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    Item::Fn(f) => Some(f.name.name.clone()),
+                    _ => None,
+                })
+                .collect(),
+            imported_fns: HashMap::new(),
+            exported: HashMap::new(),
+            enums: enums_from(program),
+        },
+    )
 }
 
 pub fn compile_graph(graph: &ModuleGraph) -> Result<Compiled, VmError> {
@@ -608,17 +762,35 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
         .collect();
     let mut imports = HashMap::new();
     let mut imported_fns = HashMap::new();
+    let mut exported = HashMap::new();
+    let mut enums = enums_from(&module.program);
     for item in &module.program.items {
         if let Item::Import(import) = item {
             let module_name = import.path.name.clone();
             let alias = import_alias(import).to_string();
-            imports.insert(alias, module_name.clone());
+            imports.insert(alias.clone(), module_name.clone());
+            exported.entry(alias.clone()).or_insert_with(HashSet::new);
             if let Some(imported) = graph.get(&module_name) {
                 for item in &imported.program.items {
-                    if let Item::Fn(func) = item {
-                        imported_fns
-                            .entry(func.name.name.clone())
-                            .or_insert_with(|| qualify(&module_name, &func.name.name));
+                    if !is_exported(item, &imported.program) {
+                        continue;
+                    }
+                    match item {
+                        Item::Fn(func) => {
+                            imported_fns
+                                .entry(func.name.name.clone())
+                                .or_insert_with(|| qualify(&module_name, &func.name.name));
+                            exported
+                                .get_mut(&alias)
+                                .unwrap()
+                                .insert(func.name.name.clone());
+                        }
+                        Item::Enum(en) => {
+                            enums.entry(en.name.name.clone()).or_insert_with(|| {
+                                en.variants.iter().map(|v| v.name.name.clone()).collect()
+                            });
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -633,7 +805,22 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
         imports,
         local_fns,
         imported_fns,
+        exported,
+        enums,
     }
+}
+
+fn enums_from(program: &Program) -> HashMap<String, Vec<String>> {
+    let mut enums = HashMap::new();
+    for item in &program.items {
+        if let Item::Enum(en) = item {
+            enums.insert(
+                en.name.name.clone(),
+                en.variants.iter().map(|v| v.name.name.clone()).collect(),
+            );
+        }
+    }
+    enums
 }
 
 fn compile_with_names(program: &Program, names: &Names) -> Result<Compiled, VmError> {
@@ -641,7 +828,7 @@ fn compile_with_names(program: &Program, names: &Names) -> Result<Compiled, VmEr
     for item in &program.items {
         match item {
             Item::Fn(func) => functions.push(compile_fn(func, names)?),
-            Item::Import(_) | Item::Struct(_) | Item::Type(_) => {}
+            Item::Import(_) | Item::Struct(_) | Item::Type(_) | Item::Enum(_) => {}
         }
     }
     Ok(Compiled { functions })

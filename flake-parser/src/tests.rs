@@ -1,8 +1,6 @@
-use flake_ast::{
-    BinOp, Expr, InterpPart, Item, Literal, Stmt, TypeExpr, print_program,
-};
+use flake_ast::{BinOp, Expr, InterpPart, Item, Literal, Stmt, TypeExpr, print_program};
 
-use crate::{parse_repl, parse_str, ReplInput};
+use crate::{ReplInput, parse_repl, parse_str};
 
 fn parse_ok(src: &str) -> flake_ast::Program {
     parse_str(src).unwrap_or_else(|e| panic!("parse failed for {src:?}: {e}"))
@@ -59,9 +57,8 @@ fn hello_example_parses() {
 
 #[test]
 fn function_with_effects_and_types() {
-    let f = first_fn(
-        "fn load_config(path: String) -> Config / io + alloc {\n    read_file(path)\n}",
-    );
+    let f =
+        first_fn("fn load_config(path: String) -> Config / io + alloc {\n    read_file(path)\n}");
     assert_eq!(f.name.name, "load_config");
     assert_eq!(f.params.len(), 1);
     assert_eq!(f.params[0].name.name, "path");
@@ -94,7 +91,10 @@ fn arithmetic_precedence() {
             right,
             ..
         }) => {
-            assert!(matches!(right.as_ref(), Expr::Binary { op: BinOp::Mul, .. }));
+            assert!(matches!(
+                right.as_ref(),
+                Expr::Binary { op: BinOp::Mul, .. }
+            ));
         }
         other => panic!("expected add of mul, got {other:?}"),
     }
@@ -175,10 +175,7 @@ fn type_alias_and_dyn() {
         _ => panic!("fn"),
     };
     assert!(matches!(f.params[0].ty, Some(TypeExpr::Dyn { .. })));
-    assert!(matches!(
-        f.return_type,
-        Some(TypeExpr::Optional { .. })
-    ));
+    assert!(matches!(f.return_type, Some(TypeExpr::Optional { .. })));
 }
 
 #[test]
@@ -235,6 +232,46 @@ fn repl_parses_bare_expression() {
     match parse_repl(&src).unwrap() {
         ReplInput::Script(block) => assert!(block.tail.is_some()),
         other => panic!("expected script, got {other:?}"),
+    }
+}
+
+#[test]
+fn enum_and_match_parse() {
+    let src = r#"
+enum Color {
+    Red
+    Rgb(Int, Int, Int)
+}
+fn describe(c: Color) -> String {
+    match c {
+        Color.Red => "red"
+        Color.Rgb(r, g, b) => "rgb"
+        _ => "other"
+    }
+}
+"#;
+    let program = parse_ok(src);
+    assert!(matches!(program.items[0], Item::Enum(_)));
+    let f = match &program.items[1] {
+        Item::Fn(f) => f,
+        other => panic!("expected fn, got {other:?}"),
+    };
+    assert!(matches!(f.body.tail.as_deref(), Some(Expr::Match { .. })));
+    let pretty = print_program(&program);
+    assert!(pretty.contains("enum Color"), "{pretty}");
+    assert!(pretty.contains("match "), "{pretty}");
+    parse_str(&pretty).expect("pretty-printed enum/match should parse");
+}
+
+#[test]
+fn pub_enum_parses() {
+    let program = parse_ok("pub enum Flag { On Off }");
+    match &program.items[0] {
+        Item::Enum(e) => {
+            assert!(e.is_pub);
+            assert_eq!(e.variants.len(), 2);
+        }
+        other => panic!("expected enum, got {other:?}"),
     }
 }
 

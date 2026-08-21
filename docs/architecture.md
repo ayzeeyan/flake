@@ -25,7 +25,11 @@ source → lexer → parser → AST
 | `flake-cli` | `flake` CLI: `run`, `check`, `repl`, `ir`, `build` |
 
 `import name` loads `name.flk` next to the importer, then walks parent
-directories for `std/name.flk`.
+directories for `std/name.flk`. If a module contains any `pub` item, only those
+items are exported; otherwise everything is exported.
+
+`enum` / `match` are lowered to tagged lists (`[tag, fields…]`) on the IR, VM,
+and native paths. The interpreter keeps a dedicated enum value for display.
 
 The CLI type-checks before running (pass `--skip-check` to bypass).
 

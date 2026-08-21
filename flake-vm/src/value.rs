@@ -214,7 +214,9 @@ impl Value {
             (Self::Int(a), Self::Float(b)) => *a as f64 == *b,
             (Self::Float(a), Self::Int(b)) => *a == *b as f64,
             (Self::String(a), Self::String(b)) => a == b,
-            (Self::Range { start: a, end: b }, Self::Range { start: c, end: d }) => a == c && b == d,
+            (Self::Range { start: a, end: b }, Self::Range { start: c, end: d }) => {
+                a == c && b == d
+            }
             (Self::Native(a), Self::Native(b)) => a == b,
             (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
             (Self::List(a), Self::List(b)) => {
@@ -239,7 +241,9 @@ impl Value {
                     let f1 = f1.borrow();
                     let f2 = f2.borrow();
                     f1.len() == f2.len()
-                        && f1.iter().all(|(k, v)| f2.get(k).is_some_and(|o| v.equals(o)))
+                        && f1
+                            .iter()
+                            .all(|(k, v)| f2.get(k).is_some_and(|o| v.equals(o)))
                 }
             }
             _ => false,

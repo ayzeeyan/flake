@@ -38,6 +38,10 @@ pub enum Type {
         name: String,
         members: Vec<(String, Type)>,
     },
+    Enum {
+        name: String,
+        variants: Vec<(String, Vec<Type>)>,
+    },
 }
 
 impl Type {
@@ -90,6 +94,13 @@ impl Type {
                     .map(|(n, t)| (n.clone(), t.without_ownership()))
                     .collect(),
             },
+            Self::Enum { name, variants } => Self::Enum {
+                name: name.clone(),
+                variants: variants
+                    .iter()
+                    .map(|(n, ts)| (n.clone(), ts.iter().map(Self::without_ownership).collect()))
+                    .collect(),
+            },
             other => other.clone(),
         }
     }
@@ -117,6 +128,7 @@ impl fmt::Display for Type {
             Self::Map(k, v) => write!(f, "Map[{k}, {v}]"),
             Self::Struct { name, .. } => f.write_str(name),
             Self::Module { name, .. } => write!(f, "module {name}"),
+            Self::Enum { name, .. } => f.write_str(name),
             Self::Fn {
                 params,
                 ret,

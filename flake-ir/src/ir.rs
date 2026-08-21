@@ -187,7 +187,10 @@ pub enum Inst {
 impl Inst {
     #[must_use]
     pub fn is_terminator(&self) -> bool {
-        matches!(self, Self::Jump { .. } | Self::Branch { .. } | Self::Return { .. })
+        matches!(
+            self,
+            Self::Jump { .. } | Self::Branch { .. } | Self::Return { .. }
+        )
     }
 }
 

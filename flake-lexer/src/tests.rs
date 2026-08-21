@@ -38,7 +38,7 @@ fn whitespace_only_is_eof() {
 
 #[test]
 fn keywords_and_identifiers() {
-    let src = "fn let var if else while for loop in return break continue true false nil dyn type struct strict owned ref mut import as pub unsafe match foo _bar Baz_1";
+    let src = "fn let var if else while for loop in return break continue true false nil dyn type struct enum strict owned ref mut import as pub unsafe match foo _bar Baz_1";
     let got = kinds_no_nl(src);
     assert_eq!(
         got,
@@ -61,6 +61,7 @@ fn keywords_and_identifiers() {
             TokenKind::Dyn,
             TokenKind::Type,
             TokenKind::Struct,
+            TokenKind::Enum,
             TokenKind::Strict,
             TokenKind::Owned,
             TokenKind::Ref,
@@ -109,8 +110,13 @@ fn range_is_not_a_float() {
 fn floats_and_scientific() {
     let got = kinds_no_nl("3.14 0.5 .25 1e3 1.5e-2");
     match &got[..] {
-        [TokenKind::Float(a), TokenKind::Float(b), TokenKind::Float(c), TokenKind::Float(d), TokenKind::Float(e)] =>
-        {
+        [
+            TokenKind::Float(a),
+            TokenKind::Float(b),
+            TokenKind::Float(c),
+            TokenKind::Float(d),
+            TokenKind::Float(e),
+        ] => {
             assert!((a - 3.14).abs() < 1e-10);
             assert!((b - 0.5).abs() < 1e-10);
             assert!((c - 0.25).abs() < 1e-10);
@@ -133,11 +139,7 @@ fn int_dot_ident_is_not_float() {
 fn simple_string() {
     assert_eq!(
         kinds_no_nl(r#""hello""#),
-        vec![
-            TokenKind::StringStart,
-            text("hello"),
-            TokenKind::StringEnd,
-        ]
+        vec![TokenKind::StringStart, text("hello"), TokenKind::StringEnd,]
     );
 }
 
@@ -165,11 +167,7 @@ fn string_escapes() {
 fn unicode_escape() {
     assert_eq!(
         kinds_no_nl(r#""\u{1F31F}""#),
-        vec![
-            TokenKind::StringStart,
-            text("🌟"),
-            TokenKind::StringEnd,
-        ]
+        vec![TokenKind::StringStart, text("🌟"), TokenKind::StringEnd,]
     );
 }
 
@@ -249,10 +247,7 @@ fn interpolation_with_nested_braces() {
 #[test]
 fn line_and_block_comments_are_discarded() {
     let src = "a // line\nb /* block */ c /* nest /* inner */ out */ d";
-    assert_eq!(
-        kinds_no_nl(src),
-        vec![ident(), ident(), ident(), ident()]
-    );
+    assert_eq!(kinds_no_nl(src), vec![ident(), ident(), ident(), ident()]);
 }
 
 #[test]
@@ -271,7 +266,7 @@ fn block_comment_with_newline_separates_statements() {
 
 #[test]
 fn operators_and_punctuation() {
-    let src = "+ - * / % == != < > <= >= && || ! = += -= *= /= %= -> & .. ? ( ) { } [ ] , : ;";
+    let src = "+ - * / % == != < > <= >= && || ! = += -= *= /= %= -> => & .. ? ( ) { } [ ] , : ;";
     assert_eq!(
         kinds_no_nl(src),
         vec![
@@ -296,6 +291,7 @@ fn operators_and_punctuation() {
             TokenKind::SlashEq,
             TokenKind::PercentEq,
             TokenKind::Arrow,
+            TokenKind::FatArrow,
             TokenKind::Amp,
             TokenKind::DotDot,
             TokenKind::Question,

@@ -62,6 +62,8 @@ fn all_examples_typecheck() {
         "modules.flk",
         "stdlib.flk",
         "borrow.flk",
+        "enum.flk",
+        "visible.flk",
     ] {
         check_example(name);
     }
@@ -114,10 +116,7 @@ fn config_output() {
 
 #[test]
 fn modules_output() {
-    assert_eq!(
-        run_example("modules.flk"),
-        "2 + 2 = 4\nsquare(5) = 25\n"
-    );
+    assert_eq!(run_example("modules.flk"), "2 + 2 = 4\nsquare(5) = 25\n");
 }
 
 #[test]
@@ -136,6 +135,16 @@ fn borrow_output() {
 }
 
 #[test]
+fn enum_output() {
+    assert_eq!(run_example("enum.flk"), "red\nrgb 1,2,3\nok 42\nerr nope\n");
+}
+
+#[test]
+fn visible_output() {
+    assert_eq!(run_example("visible.flk"), "42\n42\n");
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",
@@ -148,6 +157,8 @@ fn native_matches_interpreter_on_all_examples() {
         "modules.flk",
         "stdlib.flk",
         "borrow.flk",
+        "enum.flk",
+        "visible.flk",
     ] {
         let interp = run_example(name);
         let output = flake_bin()
@@ -179,6 +190,8 @@ fn vm_matches_interpreter_on_all_examples() {
         "modules.flk",
         "stdlib.flk",
         "borrow.flk",
+        "enum.flk",
+        "visible.flk",
     ] {
         let interp = run_example(name);
         let vm = run_example_vm(name);

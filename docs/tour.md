@@ -55,11 +55,34 @@ let also: Int = box   // ok: dyn is consistent with every type
 `dyn` is gradual typing: it is *consistent* with any type, not equal to it.
 Known mismatches still fail (`let x: Int = true` is an error).
 
-Structs and type aliases:
+Structs, enums, and type aliases:
 
 ```flake
 struct Point { x: Int y: Int }
 type Name = String
+
+enum Color {
+    Red
+    Green
+    Rgb(Int, Int, Int)
+}
+
+let c = Color.Rgb(1, 2, 3)
+let name = match c {
+    Color.Red => "red"
+    Color.Green => "green"
+    Color.Rgb(r, g, b) => "rgb {r},{g},{b}"
+}
+```
+
+`match` is an expression. Variant patterns must be qualified (`Color.Red`). A
+`_` or identifier arm is a catch-all. Matches on enums must cover every variant
+(or include `_`). Enums work on the interpreter, VM, and native paths.
+
+User-defined enums cover Result-style error handling:
+
+```flake
+enum Result { Ok(Int) Err(String) }
 ```
 
 ## Effects
@@ -100,7 +123,11 @@ fn main() {
 }
 ```
 
-Functions, structs, and type aliases in the imported file are exported.
+If the imported file has any `pub` item, only those items are exported
+(qualified `math.add` and unambiguous bare names). If it has no `pub` at all,
+everything is exported — existing modules keep working. Private helpers stay
+callable inside their own file.
+
 There is no package manager or versioned registry yet.
 
 ## Ownership
@@ -150,7 +177,7 @@ loop {
 }
 ```
 
-`if` is an expression: `let x = if cond { 1 } else { 2 }`.
+`if` is an expression: `let x = if cond { 1 } else { 2 }`. So is `match`.
 
 ## Lists, maps, and strings
 

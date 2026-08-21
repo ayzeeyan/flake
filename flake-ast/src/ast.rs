@@ -14,6 +14,7 @@ pub struct Program {
 pub enum Item {
     Fn(FnDecl),
     Struct(StructDecl),
+    Enum(EnumDecl),
     Type(TypeAlias),
     Import(ImportDecl),
 }
@@ -24,8 +25,21 @@ impl Item {
         match self {
             Self::Fn(f) => f.span,
             Self::Struct(s) => s.span,
+            Self::Enum(e) => e.span,
             Self::Type(t) => t.span,
             Self::Import(i) => i.span,
+        }
+    }
+
+    /// Whether this item was declared `pub`.
+    #[must_use]
+    pub fn is_pub(&self) -> bool {
+        match self {
+            Self::Fn(f) => f.is_pub,
+            Self::Struct(s) => s.is_pub,
+            Self::Enum(e) => e.is_pub,
+            Self::Type(t) => t.is_pub,
+            Self::Import(_) => false,
         }
     }
 }
@@ -121,6 +135,21 @@ pub struct TypeAlias {
 pub struct ImportDecl {
     pub path: Ident,
     pub alias: Option<Ident>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub is_pub: bool,
+    pub name: Ident,
+    pub variants: Vec<EnumVariant>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: Ident,
+    pub fields: Vec<TypeExpr>,
     pub span: Span,
 }
 
@@ -262,6 +291,32 @@ pub enum Expr {
         fields: Vec<(Ident, Expr)>,
         span: Span,
     },
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Wildcard {
+        span: Span,
+    },
+    Ident(Ident),
+    Variant {
+        ty: Option<Ident>,
+        variant: Ident,
+        binds: Vec<Ident>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -280,7 +335,8 @@ impl Expr {
             | Self::Field { span, .. }
             | Self::Range { span, .. }
             | Self::If { span, .. }
-            | Self::StructInit { span, .. } => *span,
+            | Self::StructInit { span, .. }
+            | Self::Match { span, .. } => *span,
             Self::Ident(id) => id.span,
             Self::Block(b) => b.span,
         }

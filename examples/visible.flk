@@ -1,0 +1,8 @@
+// `pub` visibility: `secretmath` exports `double` and keeps `hidden` private.
+
+import secretmath
+
+fn main() {
+    print(secretmath.double(21))
+    print(double(21))
+}

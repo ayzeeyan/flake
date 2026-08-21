@@ -61,19 +61,20 @@ fn main() { print(add(2, 40)) }
 
 #[test]
 fn call_arity_error() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 fn f(a: Int) { a }
 fn main() { f() }
-"#,
-    );
+"#);
     assert!(msg.contains("expected 1 argument"), "{msg}");
 }
 
 #[test]
 fn if_condition_must_be_bool() {
     let msg = err(&main("if 1 { print(1) }"));
-    assert!(msg.contains("type mismatch") || msg.contains("Bool"), "{msg}");
+    assert!(
+        msg.contains("type mismatch") || msg.contains("Bool"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -95,14 +96,12 @@ fn undefined_variable() {
 
 #[test]
 fn print_in_pure_function_is_rejected() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 fn greet() / pure {
     print("hi")
 }
 fn main() { greet() }
-"#,
-    );
+"#);
     assert!(msg.contains("io") || msg.contains("effects"), "{msg}");
 }
 
@@ -118,8 +117,7 @@ fn main() { greet() }
 
 #[test]
 fn inferred_io_cannot_be_called_from_pure() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 fn greet() {
     print("hi")
 }
@@ -127,8 +125,7 @@ fn wrap() / pure {
     greet()
 }
 fn main() { wrap() }
-"#,
-    );
+"#);
     assert!(msg.contains("effects") || msg.contains("io"), "{msg}");
 }
 
@@ -145,15 +142,13 @@ fn main() { take("hi") }
 
 #[test]
 fn strict_owned_cannot_be_used_after_move() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 strict fn take(x: owned String) {
     print(x)
     print(x)
 }
 fn main() { take("hi") }
-"#,
-    );
+"#);
     assert!(msg.contains("moved"), "{msg}");
 }
 
@@ -181,27 +176,23 @@ fn main() { peek("hi") }
 
 #[test]
 fn cannot_assign_to_ref() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 strict fn bump(x: ref String) {
     x = "no"
 }
 fn main() { bump("hi") }
-"#,
-    );
+"#);
     assert!(msg.contains("ref"), "{msg}");
 }
 
 #[test]
 fn read_file_requires_io_and_alloc() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 fn load(path: String) -> String / io {
     read_file(path)
 }
 fn main() { }
-"#,
-    );
+"#);
     assert!(msg.contains("alloc") || msg.contains("effects"), "{msg}");
 }
 
@@ -220,8 +211,7 @@ fn main() { f() }
 
 #[test]
 fn cannot_move_while_borrowed() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 strict fn f() {
     let x: owned String = "hi"
     let r = &x
@@ -229,15 +219,13 @@ strict fn f() {
     print(r)
 }
 fn main() { f() }
-"#,
-    );
+"#);
     assert!(msg.contains("borrow"), "{msg}");
 }
 
 #[test]
 fn exclusive_mut_borrow() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 strict fn f() {
     var x: owned String = "hi"
     let a = &mut x
@@ -246,8 +234,7 @@ strict fn f() {
     print(b)
 }
 fn main() { f() }
-"#,
-    );
+"#);
     assert!(msg.contains("borrow"), "{msg}");
 }
 
@@ -265,8 +252,7 @@ fn main() { f() }
 
 #[test]
 fn cannot_assign_while_shared_borrow() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 strict fn f() {
     var x: owned String = "hi"
     let r = &x
@@ -274,8 +260,7 @@ strict fn f() {
     print(r)
 }
 fn main() { f() }
-"#,
-    );
+"#);
     assert!(msg.contains("borrow"), "{msg}");
 }
 
@@ -296,8 +281,7 @@ fn main() { f() }
 
 #[test]
 fn cannot_move_owned_inside_loop() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 strict fn f() {
     let x: owned String = "hi"
     loop {
@@ -305,15 +289,13 @@ strict fn f() {
     }
 }
 fn main() { f() }
-"#,
-    );
+"#);
     assert!(msg.contains("loop") || msg.contains("moved"), "{msg}");
 }
 
 #[test]
 fn if_else_move_both_branches_then_unusable() {
-    let msg = err(
-        r#"
+    let msg = err(r#"
 strict fn f(b: Bool) {
     let x: owned String = "hi"
     if b {
@@ -324,9 +306,71 @@ strict fn f(b: Bool) {
     print(x)
 }
 fn main() { f(true) }
-"#,
-    );
+"#);
     assert!(msg.contains("moved"), "{msg}");
+}
+
+#[test]
+fn enum_and_match_check() {
+    ok(r#"
+enum Color { Red Green Rgb(Int, Int, Int) }
+fn f(c: Color) -> Int {
+    match c {
+        Color.Red => 1
+        Color.Green => 2
+        Color.Rgb(r, g, b) => r + g + b
+    }
+}
+fn main() { print(f(Color.Red)) }
+"#);
+}
+
+#[test]
+fn match_must_be_exhaustive() {
+    let msg = err(r#"
+enum Color { Red Green }
+fn f(c: Color) -> Int {
+    match c {
+        Color.Red => 1
+    }
+}
+fn main() { f(Color.Red) }
+"#);
+    assert!(msg.contains("non-exhaustive"), "{msg}");
+    assert!(msg.contains("Green"), "{msg}");
+}
+
+#[test]
+fn variant_arity_must_match() {
+    let msg = err(r#"
+enum Color { Rgb(Int, Int, Int) }
+fn f(c: Color) -> Int {
+    match c {
+        Color.Rgb(r) => r
+    }
+}
+fn main() { f(Color.Rgb(1, 2, 3)) }
+"#);
+    assert!(msg.contains("expects 3"), "{msg}");
+}
+
+#[test]
+fn private_fn_is_not_imported() {
+    let dir = std::env::temp_dir().join(format!("flake-vis-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::write(
+        dir.join("lib.flk"),
+        "pub fn ok() -> Int { 1 }\nfn secret() -> Int { 2 }\n",
+    )
+    .expect("write lib");
+    let main_path = dir.join("main.flk");
+    let text = "import lib\nfn main() { lib.secret() }\n";
+    std::fs::write(&main_path, text).expect("write main");
+    let source = flake_ast::Source::new(main_path.display().to_string(), text);
+    let err = crate::check(&source).expect_err("private import should fail");
+    let msg = err.to_string();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(msg.contains("export") || msg.contains("secret"), "{msg}");
 }
 
 #[test]

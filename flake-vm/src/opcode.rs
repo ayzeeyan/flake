@@ -24,11 +24,12 @@ impl Chunk {
     }
 
     pub fn add_constant(&mut self, value: Value) -> u16 {
-        if let Some(i) = self
-            .constants
-            .iter()
-            .position(|c| matches!(c, Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::String(_)) && c == &value)
-        {
+        if let Some(i) = self.constants.iter().position(|c| {
+            matches!(
+                c,
+                Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::String(_)
+            ) && c == &value
+        }) {
             return i as u16;
         }
         let i = self.constants.len();
@@ -88,10 +89,7 @@ pub enum Op {
     Print,
     BuildList(u16),
     BuildMap(u16),
-    BuildStruct {
-        name: u16,
-        fields: Vec<u16>,
-    },
+    BuildStruct { name: u16, fields: Vec<u16> },
     MakeRange,
     MakeIter,
     IterNext(u16),

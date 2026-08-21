@@ -5,9 +5,9 @@ mod parser;
 mod resolve;
 
 pub use error::ParseError;
-pub use parser::{parse, parse_repl, parse_str, ReplInput};
+pub use parser::{ReplInput, parse, parse_repl, parse_str};
 pub use resolve::{
-    import_alias, load_graph, qualify, LoadedModule, ModuleGraph, ResolveError,
+    LoadedModule, ModuleGraph, ResolveError, import_alias, is_exported, load_graph, qualify,
 };
 
 /// Current crate version, matching the workspace.

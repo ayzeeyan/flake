@@ -1,0 +1,34 @@
+// Enums, match, and Result-style error handling.
+
+enum Color {
+    Red
+    Green
+    Rgb(Int, Int, Int)
+}
+
+enum Result {
+    Ok(Int)
+    Err(String)
+}
+
+fn describe(c: Color) -> String {
+    match c {
+        Color.Red => "red"
+        Color.Green => "green"
+        Color.Rgb(r, g, b) => "rgb {r},{g},{b}"
+    }
+}
+
+fn label(r: Result) -> String {
+    match r {
+        Result.Ok(v) => "ok {v}"
+        Result.Err(m) => "err {m}"
+    }
+}
+
+fn main() {
+    print(describe(Color.Red))
+    print(describe(Color.Rgb(1, 2, 3)))
+    print(label(Result.Ok(42)))
+    print(label(Result.Err("nope")))
+}

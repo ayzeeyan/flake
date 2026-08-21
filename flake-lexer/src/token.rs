@@ -63,6 +63,7 @@ pub enum TokenKind {
     Dyn,
     Type,
     Struct,
+    Enum,
     Strict,
     Owned,
     Ref,
@@ -95,6 +96,7 @@ pub enum TokenKind {
     SlashEq,
     PercentEq,
     Arrow,
+    FatArrow,
     Amp,
     Dot,
     DotDot,
@@ -138,6 +140,7 @@ impl TokenKind {
             "dyn" => Self::Dyn,
             "type" => Self::Type,
             "struct" => Self::Struct,
+            "enum" => Self::Enum,
             "strict" => Self::Strict,
             "owned" => Self::Owned,
             "ref" => Self::Ref,
@@ -173,6 +176,7 @@ impl TokenKind {
                 | Self::Dyn
                 | Self::Type
                 | Self::Struct
+                | Self::Enum
                 | Self::Strict
                 | Self::Owned
                 | Self::Ref
@@ -214,6 +218,7 @@ impl TokenKind {
             Self::Dyn => "`dyn`",
             Self::Type => "`type`",
             Self::Struct => "`struct`",
+            Self::Enum => "`enum`",
             Self::Strict => "`strict`",
             Self::Owned => "`owned`",
             Self::Ref => "`ref`",
@@ -244,6 +249,7 @@ impl TokenKind {
             Self::SlashEq => "`/=`",
             Self::PercentEq => "`%=`",
             Self::Arrow => "`->`",
+            Self::FatArrow => "`=>`",
             Self::Amp => "`&`",
             Self::Dot => "`.`",
             Self::DotDot => "`..`",

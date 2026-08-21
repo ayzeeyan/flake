@@ -13,7 +13,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | High-quality native x86-64 backend | **done** |
 | 2 | Mature gradual ownership | **done** |
-| 3 | Language and module expansion | pending |
+| 3 | Language and module expansion | **done** |
 | 4 | Standard library maturity | pending |
 | 5 | Cross-backend consistency and diagnostics | pending |
 | 6 | Polish, documentation and examples | pending |
@@ -31,6 +31,14 @@ There is no LLVM, Cranelift, or C transpilation.
 - Temporary borrows (`print(&x)`) end after the statement
 - Assignment is forbidden while a value is borrowed at all, not only `&mut`
 - Ownership model documented in [docs/ownership.md](docs/ownership.md)
+
+## What v0.4 milestone 3 delivers
+
+- `enum` declarations with unit and tuple variants
+- `match` expressions with qualified variant patterns, binds, `_`, and exhaustiveness checking
+- Module visibility: if a file uses `pub`, only `pub` items are exported
+- Interpreter, VM, and native paths all run enums and `match`
+- Examples: [enum](examples/enum.flk), [visible](examples/visible.flk)
 
 ## v0.3 milestones
 

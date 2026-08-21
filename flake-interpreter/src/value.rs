@@ -32,6 +32,18 @@ pub enum Value {
         name: Rc<str>,
         members: Rc<HashMap<String, Value>>,
     },
+    Enum {
+        type_name: Rc<str>,
+        variant: Rc<str>,
+        tag: i64,
+        fields: Vec<Value>,
+    },
+    VariantCtor {
+        type_name: Rc<str>,
+        variant: Rc<str>,
+        tag: i64,
+        arity: usize,
+    },
 }
 
 #[derive(Clone)]
@@ -125,6 +137,8 @@ impl Value {
             Self::Native(_) => "Function",
             Self::Range { .. } => "Range",
             Self::Module { .. } => "Module",
+            Self::Enum { .. } => "Enum",
+            Self::VariantCtor { .. } => "Function",
         }
     }
 
@@ -177,6 +191,22 @@ impl Value {
             Self::Native(n) => format!("<fn {}>", n.name()),
             Self::Range { start, end } => format!("{start}..{end}"),
             Self::Module { name, .. } => format!("<module {name}>"),
+            Self::Enum {
+                type_name,
+                variant,
+                fields,
+                ..
+            } => {
+                if fields.is_empty() {
+                    format!("{type_name}.{variant}")
+                } else {
+                    let inner: Vec<_> = fields.iter().map(Self::display_value).collect();
+                    format!("{type_name}.{variant}({})", inner.join(", "))
+                }
+            }
+            Self::VariantCtor {
+                type_name, variant, ..
+            } => format!("<ctor {type_name}.{variant}>"),
         }
     }
 
@@ -197,7 +227,9 @@ impl Value {
             (Self::Int(a), Self::Float(b)) => *a as f64 == *b,
             (Self::Float(a), Self::Int(b)) => *a == *b as f64,
             (Self::String(a), Self::String(b)) => a == b,
-            (Self::Range { start: a, end: b }, Self::Range { start: c, end: d }) => a == c && b == d,
+            (Self::Range { start: a, end: b }, Self::Range { start: c, end: d }) => {
+                a == c && b == d
+            }
             (Self::List(a), Self::List(b)) => {
                 if Rc::ptr_eq(a, b) {
                     return true;
@@ -208,13 +240,43 @@ impl Value {
             }
             (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
             (Self::Native(a), Self::Native(b)) => a == b,
-            (Self::Struct { name: n1, fields: f1 }, Self::Struct { name: n2, fields: f2 }) => {
+            (
+                Self::Struct {
+                    name: n1,
+                    fields: f1,
+                },
+                Self::Struct {
+                    name: n2,
+                    fields: f2,
+                },
+            ) => {
                 n1 == n2 && {
                     let f1 = f1.borrow();
                     let f2 = f2.borrow();
                     f1.len() == f2.len()
-                        && f1.iter().all(|(k, v)| f2.get(k).is_some_and(|o| v.equals(o)))
+                        && f1
+                            .iter()
+                            .all(|(k, v)| f2.get(k).is_some_and(|o| v.equals(o)))
                 }
+            }
+            (
+                Self::Enum {
+                    type_name: t1,
+                    variant: v1,
+                    fields: f1,
+                    ..
+                },
+                Self::Enum {
+                    type_name: t2,
+                    variant: v2,
+                    fields: f2,
+                    ..
+                },
+            ) => {
+                t1 == t2
+                    && v1 == v2
+                    && f1.len() == f2.len()
+                    && f1.iter().zip(f2).all(|(a, b)| a.equals(b))
             }
             _ => false,
         }

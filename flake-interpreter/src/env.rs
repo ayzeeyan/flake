@@ -46,10 +46,10 @@ impl Env {
     }
 
     pub fn define(&self, name: impl Into<String>, value: Value, mutable: bool) {
-        self.inner.borrow_mut().bindings.insert(
-            name.into(),
-            Binding { value, mutable },
-        );
+        self.inner
+            .borrow_mut()
+            .bindings
+            .insert(name.into(), Binding { value, mutable });
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {

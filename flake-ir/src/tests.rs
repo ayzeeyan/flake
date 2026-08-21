@@ -30,13 +30,11 @@ fn lowers_hello() {
 
 #[test]
 fn lowers_if_and_loop() {
-    let dump = ir(
-        r#"
+    let dump = ir(r#"
 fn f(n: Int) {
     if n > 0 { 1 } else { 0 }
 }
-"#,
-    );
+"#);
     assert!(dump.contains("br %"), "{dump}");
     assert!(dump.contains("goto bb"), "{dump}");
 }
@@ -64,6 +62,21 @@ fn every_block_ends_with_terminator() {
             );
         }
     }
+}
+
+#[test]
+fn lowers_enum_match() {
+    let dump = ir(r#"
+enum Color { Red Green }
+fn f(c: Color) -> Int {
+    match c {
+        Color.Red => 1
+        Color.Green => 2
+    }
+}
+"#);
+    assert!(dump.contains("[%"), "{dump}");
+    assert!(dump.contains("br %"), "{dump}");
 }
 
 #[test]

@@ -4,7 +4,8 @@ use std::mem::discriminant;
 
 use flake_ast::{
     AssignOp, BinOp, Block, EffectSet, Expr, FnDecl, Ident, ImportDecl, InterpPart, Item, LetStmt,
-    Literal, Param, Program, Source, Span, Stmt, StructDecl, StructField, TypeAlias, TypeExpr, UnOp,
+    Literal, Param, Pattern, Program, Source, Span, Stmt, StructDecl, StructField, TypeAlias,
+    TypeExpr, UnOp,
 };
 use flake_lexer::{Token, TokenKind, tokenize};
 
@@ -130,16 +131,19 @@ impl<'src> Parser<'src> {
         if matches!(self.kind(), TokenKind::Struct) {
             return Ok(Item::Struct(self.parse_struct(start, is_pub)?));
         }
+        if matches!(self.kind(), TokenKind::Enum) {
+            return Ok(Item::Enum(self.parse_enum(start, is_pub)?));
+        }
         if matches!(self.kind(), TokenKind::Type) {
             return Ok(Item::Type(self.parse_type_alias(start, is_pub)?));
         }
         if is_pub {
-            return Err(self.error("expected `fn`, `struct`, or `type` after `pub`"));
+            return Err(self.error("expected `fn`, `struct`, `enum`, or `type` after `pub`"));
         }
         if matches!(self.kind(), TokenKind::Import) {
             return Ok(Item::Import(self.parse_import()?));
         }
-        Err(self.unexpected("top-level item (`fn`, `struct`, `type`, or `import`)"))
+        Err(self.unexpected("top-level item (`fn`, `struct`, `enum`, `type`, or `import`)"))
     }
 
     fn parse_fn(
@@ -273,6 +277,59 @@ impl<'src> Parser<'src> {
             name,
             fields,
             span,
+        })
+    }
+
+    fn parse_enum(&mut self, start: Span, is_pub: bool) -> Result<flake_ast::EnumDecl, ParseError> {
+        self.expect(&TokenKind::Enum, "`enum`")?;
+        let name = self.parse_ident()?;
+        self.skip_nl();
+        self.expect(&TokenKind::LBrace, "`{`")?;
+        let mut variants = Vec::new();
+        loop {
+            self.skip_nl();
+            if self.eat(&TokenKind::RBrace) {
+                break;
+            }
+            let vname = self.parse_ident()?;
+            let mut fields = Vec::new();
+            let mut span = vname.span;
+            self.skip_nl();
+            if self.eat(&TokenKind::LParen) {
+                loop {
+                    self.skip_nl();
+                    if self.eat(&TokenKind::RParen) {
+                        break;
+                    }
+                    let ty = self.parse_type()?;
+                    span = span.merge(ty.span());
+                    fields.push(ty);
+                    self.skip_nl();
+                    if self.eat(&TokenKind::Comma) {
+                        continue;
+                    }
+                    self.skip_nl();
+                    self.expect(&TokenKind::RParen, "`)`")?;
+                    break;
+                }
+            }
+            variants.push(flake_ast::EnumVariant {
+                name: vname,
+                fields,
+                span,
+            });
+            self.skip_nl();
+            self.eat(&TokenKind::Comma);
+            self.skip_nl();
+            if self.eat(&TokenKind::RBrace) {
+                break;
+            }
+        }
+        Ok(flake_ast::EnumDecl {
+            is_pub,
+            name,
+            variants,
+            span: start.merge(self.prev().span),
         })
     }
 
@@ -458,10 +515,7 @@ impl<'src> Parser<'src> {
             match infix {
                 Infix::Assign(op) => {
                     if !is_assign_target(&lhs) {
-                        return Err(ParseError::new(
-                            lhs.span(),
-                            "invalid assignment target",
-                        ));
+                        return Err(ParseError::new(lhs.span(), "invalid assignment target"));
                     }
                     let value = self.parse_expr(rbp)?;
                     let span = lhs.span().merge(value.span());
@@ -604,6 +658,7 @@ impl<'src> Parser<'src> {
                 }
             }
             TokenKind::If => self.parse_if(),
+            TokenKind::Match => self.parse_match(),
             _ => Err(self.unexpected("expression")),
         }
     }
@@ -635,6 +690,83 @@ impl<'src> Parser<'src> {
             else_block,
             span: start.merge(end),
         })
+    }
+
+    fn parse_match(&mut self) -> Result<Expr, ParseError> {
+        let start = self.current().span;
+        self.expect(&TokenKind::Match, "`match`")?;
+        let scrutinee = self.parse_expr(0)?;
+        self.skip_nl();
+        self.expect(&TokenKind::LBrace, "`{`")?;
+        let mut arms = Vec::new();
+        loop {
+            self.skip_nl();
+            if self.eat(&TokenKind::RBrace) {
+                break;
+            }
+            let pattern = self.parse_pattern()?;
+            self.skip_nl();
+            self.expect(&TokenKind::FatArrow, "`=>`")?;
+            self.skip_nl();
+            let body = self.parse_expr(0)?;
+            let span = pattern_span(&pattern).merge(body.span());
+            arms.push(flake_ast::MatchArm {
+                pattern,
+                body,
+                span,
+            });
+            self.skip_nl();
+            self.eat(&TokenKind::Comma);
+            self.skip_nl();
+            if self.eat(&TokenKind::RBrace) {
+                break;
+            }
+        }
+        Ok(Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+            span: start.merge(self.prev().span),
+        })
+    }
+
+    fn parse_pattern(&mut self) -> Result<flake_ast::Pattern, ParseError> {
+        let ident = self.parse_ident()?;
+        if ident.name == "_" {
+            return Ok(flake_ast::Pattern::Wildcard { span: ident.span });
+        }
+        self.skip_nl();
+        if self.eat(&TokenKind::Dot) {
+            self.skip_nl();
+            let variant = self.parse_ident()?;
+            let mut binds = Vec::new();
+            let mut span = ident.span.merge(variant.span);
+            self.skip_nl();
+            if self.eat(&TokenKind::LParen) {
+                loop {
+                    self.skip_nl();
+                    if self.eat(&TokenKind::RParen) {
+                        break;
+                    }
+                    let b = self.parse_ident()?;
+                    span = span.merge(b.span);
+                    binds.push(b);
+                    self.skip_nl();
+                    if self.eat(&TokenKind::Comma) {
+                        continue;
+                    }
+                    self.skip_nl();
+                    self.expect(&TokenKind::RParen, "`)`")?;
+                    break;
+                }
+            }
+            return Ok(flake_ast::Pattern::Variant {
+                ty: Some(ident),
+                variant,
+                binds,
+                span,
+            });
+        }
+        Ok(flake_ast::Pattern::Ident(ident))
     }
 
     fn parse_string(&mut self) -> Result<Expr, ParseError> {
@@ -1052,7 +1184,10 @@ impl<'src> Parser<'src> {
     fn unexpected(&self, expected: &str) -> ParseError {
         ParseError::new(
             self.current().span,
-            format!("expected {expected}, found {}", self.current().kind.as_str()),
+            format!(
+                "expected {expected}, found {}",
+                self.current().kind.as_str()
+            ),
         )
     }
 
@@ -1117,6 +1252,13 @@ fn infix_binding(kind: &TokenKind) -> Option<(u8, u8, Infix)> {
         TokenKind::Percent => (14, 15, Infix::Bin(BinOp::Rem)),
         _ => return None,
     })
+}
+
+fn pattern_span(pat: &Pattern) -> Span {
+    match pat {
+        Pattern::Wildcard { span } | Pattern::Variant { span, .. } => *span,
+        Pattern::Ident(id) => id.span,
+    }
 }
 
 fn is_assign_target(expr: &Expr) -> bool {

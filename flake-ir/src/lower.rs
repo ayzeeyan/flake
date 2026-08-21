@@ -6,7 +6,7 @@ use flake_ast::{
     AssignOp, BinOp as AstBin, Block as AstBlock, Expr, FnDecl, InterpPart, Item, Literal, Program,
     Source, Stmt, TypeExpr, UnOp as AstUn,
 };
-use flake_parser::{import_alias, load_graph, qualify, ModuleGraph};
+use flake_parser::{ModuleGraph, import_alias, is_exported, load_graph, qualify};
 
 use crate::error::IrError;
 use crate::ir::{
@@ -29,10 +29,15 @@ struct Builder {
     next_block: u32,
     names: Names,
     fn_rets: HashMap<String, IrType>,
+    enums: HashMap<String, Vec<(String, usize)>>,
 }
 
 impl Builder {
-    fn new(names: Names, fn_rets: HashMap<String, IrType>) -> Self {
+    fn new(
+        names: Names,
+        fn_rets: HashMap<String, IrType>,
+        enums: HashMap<String, Vec<(String, usize)>>,
+    ) -> Self {
         let entry = BlockId(0);
         Self {
             locals: Vec::new(),
@@ -46,6 +51,7 @@ impl Builder {
             next_block: 1,
             names,
             fn_rets,
+            enums,
         }
     }
 
@@ -111,6 +117,7 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
         imports: HashMap::new(),
         local_fns: fn_names(program),
         imported_fns: HashMap::new(),
+        exported: HashMap::new(),
     };
     let mut fn_rets = HashMap::new();
     for item in &program.items {
@@ -121,7 +128,7 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
             );
         }
     }
-    lower_program_with(name, program, &names, &fn_rets)
+    lower_program_with(name, program, &names, &fn_rets, &enums_of(program))
 }
 
 pub fn lower_graph(graph: &ModuleGraph) -> Module {
@@ -131,7 +138,8 @@ pub fn lower_graph(graph: &ModuleGraph) -> Module {
     let fn_rets = collect_fn_rets(graph);
     for module in &graph.modules {
         let names = names_for(graph, module, module.name == entry);
-        let part = lower_program_with(&module.name, &module.program, &names, &fn_rets);
+        let enums = enums_for(graph, module);
+        let part = lower_program_with(&module.name, &module.program, &names, &fn_rets, &enums);
         structs.extend(part.structs);
         functions.extend(part.functions);
     }
@@ -148,6 +156,7 @@ struct Names {
     imports: HashMap<String, String>,
     local_fns: HashSet<String>,
     imported_fns: HashMap<String, String>,
+    exported: HashMap<String, HashSet<String>>,
 }
 
 impl Names {
@@ -164,7 +173,13 @@ impl Names {
     }
 
     fn field_global(&self, alias: &str, field: &str) -> Option<String> {
-        self.imports.get(alias).map(|module| qualify(module, field))
+        let module = self.imports.get(alias)?;
+        if let Some(exports) = self.exported.get(alias) {
+            if !exports.contains(field) {
+                return None;
+            }
+        }
+        Some(qualify(module, field))
     }
 }
 
@@ -183,16 +198,26 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
     let local_fns = fn_names(&module.program);
     let mut imports = HashMap::new();
     let mut imported_fns = HashMap::new();
+    let mut exported = HashMap::new();
     for item in &module.program.items {
         if let Item::Import(import) = item {
             let module_name = import.path.name.clone();
-            imports.insert(import_alias(import).to_string(), module_name.clone());
+            let alias = import_alias(import).to_string();
+            imports.insert(alias.clone(), module_name.clone());
+            exported.entry(alias.clone()).or_insert_with(HashSet::new);
             if let Some(imported) = graph.get(&module_name) {
                 for item in &imported.program.items {
+                    if !is_exported(item, &imported.program) {
+                        continue;
+                    }
                     if let Item::Fn(func) = item {
                         imported_fns
                             .entry(func.name.name.clone())
                             .or_insert_with(|| qualify(&module_name, &func.name.name));
+                        exported
+                            .get_mut(&alias)
+                            .unwrap()
+                            .insert(func.name.name.clone());
                     }
                 }
             }
@@ -207,6 +232,7 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
         imports,
         local_fns,
         imported_fns,
+        exported,
     }
 }
 
@@ -232,6 +258,7 @@ fn lower_program_with(
     program: &Program,
     names: &Names,
     fn_rets: &HashMap<String, IrType>,
+    enums: &HashMap<String, Vec<(String, usize)>>,
 ) -> Module {
     let mut structs = Vec::new();
     let mut functions = Vec::new();
@@ -247,8 +274,8 @@ fn lower_program_with(
                         .collect(),
                 });
             }
-            Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets)),
-            Item::Type(_) | Item::Import(_) => {}
+            Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets, enums)),
+            Item::Type(_) | Item::Import(_) | Item::Enum(_) => {}
         }
     }
     Module {
@@ -258,8 +285,71 @@ fn lower_program_with(
     }
 }
 
-fn lower_fn(func: &FnDecl, names: &Names, fn_rets: &HashMap<String, IrType>) -> Function {
-    let mut b = Builder::new(names.clone(), fn_rets.clone());
+fn enums_of(program: &Program) -> HashMap<String, Vec<(String, usize)>> {
+    let mut enums = HashMap::new();
+    for item in &program.items {
+        if let Item::Enum(en) = item {
+            enums.insert(
+                en.name.name.clone(),
+                en.variants
+                    .iter()
+                    .map(|v| (v.name.name.clone(), v.fields.len()))
+                    .collect(),
+            );
+        }
+    }
+    enums
+}
+
+fn enums_for(
+    graph: &ModuleGraph,
+    module: &flake_parser::LoadedModule,
+) -> HashMap<String, Vec<(String, usize)>> {
+    let mut enums = enums_of(&module.program);
+    for item in &module.program.items {
+        if let Item::Import(import) = item {
+            if let Some(imported) = graph.get(&import.path.name) {
+                for item in &imported.program.items {
+                    if !is_exported(item, &imported.program) {
+                        continue;
+                    }
+                    if let Item::Enum(en) = item {
+                        enums.entry(en.name.name.clone()).or_insert_with(|| {
+                            en.variants
+                                .iter()
+                                .map(|v| (v.name.name.clone(), v.fields.len()))
+                                .collect()
+                        });
+                    }
+                }
+            }
+        }
+    }
+    enums
+}
+
+fn enum_variants<'a>(b: &'a Builder, target: &Expr) -> Option<(String, &'a Vec<(String, usize)>)> {
+    match target {
+        Expr::Ident(id) => b.enums.get(&id.name).map(|v| (id.name.clone(), v)),
+        Expr::Field { target, field, .. } => {
+            if let Expr::Ident(module) = target.as_ref() {
+                if b.names.imports.contains_key(&module.name) {
+                    return b.enums.get(&field.name).map(|v| (field.name.clone(), v));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn lower_fn(
+    func: &FnDecl,
+    names: &Names,
+    fn_rets: &HashMap<String, IrType>,
+    enums: &HashMap<String, Vec<(String, usize)>>,
+) -> Function {
+    let mut b = Builder::new(names.clone(), fn_rets.clone(), enums.clone());
     let mut params = Vec::new();
     for p in &func.params {
         let ty = lower_type(p.ty.as_ref());
@@ -536,6 +626,20 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
         } => lower_assign(b, *op, target, value),
         Expr::Call { callee, args, .. } => {
             let arg_ids: Vec<_> = args.iter().map(|a| lower_expr(b, a)).collect();
+            if let Expr::Field { target, field, .. } = callee.as_ref() {
+                let found = enum_variants(b, target).and_then(|(ename, vars)| {
+                    vars.iter()
+                        .position(|(n, _)| n == &field.name)
+                        .map(|tag| (ename, tag))
+                });
+                if let Some((ename, tag)) = found {
+                    let mut items = vec![b.const_val(Const::Int(tag as i64), IrType::Int)];
+                    items.extend(arg_ids);
+                    let dest = b.alloc(None, IrType::Struct(ename));
+                    b.emit(Inst::MakeList { dest, items });
+                    return dest;
+                }
+            }
             let callee = match callee.as_ref() {
                 Expr::Ident(id) => {
                     if lookup(b, &id.name).is_some() {
@@ -594,6 +698,20 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             dest
         }
         Expr::Field { target, field, .. } => {
+            let found = enum_variants(b, target).and_then(|(ename, vars)| {
+                vars.iter()
+                    .position(|(n, _)| n == &field.name)
+                    .map(|tag| (ename, tag))
+            });
+            if let Some((ename, tag)) = found {
+                let t = b.const_val(Const::Int(tag as i64), IrType::Int);
+                let dest = b.alloc(None, IrType::Struct(ename));
+                b.emit(Inst::MakeList {
+                    dest,
+                    items: vec![t],
+                });
+                return dest;
+            }
             let obj = lower_expr(b, target);
             let dest = b.alloc(None, IrType::Dyn);
             b.emit(Inst::GetField {
@@ -610,7 +728,91 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             ..
         } => lower_if(b, cond, then_block, else_block.as_deref()),
         Expr::Block(block) => lower_block_value(b, block),
+        Expr::Match {
+            scrutinee, arms, ..
+        } => lower_match(b, scrutinee, arms),
     }
+}
+
+fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) -> LocalId {
+    let src = lower_expr(b, scrutinee);
+    let dest = b.alloc(None, IrType::Dyn);
+    let n = b.nil();
+    b.emit(Inst::Move { dest, src: n });
+    let zero = b.const_val(Const::Int(0), IrType::Int);
+    let tag = b.alloc(None, IrType::Int);
+    b.emit(Inst::GetIndex {
+        dest: tag,
+        obj: src,
+        index: zero,
+    });
+    let exit = b.new_block();
+    for (i, arm) in arms.iter().enumerate() {
+        let body_b = b.new_block();
+        let next = if i + 1 == arms.len() {
+            exit
+        } else {
+            b.new_block()
+        };
+        match &arm.pattern {
+            flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_) => {
+                b.emit(Inst::Jump { target: body_b });
+            }
+            flake_ast::Pattern::Variant {
+                variant, binds, ty, ..
+            } => {
+                let ename = ty.as_ref().map(|t| t.name.as_str()).unwrap_or("");
+                let tag_val = b
+                    .enums
+                    .get(ename)
+                    .and_then(|vs| vs.iter().position(|(n, _)| n == &variant.name))
+                    .unwrap_or(0) as i64;
+                let want = b.const_val(Const::Int(tag_val), IrType::Int);
+                let cmp = b.alloc(None, IrType::Bool);
+                b.emit(Inst::Binary {
+                    dest: cmp,
+                    op: BinOp::Eq,
+                    lhs: tag,
+                    rhs: want,
+                });
+                b.emit(Inst::Branch {
+                    cond: cmp,
+                    then_block: body_b,
+                    else_block: next,
+                });
+                b.switch(body_b);
+                for (fi, bind) in binds.iter().enumerate() {
+                    let idx = b.const_val(Const::Int((fi + 1) as i64), IrType::Int);
+                    let slot = b.alloc(Some(bind.name.clone()), IrType::Dyn);
+                    b.emit(Inst::GetIndex {
+                        dest: slot,
+                        obj: src,
+                        index: idx,
+                    });
+                }
+                let val = lower_expr(b, &arm.body);
+                if !b.sealed() {
+                    b.emit(Inst::Move { dest, src: val });
+                    b.emit(Inst::Jump { target: exit });
+                }
+                b.switch(next);
+                continue;
+            }
+        }
+        b.switch(body_b);
+        if let flake_ast::Pattern::Ident(id) = &arm.pattern {
+            let slot = b.alloc(Some(id.name.clone()), IrType::Dyn);
+            b.emit(Inst::Move { dest: slot, src });
+        }
+        let val = lower_expr(b, &arm.body);
+        if !b.sealed() {
+            b.emit(Inst::Move { dest, src: val });
+            b.emit(Inst::Jump { target: exit });
+        }
+        b.switch(next);
+    }
+    b.switch(exit);
+    dest
 }
 
 fn lower_if(

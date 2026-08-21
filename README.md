@@ -103,6 +103,11 @@ strict fn take(name: owned String) / io {
 | [examples/lists.flk](examples/lists.flk) | Lists and helpers |
 | [examples/ownership.flk](examples/ownership.flk) | Gradual vs strict ownership |
 | [examples/config.flk](examples/config.flk) | Structs |
+| [examples/modules.flk](examples/modules.flk) | `import` |
+| [examples/enum.flk](examples/enum.flk) | Enums, `match`, Result-style errors |
+| [examples/visible.flk](examples/visible.flk) | `pub` module visibility |
+| [examples/stdlib.flk](examples/stdlib.flk) | Standard library |
+| [examples/borrow.flk](examples/borrow.flk) | Borrows |
 
 ## Workspace
 

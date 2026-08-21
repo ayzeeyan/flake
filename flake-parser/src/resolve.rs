@@ -95,6 +95,19 @@ pub fn qualify(module: &str, name: &str) -> String {
     format!("{module}.{name}")
 }
 
+/// If a module contains any `pub` item, only `pub` items are exported.
+/// Otherwise every declaration is exported (existing modules keep working).
+#[must_use]
+pub fn is_exported(item: &Item, program: &Program) -> bool {
+    if matches!(item, Item::Import(_)) {
+        return false;
+    }
+    if !program.items.iter().any(Item::is_pub) {
+        return true;
+    }
+    item.is_pub()
+}
+
 fn load_one(
     source: Source,
     name: String,
@@ -127,19 +140,10 @@ fn load_one(
                 )
             })?;
             let text = fs::read_to_string(&path).map_err(|e| {
-                ResolveError::new(
-                    import.span,
-                    format!("cannot read {}: {e}", path.display()),
-                )
+                ResolveError::new(import.span, format!("cannot read {}: {e}", path.display()))
             })?;
             let child = Source::new(path.display().to_string(), text);
-            load_one(
-                child,
-                child_name,
-                Some(import.span),
-                modules,
-                loading,
-            )?;
+            load_one(child, child_name, Some(import.span), modules, loading)?;
         }
     }
     loading.remove(&name);

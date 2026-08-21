@@ -150,7 +150,15 @@ impl<'src> Lexer<'src> {
                     self.push(TokenKind::Slash, start, self.pos);
                 }
             }
-            '=' => self.lex_compound(start, TokenKind::Eq, '=', TokenKind::EqEq),
+            '=' => {
+                if self.eat('>') {
+                    self.push(TokenKind::FatArrow, start, self.pos);
+                } else if self.eat('=') {
+                    self.push(TokenKind::EqEq, start, self.pos);
+                } else {
+                    self.push(TokenKind::Eq, start, self.pos);
+                }
+            }
             '!' => self.lex_compound(start, TokenKind::Bang, '=', TokenKind::BangEq),
             '<' => self.lex_compound(start, TokenKind::Lt, '=', TokenKind::LtEq),
             '>' => self.lex_compound(start, TokenKind::Gt, '=', TokenKind::GtEq),

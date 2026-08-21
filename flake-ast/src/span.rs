@@ -162,7 +162,9 @@ impl Source {
     /// Byte offset of the start of the 1-based `line`.
     #[must_use]
     pub fn line_start(&self, line: u32) -> Option<u32> {
-        self.line_starts.get(line.saturating_sub(1) as usize).copied()
+        self.line_starts
+            .get(line.saturating_sub(1) as usize)
+            .copied()
     }
 
     /// Text of the 1-based `line`, without its trailing newline.

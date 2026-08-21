@@ -38,6 +38,30 @@ fn print_item(item: &Item, out: &mut String) {
             }
             out.push('}');
         }
+        Item::Enum(e) => {
+            if e.is_pub {
+                out.push_str("pub ");
+            }
+            out.push_str("enum ");
+            out.push_str(&e.name.name);
+            out.push_str(" {\n");
+            for v in &e.variants {
+                out.push_str("    ");
+                out.push_str(&v.name.name);
+                if !v.fields.is_empty() {
+                    out.push('(');
+                    for (i, ty) in v.fields.iter().enumerate() {
+                        if i > 0 {
+                            out.push_str(", ");
+                        }
+                        print_type(ty, out);
+                    }
+                    out.push(')');
+                }
+                out.push('\n');
+            }
+            out.push('}');
+        }
         Item::Type(t) => {
             if t.is_pub {
                 out.push_str("pub ");
@@ -292,6 +316,48 @@ fn print_expr(expr: &Expr, indent: usize, out: &mut String) {
             }
         }
         Expr::Block(b) => print_block(b, indent, out),
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            out.push_str("match ");
+            print_expr(scrutinee, indent, out);
+            out.push_str(" {\n");
+            for arm in arms {
+                for _ in 0..(indent + 1) {
+                    out.push_str("    ");
+                }
+                match &arm.pattern {
+                    crate::ast::Pattern::Wildcard { .. } => out.push('_'),
+                    crate::ast::Pattern::Ident(id) => out.push_str(&id.name),
+                    crate::ast::Pattern::Variant {
+                        ty, variant, binds, ..
+                    } => {
+                        if let Some(t) = ty {
+                            out.push_str(&t.name);
+                            out.push('.');
+                        }
+                        out.push_str(&variant.name);
+                        if !binds.is_empty() {
+                            out.push('(');
+                            for (i, b) in binds.iter().enumerate() {
+                                if i > 0 {
+                                    out.push_str(", ");
+                                }
+                                out.push_str(&b.name);
+                            }
+                            out.push(')');
+                        }
+                    }
+                }
+                out.push_str(" => ");
+                print_expr(&arm.body, indent + 1, out);
+                out.push('\n');
+            }
+            for _ in 0..indent {
+                out.push_str("    ");
+            }
+            out.push('}');
+        }
         Expr::StructInit { name, fields, .. } => {
             out.push_str(&name.name);
             out.push_str(" { ");
@@ -358,9 +424,7 @@ fn print_type(ty: &TypeExpr, out: &mut String) {
             out.push_str("owned ");
             print_type(inner, out);
         }
-        TypeExpr::Ref {
-            mutable, inner, ..
-        } => {
+        TypeExpr::Ref { mutable, inner, .. } => {
             out.push('&');
             if *mutable {
                 out.push_str("mut ");

@@ -127,14 +127,16 @@ impl<'io> Vm<'io> {
                 Op::Ge => self.bin_cmp(|o| o.is_ge())?,
                 Op::Not => {
                     let v = self.pop();
-                    self.stack
-                        .push(Value::Bool(!v.as_bool().map_err(|m| VmError::new(Span::DUMMY, m))?));
+                    self.stack.push(Value::Bool(
+                        !v.as_bool().map_err(|m| VmError::new(Span::DUMMY, m))?,
+                    ));
                 }
                 Op::Neg => match self.pop() {
-                    Value::Int(n) => self.stack.push(Value::Int(
-                        n.checked_neg()
-                            .ok_or_else(|| VmError::new(Span::DUMMY, "integer overflow"))?,
-                    )),
+                    Value::Int(n) => self
+                        .stack
+                        .push(Value::Int(n.checked_neg().ok_or_else(|| {
+                            VmError::new(Span::DUMMY, "integer overflow")
+                        })?)),
                     Value::Float(n) => self.stack.push(Value::Float(-n)),
                     other => {
                         return Err(VmError::new(
@@ -243,7 +245,8 @@ impl<'io> Vm<'io> {
                     self.stack.push(Value::Map(Rc::new(RefCell::new(map))));
                 }
                 Op::BuildStruct { name, fields } => {
-                    let type_name = constant_name(&self.frames[frame_index].func.chunk.constants, name)?;
+                    let type_name =
+                        constant_name(&self.frames[frame_index].func.chunk.constants, name)?;
                     let mut field_map = HashMap::new();
                     let mut values = Vec::with_capacity(fields.len());
                     for _ in 0..fields.len() {
@@ -251,7 +254,10 @@ impl<'io> Vm<'io> {
                     }
                     values.reverse();
                     for (idx, value) in values.into_iter().enumerate() {
-                        let fname = constant_name(&self.frames[frame_index].func.chunk.constants, fields[idx])?;
+                        let fname = constant_name(
+                            &self.frames[frame_index].func.chunk.constants,
+                            fields[idx],
+                        )?;
                         field_map.insert(fname, value);
                     }
                     self.stack.push(Value::Struct {
@@ -266,7 +272,8 @@ impl<'io> Vm<'io> {
                 }
                 Op::MakeIter => {
                     let value = self.pop();
-                    self.stack.push(Value::Iter(Rc::new(RefCell::new(make_iter(value)?))));
+                    self.stack
+                        .push(Value::Iter(Rc::new(RefCell::new(make_iter(value)?))));
                 }
                 Op::IterNext(target) => match self.peek().clone() {
                     Value::Iter(iter) => {
@@ -338,11 +345,7 @@ impl<'io> Vm<'io> {
         while self.stack.len() < needed {
             self.stack.push(Value::Nil);
         }
-        self.frames.push(Frame {
-            func,
-            ip: 0,
-            slots,
-        });
+        self.frames.push(Frame { func, ip: 0, slots });
         Ok(())
     }
 
@@ -391,16 +394,20 @@ impl<'io> Vm<'io> {
         let b = self.pop();
         let a = self.pop();
         let v = match (a, b) {
-            (Value::Int(x), Value::Int(y)) => Value::Int(
-                ints(x, y).ok_or_else(|| VmError::new(Span::DUMMY, "integer overflow"))?,
-            ),
+            (Value::Int(x), Value::Int(y)) => {
+                Value::Int(ints(x, y).ok_or_else(|| VmError::new(Span::DUMMY, "integer overflow"))?)
+            }
             (Value::Float(x), Value::Float(y)) => Value::Float(floats(x, y)),
             (Value::Int(x), Value::Float(y)) => Value::Float(floats(x as f64, y)),
             (Value::Float(x), Value::Int(y)) => Value::Float(floats(x, y as f64)),
             (l, r) => {
                 return Err(VmError::new(
                     Span::DUMMY,
-                    format!("cannot apply arithmetic to {} and {}", l.type_name(), r.type_name()),
+                    format!(
+                        "cannot apply arithmetic to {} and {}",
+                        l.type_name(),
+                        r.type_name()
+                    ),
                 ));
             }
         };
@@ -448,7 +455,11 @@ impl<'io> Vm<'io> {
             (l, r) => {
                 return Err(VmError::new(
                     Span::DUMMY,
-                    format!("cannot compute remainder of {} and {}", l.type_name(), r.type_name()),
+                    format!(
+                        "cannot compute remainder of {} and {}",
+                        l.type_name(),
+                        r.type_name()
+                    ),
                 ));
             }
         };
@@ -541,17 +552,19 @@ fn index_get(target: &Value, index: &Value) -> Result<Value, VmError> {
             let i = expect_int(index)?;
             let items = items.borrow();
             let idx = if i < 0 { items.len() as i64 + i } else { i };
-            items.get(idx as usize).cloned().ok_or_else(|| {
-                VmError::new(Span::DUMMY, format!("index {i} out of bounds"))
-            })
+            items
+                .get(idx as usize)
+                .cloned()
+                .ok_or_else(|| VmError::new(Span::DUMMY, format!("index {i} out of bounds")))
         }
         Value::String(s) => {
             let i = expect_int(index)?;
             let chars: Vec<char> = s.chars().collect();
             let idx = if i < 0 { chars.len() as i64 + i } else { i };
-            chars.get(idx as usize).map(|c| Value::from_string(c.to_string())).ok_or_else(|| {
-                VmError::new(Span::DUMMY, format!("index {i} out of bounds"))
-            })
+            chars
+                .get(idx as usize)
+                .map(|c| Value::from_string(c.to_string()))
+                .ok_or_else(|| VmError::new(Span::DUMMY, format!("index {i} out of bounds")))
         }
         Value::Map(map) => {
             let key = map_key(index)?;
@@ -575,7 +588,10 @@ fn index_set(target: &Value, index: &Value, value: Value) -> Result<(), VmError>
             let idx = if i < 0 { items.len() as i64 + i } else { i };
             let idx = idx as usize;
             if idx >= items.len() {
-                return Err(VmError::new(Span::DUMMY, format!("index {i} out of bounds")));
+                return Err(VmError::new(
+                    Span::DUMMY,
+                    format!("index {i} out of bounds"),
+                ));
             }
             items[idx] = value;
             Ok(())

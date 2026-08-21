@@ -170,41 +170,35 @@ fn main() {
 
 #[test]
 fn native_register_heavy_locals() {
-    let out = run_native(&src(
-        r#"
+    let out = run_native(&src(r#"
 fn mix(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int) -> Int {
     let s = a + b + c + d + e + f
     s + s + a
 }
 fn main() { print(mix(1, 2, 3, 4, 5, 6)) }
-"#,
-    ))
+"#))
     .expect("regalloc");
     assert_eq!(out, "43\n");
 }
 
 #[test]
 fn native_float_arith() {
-    let out = run_native(&src(
-        r#"
+    let out = run_native(&src(r#"
 fn main() {
     print(int(1.5 + 2.5))
     print(int(float(10) / float(2)))
 }
-"#,
-    ))
+"#))
     .expect("float native");
     assert_eq!(out, "4\n5\n");
 }
 
 #[test]
 fn asm_assigns_callee_saved_regs() {
-    let asm = compile_asm(&src(
-        r#"
+    let asm = compile_asm(&src(r#"
 fn add(a: Int, b: Int) -> Int { a + b }
 fn main() { print(add(2, 40)) }
-"#,
-    ))
+"#))
     .expect("asm");
     assert!(
         asm.contains("local 0 ->") && (asm.contains("Rbx") || asm.contains("[rbp")),
@@ -239,8 +233,7 @@ fn main() {
 
 #[test]
 fn native_stdlib_natives() {
-    let out = run_native(&src(
-        r#"
+    let out = run_native(&src(r#"
 fn main() {
     print(first([9, 8, 7]))
     print(last([9, 8, 7]))
@@ -249,15 +242,16 @@ fn main() {
     print(contains("abc", "b"))
     print(contains([1, 2, 3], 2))
 }
-"#,
-    ))
+"#))
     .expect("stdlib natives");
     assert_eq!(out, "9\n7\ntrue\ntrue\ntrue\ntrue\n");
 }
 
 #[test]
 fn native_modules() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("examples");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("examples");
     let path = dir.join("modules.flk");
     let text = std::fs::read_to_string(&path).expect("modules.flk");
     let source = flake_ast::Source::new(path.display().to_string(), text);
@@ -288,6 +282,13 @@ fn native_read_file() {
     let out = run_native(&src(&program)).expect("read_file native");
     let _ = std::fs::remove_file(&path);
     assert_eq!(out, "hello from disk\n");
+}
+
+#[test]
+fn native_enums_and_match() {
+    let text = include_str!("../../examples/enum.flk");
+    let out = run_native(&src(text)).expect("enum native");
+    assert_eq!(out, "red\nrgb 1,2,3\nok 42\nerr nope\n");
 }
 
 #[test]

@@ -9,7 +9,7 @@ use flake_ast::{
     AssignOp, BinOp, Block, Expr, InterpPart, Item, LetStmt, Literal, Program, Source, Span, Stmt,
     UnOp,
 };
-use flake_parser::{ReplInput, import_alias, load_graph, parse_repl, ModuleGraph};
+use flake_parser::{ModuleGraph, ReplInput, import_alias, load_graph, parse_repl};
 
 use crate::env::Env;
 use crate::error::{RunError, RuntimeError};
@@ -78,7 +78,11 @@ impl Engine {
     }
 
     /// Evaluate REPL input: a program fragment or a script of statements.
-    pub fn eval_repl(&mut self, source: &Source, stdout: &mut dyn Write) -> Result<Value, RunError> {
+    pub fn eval_repl(
+        &mut self,
+        source: &Source,
+        stdout: &mut dyn Write,
+    ) -> Result<Value, RunError> {
         let input = parse_repl(source)?;
         let mut interp = Interpreter {
             source,
@@ -89,7 +93,10 @@ impl Engine {
         match input {
             ReplInput::Program(program) => {
                 interp.collect_items(&program).map_err(RunError::from)?;
-                let has_main = program.items.iter().any(|item| matches!(item, Item::Fn(f) if f.name.name == "main"));
+                let has_main = program
+                    .items
+                    .iter()
+                    .any(|item| matches!(item, Item::Fn(f) if f.name.name == "main"));
                 if has_main {
                     interp.call_main(&program).map_err(RunError::from)
                 } else {
@@ -100,16 +107,12 @@ impl Engine {
                 Ok(v) => Ok(v),
                 Err(Fail::Runtime(e)) => Err(e.into()),
                 Err(Fail::Control(Control::Return(v))) => Ok(v),
-                Err(Fail::Control(Control::Break)) => Err(RuntimeError::new(
-                    block.span,
-                    "`break` outside of a loop",
-                )
-                .into()),
-                Err(Fail::Control(Control::Continue)) => Err(RuntimeError::new(
-                    block.span,
-                    "`continue` outside of a loop",
-                )
-                .into()),
+                Err(Fail::Control(Control::Break)) => {
+                    Err(RuntimeError::new(block.span, "`break` outside of a loop").into())
+                }
+                Err(Fail::Control(Control::Continue)) => {
+                    Err(RuntimeError::new(block.span, "`continue` outside of a loop").into())
+                }
             },
         }
     }
@@ -213,10 +216,21 @@ impl<'io> Interpreter<'io> {
         self.collect_items(&module.program)?;
         let mut members = HashMap::new();
         for item in &module.program.items {
-            if let Item::Fn(func) = item {
-                if let Some(value) = self.env.get(&func.name.name) {
-                    members.insert(func.name.name.clone(), value);
+            if !flake_parser::is_exported(item, &module.program) {
+                continue;
+            }
+            match item {
+                Item::Fn(func) => {
+                    if let Some(value) = self.env.get(&func.name.name) {
+                        members.insert(func.name.name.clone(), value);
+                    }
                 }
+                Item::Enum(en) => {
+                    if let Some(value) = self.env.get(&en.name.name) {
+                        members.insert(en.name.name.clone(), value);
+                    }
+                }
+                _ => {}
             }
         }
         let module_val = Value::Module {
@@ -241,6 +255,35 @@ impl<'io> Interpreter<'io> {
                     self.env.define(&func.name.name, value, false);
                 }
                 Item::Struct(_) | Item::Type(_) | Item::Import(_) => {}
+                Item::Enum(en) => {
+                    let mut members = HashMap::new();
+                    for (tag, v) in en.variants.iter().enumerate() {
+                        let ctor = if v.fields.is_empty() {
+                            Value::Enum {
+                                type_name: Rc::from(en.name.name.as_str()),
+                                variant: Rc::from(v.name.name.as_str()),
+                                tag: tag as i64,
+                                fields: Vec::new(),
+                            }
+                        } else {
+                            Value::VariantCtor {
+                                type_name: Rc::from(en.name.name.as_str()),
+                                variant: Rc::from(v.name.name.as_str()),
+                                tag: tag as i64,
+                                arity: v.fields.len(),
+                            }
+                        };
+                        members.insert(v.name.name.clone(), ctor);
+                    }
+                    self.env.define(
+                        &en.name.name,
+                        Value::Module {
+                            name: Rc::from(en.name.name.as_str()),
+                            members: Rc::new(members),
+                        },
+                        false,
+                    );
+                }
             }
         }
         Ok(())
@@ -263,20 +306,21 @@ impl<'io> Interpreter<'io> {
             ));
         }
         let Some(Value::Function(func)) = self.env.get("main") else {
-            return Err(RuntimeError::new(main.span, "internal error: `main` not bound"));
+            return Err(RuntimeError::new(
+                main.span,
+                "internal error: `main` not bound",
+            ));
         };
         match self.call_function(&func, &[], main.span) {
             Ok(v) => Ok(v),
             Err(Fail::Runtime(e)) => Err(e),
             Err(Fail::Control(Control::Return(v))) => Ok(v),
-            Err(Fail::Control(Control::Break)) => Err(RuntimeError::new(
-                main.span,
-                "`break` outside of a loop",
-            )),
-            Err(Fail::Control(Control::Continue)) => Err(RuntimeError::new(
-                main.span,
-                "`continue` outside of a loop",
-            )),
+            Err(Fail::Control(Control::Break)) => {
+                Err(RuntimeError::new(main.span, "`break` outside of a loop"))
+            }
+            Err(Fail::Control(Control::Continue)) => {
+                Err(RuntimeError::new(main.span, "`continue` outside of a loop"))
+            }
         }
     }
 
@@ -426,7 +470,10 @@ impl<'io> Interpreter<'io> {
                 }
                 Ok(items)
             }
-            Value::String(s) => Ok(s.chars().map(|c| Value::from_string(c.to_string())).collect()),
+            Value::String(s) => Ok(s
+                .chars()
+                .map(|c| Value::from_string(c.to_string()))
+                .collect()),
             other => Err(RuntimeError::new(
                 span,
                 format!("cannot iterate over {}", other.type_name()),
@@ -438,12 +485,9 @@ impl<'io> Interpreter<'io> {
     fn eval_expr(&mut self, expr: &Expr) -> EvalResult<Value> {
         match expr {
             Expr::Literal { value, .. } => Ok(literal_value(value)),
-            Expr::Ident(id) => self
-                .env
-                .get(&id.name)
-                .ok_or_else(|| {
-                    RuntimeError::new(id.span, format!("undefined variable `{}`", id.name)).into()
-                }),
+            Expr::Ident(id) => self.env.get(&id.name).ok_or_else(|| {
+                RuntimeError::new(id.span, format!("undefined variable `{}`", id.name)).into()
+            }),
             Expr::Interpolated { parts, .. } => self.eval_interpolated(parts),
             Expr::List { elements, .. } => {
                 let mut items = Vec::with_capacity(elements.len());
@@ -467,7 +511,10 @@ impl<'io> Interpreter<'io> {
                 unary(*op, v, *span)
             }
             Expr::Binary {
-                op, left, right, span,
+                op,
+                left,
+                right,
+                span,
             } => {
                 let l = self.eval_expr(left)?;
                 if *op == BinOp::And {
@@ -501,7 +548,11 @@ impl<'io> Interpreter<'io> {
                 }
                 self.call_value(&func, &arg_values, *span)
             }
-            Expr::Index { target, index, span } => {
+            Expr::Index {
+                target,
+                index,
+                span,
+            } => {
                 let t = self.eval_expr(target)?;
                 let i = self.eval_expr(index)?;
                 index_get(&t, &i, *span)
@@ -536,6 +587,26 @@ impl<'io> Interpreter<'io> {
                 }
             }
             Expr::Block(block) => self.eval_block(block),
+            Expr::Match {
+                scrutinee,
+                arms,
+                span,
+            } => {
+                let value = self.eval_expr(scrutinee)?;
+                for arm in arms {
+                    if let Some(binds) = match_pattern(&arm.pattern, &value) {
+                        let saved = self.env.clone();
+                        self.env = saved.child();
+                        for (name, val) in binds {
+                            self.env.define(name, val, false);
+                        }
+                        let result = self.eval_expr(&arm.body);
+                        self.env = saved;
+                        return result;
+                    }
+                }
+                Err(RuntimeError::new(*span, "non-exhaustive match").into())
+            }
             Expr::StructInit { name, fields, .. } => {
                 let mut map = HashMap::new();
                 for (field, value) in fields {
@@ -623,6 +694,29 @@ impl<'io> Interpreter<'io> {
         match func {
             Value::Function(f) => self.call_function(f, args, span),
             Value::Native(n) => self.call_native(*n, args, span),
+            Value::VariantCtor {
+                type_name,
+                variant,
+                tag,
+                arity,
+            } => {
+                if args.len() != *arity {
+                    return Err(RuntimeError::new(
+                        span,
+                        format!(
+                            "variant `{type_name}.{variant}` expected {arity} argument(s), got {}",
+                            args.len()
+                        ),
+                    )
+                    .into());
+                }
+                Ok(Value::Enum {
+                    type_name: type_name.clone(),
+                    variant: variant.clone(),
+                    tag: *tag,
+                    fields: args.to_vec(),
+                })
+            }
             other => Err(RuntimeError::new(
                 span,
                 format!("cannot call value of type {}", other.type_name()),
@@ -635,9 +729,8 @@ impl<'io> Interpreter<'io> {
         match native {
             NativeFn::Print => {
                 let text: Vec<_> = args.iter().map(Value::display_value).collect();
-                writeln!(self.stdout, "{}", text.join(" ")).map_err(|e| {
-                    RuntimeError::new(span, format!("failed to write output: {e}"))
-                })?;
+                writeln!(self.stdout, "{}", text.join(" "))
+                    .map_err(|e| RuntimeError::new(span, format!("failed to write output: {e}")))?;
                 Ok(Value::Nil)
             }
             NativeFn::Len => {
@@ -648,7 +741,10 @@ impl<'io> Interpreter<'io> {
                     Value::Map(m) => Ok(Value::Int(m.borrow().len() as i64)),
                     other => Err(RuntimeError::new(
                         span,
-                        format!("len() expected List, String, or Map, found {}", other.type_name()),
+                        format!(
+                            "len() expected List, String, or Map, found {}",
+                            other.type_name()
+                        ),
                     )
                     .into()),
                 }
@@ -696,11 +792,9 @@ impl<'io> Interpreter<'io> {
             }
             NativeFn::Assert => {
                 if args.is_empty() || args.len() > 2 {
-                    return Err(RuntimeError::new(
-                        span,
-                        "assert() expected 1 or 2 arguments",
-                    )
-                    .into());
+                    return Err(
+                        RuntimeError::new(span, "assert() expected 1 or 2 arguments").into(),
+                    );
                 }
                 if !args[0].as_bool(span)? {
                     let msg = if args.len() == 2 {
@@ -726,11 +820,9 @@ impl<'io> Interpreter<'io> {
                 };
                 match std::fs::read_to_string(&path) {
                     Ok(text) => Ok(Value::from_string(text)),
-                    Err(e) => Err(RuntimeError::new(
-                        span,
-                        format!("failed to read `{path}`: {e}"),
-                    )
-                    .into()),
+                    Err(e) => {
+                        Err(RuntimeError::new(span, format!("failed to read `{path}`: {e}")).into())
+                    }
                 }
             }
             NativeFn::Abs => {
@@ -775,11 +867,9 @@ impl<'io> Interpreter<'io> {
                     1 => (0, expect_int(&args[0], span)?),
                     2 => (expect_int(&args[0], span)?, expect_int(&args[1], span)?),
                     _ => {
-                        return Err(RuntimeError::new(
-                            span,
-                            "range() expected 1 or 2 arguments",
-                        )
-                        .into());
+                        return Err(
+                            RuntimeError::new(span, "range() expected 1 or 2 arguments").into()
+                        );
                     }
                 };
                 Ok(Value::Range { start, end })
@@ -791,14 +881,18 @@ impl<'io> Interpreter<'io> {
                     other => {
                         return Err(RuntimeError::new(
                             span,
-                            format!("join() separator expected String, found {}", other.type_name()),
+                            format!(
+                                "join() separator expected String, found {}",
+                                other.type_name()
+                            ),
                         )
                         .into());
                     }
                 };
                 match &args[0] {
                     Value::List(items) => {
-                        let parts: Vec<_> = items.borrow().iter().map(Value::display_value).collect();
+                        let parts: Vec<_> =
+                            items.borrow().iter().map(Value::display_value).collect();
                         Ok(Value::from_string(parts.join(&sep)))
                     }
                     other => Err(RuntimeError::new(
@@ -825,13 +919,18 @@ impl<'io> Interpreter<'io> {
                     other => {
                         return Err(RuntimeError::new(
                             span,
-                            format!("split() separator expected String, found {}", other.type_name()),
+                            format!(
+                                "split() separator expected String, found {}",
+                                other.type_name()
+                            ),
                         )
                         .into());
                     }
                 };
                 let parts: Vec<_> = if sep.is_empty() {
-                    s.chars().map(|c| Value::from_string(c.to_string())).collect()
+                    s.chars()
+                        .map(|c| Value::from_string(c.to_string()))
+                        .collect()
                 } else {
                     s.split(&sep).map(Value::from_string).collect()
                 };
@@ -844,7 +943,10 @@ impl<'io> Interpreter<'io> {
                     other => {
                         return Err(RuntimeError::new(
                             span,
-                            format!("write_file() expected String path, found {}", other.type_name()),
+                            format!(
+                                "write_file() expected String path, found {}",
+                                other.type_name()
+                            ),
                         )
                         .into());
                     }
@@ -862,12 +964,15 @@ impl<'io> Interpreter<'io> {
                         let needle = args[1].display_value();
                         Ok(Value::Bool(s.contains(&needle)))
                     }
-                    Value::List(items) => {
-                        Ok(Value::Bool(items.borrow().iter().any(|v| v.equals(&args[1]))))
-                    }
+                    Value::List(items) => Ok(Value::Bool(
+                        items.borrow().iter().any(|v| v.equals(&args[1])),
+                    )),
                     other => Err(RuntimeError::new(
                         span,
-                        format!("contains() expected String or List, found {}", other.type_name()),
+                        format!(
+                            "contains() expected String or List, found {}",
+                            other.type_name()
+                        ),
                     )
                     .into()),
                 }
@@ -875,14 +980,18 @@ impl<'io> Interpreter<'io> {
             NativeFn::StartsWith => {
                 expect_arity("starts_with", args, 2, span)?;
                 match (&args[0], &args[1]) {
-                    (Value::String(s), Value::String(p)) => Ok(Value::Bool(s.starts_with(p.as_ref()))),
+                    (Value::String(s), Value::String(p)) => {
+                        Ok(Value::Bool(s.starts_with(p.as_ref())))
+                    }
                     _ => Err(RuntimeError::new(span, "starts_with() expected two Strings").into()),
                 }
             }
             NativeFn::EndsWith => {
                 expect_arity("ends_with", args, 2, span)?;
                 match (&args[0], &args[1]) {
-                    (Value::String(s), Value::String(p)) => Ok(Value::Bool(s.ends_with(p.as_ref()))),
+                    (Value::String(s), Value::String(p)) => {
+                        Ok(Value::Bool(s.ends_with(p.as_ref())))
+                    }
                     _ => Err(RuntimeError::new(span, "ends_with() expected two Strings").into()),
                 }
             }
@@ -890,10 +999,17 @@ impl<'io> Interpreter<'io> {
                 expect_arity("first", args, 1, span)?;
                 match &args[0] {
                     Value::List(v) => Ok(v.borrow().first().cloned().unwrap_or(Value::Nil)),
-                    Value::String(s) => Ok(s.chars().next().map(|c| Value::from_string(c.to_string())).unwrap_or(Value::Nil)),
+                    Value::String(s) => Ok(s
+                        .chars()
+                        .next()
+                        .map(|c| Value::from_string(c.to_string()))
+                        .unwrap_or(Value::Nil)),
                     other => Err(RuntimeError::new(
                         span,
-                        format!("first() expected List or String, found {}", other.type_name()),
+                        format!(
+                            "first() expected List or String, found {}",
+                            other.type_name()
+                        ),
                     )
                     .into()),
                 }
@@ -902,10 +1018,17 @@ impl<'io> Interpreter<'io> {
                 expect_arity("last", args, 1, span)?;
                 match &args[0] {
                     Value::List(v) => Ok(v.borrow().last().cloned().unwrap_or(Value::Nil)),
-                    Value::String(s) => Ok(s.chars().last().map(|c| Value::from_string(c.to_string())).unwrap_or(Value::Nil)),
+                    Value::String(s) => Ok(s
+                        .chars()
+                        .last()
+                        .map(|c| Value::from_string(c.to_string()))
+                        .unwrap_or(Value::Nil)),
                     other => Err(RuntimeError::new(
                         span,
-                        format!("last() expected List or String, found {}", other.type_name()),
+                        format!(
+                            "last() expected List or String, found {}",
+                            other.type_name()
+                        ),
                     )
                     .into()),
                 }
@@ -932,11 +1055,9 @@ fn unary(op: UnOp, value: Value, span: Span) -> EvalResult<Value> {
                 .map(Value::Int)
                 .ok_or_else(|| RuntimeError::new(span, "integer overflow").into()),
             Value::Float(n) => Ok(Value::Float(-n)),
-            other => Err(RuntimeError::new(
-                span,
-                format!("cannot negate {}", other.type_name()),
-            )
-            .into()),
+            other => {
+                Err(RuntimeError::new(span, format!("cannot negate {}", other.type_name())).into())
+            }
         },
         UnOp::Not => Ok(Value::Bool(!value.as_bool(span)?)),
         UnOp::Ref | UnOp::RefMut => Ok(value),
@@ -969,9 +1090,7 @@ fn add(left: Value, right: Value, span: Span) -> EvalResult<Value> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 + b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b as f64)),
-        (Value::String(a), Value::String(b)) => {
-            Ok(Value::from_string(format!("{a}{b}")))
-        }
+        (Value::String(a), Value::String(b)) => Ok(Value::from_string(format!("{a}{b}"))),
         (Value::String(a), b) => Ok(Value::from_string(format!("{a}{}", b.display_value()))),
         (a, Value::String(b)) => Ok(Value::from_string(format!("{}{b}", a.display_value()))),
         (Value::List(a), Value::List(b)) => {
@@ -1003,7 +1122,11 @@ fn arith(
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(floats(a, b as f64))),
         (l, r) => Err(RuntimeError::new(
             span,
-            format!("cannot apply arithmetic to {} and {}", l.type_name(), r.type_name()),
+            format!(
+                "cannot apply arithmetic to {} and {}",
+                l.type_name(),
+                r.type_name()
+            ),
         )
         .into()),
     }
@@ -1011,9 +1134,7 @@ fn arith(
 
 fn div(left: Value, right: Value, span: Span) -> EvalResult<Value> {
     match (left, right) {
-        (Value::Int(_), Value::Int(0)) => {
-            Err(RuntimeError::new(span, "division by zero").into())
-        }
+        (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new(span, "division by zero").into()),
         (Value::Int(a), Value::Int(b)) => a
             .checked_div(b)
             .map(Value::Int)
@@ -1031,9 +1152,7 @@ fn div(left: Value, right: Value, span: Span) -> EvalResult<Value> {
 
 fn rem(left: Value, right: Value, span: Span) -> EvalResult<Value> {
     match (left, right) {
-        (Value::Int(_), Value::Int(0)) => {
-            Err(RuntimeError::new(span, "division by zero").into())
-        }
+        (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new(span, "division by zero").into()),
         (Value::Int(a), Value::Int(b)) => a
             .checked_rem(b)
             .map(Value::Int)
@@ -1041,7 +1160,11 @@ fn rem(left: Value, right: Value, span: Span) -> EvalResult<Value> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
         (l, r) => Err(RuntimeError::new(
             span,
-            format!("cannot compute remainder of {} and {}", l.type_name(), r.type_name()),
+            format!(
+                "cannot compute remainder of {} and {}",
+                l.type_name(),
+                r.type_name()
+            ),
         )
         .into()),
     }
@@ -1055,15 +1178,15 @@ fn cmp(
 ) -> EvalResult<Value> {
     let ord = match (&left, &right) {
         (Value::Int(a), Value::Int(b)) => a.cmp(b),
-        (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).ok_or_else(|| {
-            RuntimeError::new(span, "cannot compare NaN")
-        })?,
-        (Value::Int(a), Value::Float(b)) => (*a as f64).partial_cmp(b).ok_or_else(|| {
-            RuntimeError::new(span, "cannot compare NaN")
-        })?,
-        (Value::Float(a), Value::Int(b)) => a.partial_cmp(&(*b as f64)).ok_or_else(|| {
-            RuntimeError::new(span, "cannot compare NaN")
-        })?,
+        (Value::Float(a), Value::Float(b)) => a
+            .partial_cmp(b)
+            .ok_or_else(|| RuntimeError::new(span, "cannot compare NaN"))?,
+        (Value::Int(a), Value::Float(b)) => (*a as f64)
+            .partial_cmp(b)
+            .ok_or_else(|| RuntimeError::new(span, "cannot compare NaN"))?,
+        (Value::Float(a), Value::Int(b)) => a
+            .partial_cmp(&(*b as f64))
+            .ok_or_else(|| RuntimeError::new(span, "cannot compare NaN"))?,
         (Value::String(a), Value::String(b)) => a.cmp(b),
         (l, r) => {
             return Err(RuntimeError::new(
@@ -1108,11 +1231,7 @@ fn index_get(target: &Value, index: &Value, span: Span) -> EvalResult<Value> {
                 .cloned()
                 .ok_or_else(|| RuntimeError::new(span, format!("map has no key {key:?}")).into())
         }
-        other => Err(RuntimeError::new(
-            span,
-            format!("cannot index {}", other.type_name()),
-        )
-        .into()),
+        other => Err(RuntimeError::new(span, format!("cannot index {}", other.type_name())).into()),
     }
 }
 
@@ -1130,11 +1249,46 @@ fn index_set(target: &Value, index: &Value, value: Value, span: Span) -> EvalRes
             map.borrow_mut().insert(key, value);
             Ok(())
         }
-        other => Err(RuntimeError::new(
-            span,
-            format!("cannot index-assign {}", other.type_name()),
-        )
-        .into()),
+        other => Err(
+            RuntimeError::new(span, format!("cannot index-assign {}", other.type_name())).into(),
+        ),
+    }
+}
+
+fn match_pattern(pat: &flake_ast::Pattern, value: &Value) -> Option<Vec<(String, Value)>> {
+    match pat {
+        flake_ast::Pattern::Wildcard { .. } => Some(Vec::new()),
+        flake_ast::Pattern::Ident(id) => Some(vec![(id.name.clone(), value.clone())]),
+        flake_ast::Pattern::Variant {
+            ty, variant, binds, ..
+        } => match value {
+            Value::Enum {
+                type_name,
+                variant: vname,
+                fields,
+                ..
+            } => {
+                if let Some(t) = ty {
+                    if t.name.as_str() != type_name.as_ref() {
+                        return None;
+                    }
+                }
+                if vname.as_ref() != variant.name {
+                    return None;
+                }
+                if binds.len() != fields.len() {
+                    return None;
+                }
+                Some(
+                    binds
+                        .iter()
+                        .zip(fields.iter())
+                        .map(|(b, f)| (b.name.clone(), f.clone()))
+                        .collect(),
+                )
+            }
+            _ => None,
+        },
     }
 }
 
@@ -1145,7 +1299,10 @@ fn field_get(target: &Value, name: &str, span: Span) -> EvalResult<Value> {
             .get(name)
             .cloned()
             .ok_or_else(|| RuntimeError::new(span, format!("no field `{name}`")).into()),
-        Value::Module { name: module, members } => members.get(name).cloned().ok_or_else(|| {
+        Value::Module {
+            name: module,
+            members,
+        } => members.get(name).cloned().ok_or_else(|| {
             RuntimeError::new(span, format!("module `{module}` has no export `{name}`")).into()
         }),
         other => Err(RuntimeError::new(
@@ -1186,20 +1343,14 @@ fn map_key(value: &Value, span: Span) -> EvalResult<String> {
 fn expect_int(value: &Value, span: Span) -> EvalResult<i64> {
     match value {
         Value::Int(n) => Ok(*n),
-        other => Err(RuntimeError::new(
-            span,
-            format!("expected Int, found {}", other.type_name()),
-        )
-        .into()),
+        other => Err(
+            RuntimeError::new(span, format!("expected Int, found {}", other.type_name())).into(),
+        ),
     }
 }
 
 fn normalize_index(index: i64, len: usize, span: Span) -> EvalResult<usize> {
-    let idx = if index < 0 {
-        len as i64 + index
-    } else {
-        index
-    };
+    let idx = if index < 0 { len as i64 + index } else { index };
     if idx < 0 || idx as usize >= len {
         Err(RuntimeError::new(
             span,
@@ -1229,9 +1380,10 @@ fn to_int(value: &Value, span: Span) -> EvalResult<Value> {
         Value::Float(n) => Ok(Value::Int(*n as i64)),
         Value::Bool(true) => Ok(Value::Int(1)),
         Value::Bool(false) => Ok(Value::Int(0)),
-        Value::String(s) => s.parse::<i64>().map(Value::Int).map_err(|_| {
-            RuntimeError::new(span, format!("cannot parse `{s}` as Int")).into()
-        }),
+        Value::String(s) => s
+            .parse::<i64>()
+            .map(Value::Int)
+            .map_err(|_| RuntimeError::new(span, format!("cannot parse `{s}` as Int")).into()),
         other => Err(RuntimeError::new(
             span,
             format!("cannot convert {} to Int", other.type_name()),
@@ -1244,9 +1396,10 @@ fn to_float(value: &Value, span: Span) -> EvalResult<Value> {
     match value {
         Value::Float(n) => Ok(Value::Float(*n)),
         Value::Int(n) => Ok(Value::Float(*n as f64)),
-        Value::String(s) => s.parse::<f64>().map(Value::Float).map_err(|_| {
-            RuntimeError::new(span, format!("cannot parse `{s}` as Float")).into()
-        }),
+        Value::String(s) => s
+            .parse::<f64>()
+            .map(Value::Float)
+            .map_err(|_| RuntimeError::new(span, format!("cannot parse `{s}` as Float")).into()),
         other => Err(RuntimeError::new(
             span,
             format!("cannot convert {} to Float", other.type_name()),

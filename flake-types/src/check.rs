@@ -6,7 +6,7 @@ use flake_ast::{
     AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, Source, Span, Stmt,
     TypeExpr, UnOp,
 };
-use flake_parser::{import_alias, load_graph, ModuleGraph};
+use flake_parser::{ModuleGraph, import_alias, is_exported, load_graph};
 
 use crate::effects::EffectSet;
 use crate::error::{CheckError, TypeError};
@@ -18,6 +18,7 @@ struct Checker {
     structs: HashMap<String, Type>,
     aliases: HashMap<String, Type>,
     functions: HashMap<String, Type>,
+    enums: HashMap<String, Type>,
 }
 
 impl Checker {
@@ -28,6 +29,7 @@ impl Checker {
             structs: HashMap::new(),
             aliases: HashMap::new(),
             functions: HashMap::new(),
+            enums: HashMap::new(),
         };
         this.install_builtins();
         this
@@ -41,17 +43,23 @@ impl Checker {
 
     fn install_builtins(&mut self) {
         let mk = |params: Vec<Type>, ret: Type, effects: &[&str]| {
-            Type::function(params, ret, EffectSet::from_names(effects.iter().copied(), true))
+            Type::function(
+                params,
+                ret,
+                EffectSet::from_names(effects.iter().copied(), true),
+            )
         };
-        self.functions.insert(
-            "print".into(),
-            mk(vec![Type::Dyn], Type::Nil, &["io"]),
-        );
+        self.functions
+            .insert("print".into(), mk(vec![Type::Dyn], Type::Nil, &["io"]));
         self.functions
             .insert("len".into(), mk(vec![Type::Dyn], Type::Int, &[]));
         self.functions.insert(
             "push".into(),
-            mk(vec![Type::list(Type::Dyn), Type::Dyn], Type::Nil, &["alloc"]),
+            mk(
+                vec![Type::list(Type::Dyn), Type::Dyn],
+                Type::Nil,
+                &["alloc"],
+            ),
         );
         self.functions.insert(
             "pop".into(),
@@ -83,11 +91,19 @@ impl Checker {
             .insert("range".into(), mk(vec![Type::Int], Type::Range, &[]));
         self.functions.insert(
             "join".into(),
-            mk(vec![Type::list(Type::Dyn), Type::String], Type::String, &["alloc"]),
+            mk(
+                vec![Type::list(Type::Dyn), Type::String],
+                Type::String,
+                &["alloc"],
+            ),
         );
         self.functions.insert(
             "split".into(),
-            mk(vec![Type::String, Type::String], Type::list(Type::String), &["alloc"]),
+            mk(
+                vec![Type::String, Type::String],
+                Type::list(Type::String),
+                &["alloc"],
+            ),
         );
         self.functions.insert(
             "write_file".into(),
@@ -162,12 +178,21 @@ impl Checker {
                 Ok(Type::Optional(Box::new(self.unify(&x, &y, span)?)))
             }
             (Type::Optional(x), y) | (y, Type::Optional(x)) => self.unify(&x, &y, span),
+            (Type::Struct { name: n1, .. }, Type::Struct { name: n2, .. }) if n1 == n2 => {
+                Ok(Type::Struct {
+                    name: n1,
+                    fields: Vec::new(),
+                })
+            }
             (
-                Type::Struct { name: n1, .. },
-                Type::Struct { name: n2, .. },
-            ) if n1 == n2 => Ok(Type::Struct {
+                Type::Enum {
+                    name: n1,
+                    variants: v1,
+                },
+                Type::Enum { name: n2, .. },
+            ) if n1 == n2 => Ok(Type::Enum {
                 name: n1,
-                fields: Vec::new(),
+                variants: v1,
             }),
             (
                 Type::Fn {
@@ -248,6 +273,9 @@ impl Checker {
             let alias = import_alias(import).to_string();
             let mut members = Vec::new();
             for item in &imported.program.items {
+                if !is_exported(item, &imported.program) {
+                    continue;
+                }
                 match item {
                     Item::Struct(st) => {
                         let mut fields = Vec::new();
@@ -272,6 +300,23 @@ impl Checker {
                         }
                         members.push((func.name.name.clone(), ty));
                     }
+                    Item::Enum(en) => {
+                        let mut variants = Vec::new();
+                        for v in &en.variants {
+                            let fields = v
+                                .fields
+                                .iter()
+                                .map(|t| self.lower_type(t))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            variants.push((v.name.name.clone(), fields));
+                        }
+                        let ty = Type::Enum {
+                            name: en.name.name.clone(),
+                            variants,
+                        };
+                        self.enums.insert(en.name.name.clone(), ty.clone());
+                        members.push((en.name.name.clone(), ty));
+                    }
                     Item::Import(_) => {}
                 }
             }
@@ -292,7 +337,11 @@ impl Checker {
                 return Some(t.clone());
             }
         }
-        self.functions.get(name).cloned()
+        self.functions
+            .get(name)
+            .cloned()
+            .or_else(|| self.enums.get(name).cloned())
+            .or_else(|| self.structs.get(name).cloned())
     }
 
     fn check_program(&mut self, program: &Program) -> Result<(), TypeError> {
@@ -313,6 +362,22 @@ impl Checker {
                     };
                     self.structs.insert(st.name.name.clone(), ty);
                 }
+                Item::Enum(en) => {
+                    let mut variants = Vec::new();
+                    for v in &en.variants {
+                        let fields = v
+                            .fields
+                            .iter()
+                            .map(|t| self.lower_type(t))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        variants.push((v.name.name.clone(), fields));
+                    }
+                    let ty = Type::Enum {
+                        name: en.name.name.clone(),
+                        variants,
+                    };
+                    self.enums.insert(en.name.name.clone(), ty);
+                }
                 Item::Fn(_) | Item::Import(_) => {}
             }
         }
@@ -327,12 +392,109 @@ impl Checker {
         for item in &program.items {
             match item {
                 Item::Fn(func) => self.check_fn(func)?,
-                Item::Import(_) | Item::Struct(_) | Item::Type(_) => {}
+                Item::Import(_) | Item::Struct(_) | Item::Enum(_) | Item::Type(_) => {}
             }
         }
         self.check_effects(program)?;
         crate::ownership::check_ownership(program)?;
         Ok(())
+    }
+
+    fn bind_pattern(&mut self, pat: &flake_ast::Pattern, ty: &Type) -> Result<(), TypeError> {
+        match pat {
+            flake_ast::Pattern::Wildcard { .. } => Ok(()),
+            flake_ast::Pattern::Ident(id) => {
+                self.define(id.name.clone(), ty.clone());
+                Ok(())
+            }
+            flake_ast::Pattern::Variant {
+                ty: enum_name,
+                variant,
+                binds,
+                span,
+            } => {
+                let enum_ty = if let Some(n) = enum_name {
+                    self.enums.get(&n.name).cloned().ok_or_else(|| {
+                        TypeError::new(*span, format!("unknown enum `{}`", n.name))
+                    })?
+                } else {
+                    self.resolve(ty)
+                };
+                let Type::Enum { name, variants } = enum_ty.without_ownership() else {
+                    return Err(TypeError::new(*span, "match variant on non-enum"));
+                };
+                let Some((_, fields)) = variants.iter().find(|(n, _)| n == &variant.name) else {
+                    return Err(TypeError::new(
+                        variant.span,
+                        format!("enum `{name}` has no variant `{}`", variant.name),
+                    ));
+                };
+                if binds.len() != fields.len() {
+                    return Err(TypeError::new(
+                        *span,
+                        format!(
+                            "variant `{}` expects {} field(s), got {}",
+                            variant.name,
+                            fields.len(),
+                            binds.len()
+                        ),
+                    ));
+                }
+                for (b, ft) in binds.iter().zip(fields.iter()) {
+                    self.define(b.name.clone(), ft.clone());
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn check_match_exhaustive(
+        &self,
+        scrut_ty: &Type,
+        arms: &[flake_ast::MatchArm],
+        span: Span,
+    ) -> Result<(), TypeError> {
+        let catch_all = arms.iter().any(|arm| {
+            matches!(
+                arm.pattern,
+                flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_)
+            )
+        });
+        if catch_all {
+            return Ok(());
+        }
+        match self.resolve(scrut_ty).without_ownership() {
+            Type::Enum { name, variants } => {
+                let covered: HashSet<&str> = arms
+                    .iter()
+                    .filter_map(|arm| match &arm.pattern {
+                        flake_ast::Pattern::Variant { variant, .. } => Some(variant.name.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                let missing: Vec<&str> = variants
+                    .iter()
+                    .map(|(n, _)| n.as_str())
+                    .filter(|n| !covered.contains(n))
+                    .collect();
+                if missing.is_empty() {
+                    Ok(())
+                } else {
+                    Err(TypeError::new(
+                        span,
+                        format!(
+                            "non-exhaustive match on `{name}`: missing {}; add a `_` arm or cover the remaining variants",
+                            missing.join(", ")
+                        ),
+                    ))
+                }
+            }
+            Type::Dyn | Type::Var(_) => Ok(()),
+            other => Err(TypeError::new(
+                span,
+                format!("non-exhaustive match on {other}: add a `_` or identifier arm"),
+            )),
+        }
     }
 
     fn lower_fn_type(&mut self, func: &FnDecl) -> Result<Type, TypeError> {
@@ -378,7 +540,10 @@ impl Checker {
                         [v] => (Type::String, self.lower_type(v)?),
                         [] => (Type::Dyn, Type::Dyn),
                         _ => {
-                            return Err(TypeError::new(*span, "Map expects one or two type arguments"));
+                            return Err(TypeError::new(
+                                *span,
+                                "Map expects one or two type arguments",
+                            ));
                         }
                     };
                     Type::Map(Box::new(k), Box::new(v))
@@ -388,6 +553,8 @@ impl Checker {
                         alias.clone()
                     } else if let Some(st) = self.structs.get(other) {
                         st.clone()
+                    } else if let Some(en) = self.enums.get(other) {
+                        en.clone()
                     } else {
                         Type::Struct {
                             name: other.to_string(),
@@ -399,9 +566,7 @@ impl Checker {
             TypeExpr::List { element, .. } => Type::list(self.lower_type(element)?),
             TypeExpr::Optional { inner, .. } => Type::Optional(Box::new(self.lower_type(inner)?)),
             TypeExpr::Owned { inner, .. } => Type::Owned(Box::new(self.lower_type(inner)?)),
-            TypeExpr::Ref {
-                mutable, inner, ..
-            } => Type::Ref {
+            TypeExpr::Ref { mutable, inner, .. } => Type::Ref {
                 mutable: *mutable,
                 inner: Box::new(self.lower_type(inner)?),
             },
@@ -502,11 +667,7 @@ impl Checker {
         Ok(())
     }
 
-    fn check_binding(
-        &mut self,
-        ann: &Option<TypeExpr>,
-        value: &Expr,
-    ) -> Result<Type, TypeError> {
+    fn check_binding(&mut self, ann: &Option<TypeExpr>, value: &Expr) -> Result<Type, TypeError> {
         if let Some(ann) = ann {
             let ann = self.lower_type(ann)?;
             self.check_expr_expected(value, Some(&ann))
@@ -542,10 +703,7 @@ impl Checker {
             Type::Range => Ok(Type::Int),
             Type::String => Ok(Type::String),
             Type::Dyn | Type::Var(_) => Ok(Type::Dyn),
-            other => Err(TypeError::new(
-                span,
-                format!("cannot iterate over {other}"),
-            )),
+            other => Err(TypeError::new(span, format!("cannot iterate over {other}"))),
         }
     }
 
@@ -623,7 +781,10 @@ impl Checker {
                 }
             }
             Expr::Binary {
-                op, left, right, span,
+                op,
+                left,
+                right,
+                span,
             } => self.check_binary(*op, left, right, *span),
             Expr::Assign {
                 op,
@@ -679,7 +840,11 @@ impl Checker {
                     other => Err(TypeError::new(*span, format!("cannot call {other}"))),
                 }
             }
-            Expr::Index { target, index, span } => {
+            Expr::Index {
+                target,
+                index,
+                span,
+            } => {
                 let t = self.check_expr(target)?;
                 let i = self.check_expr(index)?;
                 match self.resolve(&t).without_ownership() {
@@ -737,6 +902,27 @@ impl Checker {
                                 format!("module `{name}` has no export `{}`", field.name),
                             )
                         }),
+                    Type::Enum { name, variants } => {
+                        let Some((_, fields)) = variants.iter().find(|(n, _)| n == &field.name)
+                        else {
+                            return Err(TypeError::new(
+                                field.span,
+                                format!("enum `{name}` has no variant `{}`", field.name),
+                            ));
+                        };
+                        if fields.is_empty() {
+                            Ok(Type::Enum { name, variants })
+                        } else {
+                            Ok(Type::function(
+                                fields.clone(),
+                                Type::Enum { name, variants },
+                                crate::effects::EffectSet::from_names(
+                                    std::iter::empty::<&str>(),
+                                    false,
+                                ),
+                            ))
+                        }
+                    }
                     Type::Dyn | Type::Var(_) => Ok(Type::Dyn),
                     other => Err(TypeError::new(
                         field.span,
@@ -768,12 +954,36 @@ impl Checker {
                 }
             }
             Expr::Block(b) => self.check_block(b),
+            Expr::Match {
+                scrutinee,
+                arms,
+                span,
+            } => {
+                let scrut_ty = self.check_expr(scrutinee)?;
+                if arms.is_empty() {
+                    return Err(TypeError::new(*span, "`match` needs at least one arm"));
+                }
+                let mut result: Option<Type> = None;
+                for arm in arms {
+                    self.push_scope();
+                    self.bind_pattern(&arm.pattern, &scrut_ty)?;
+                    let body_ty = self.check_expr(&arm.body)?;
+                    self.pop_scope();
+                    result = Some(match result {
+                        None => body_ty,
+                        Some(prev) => self.unify(&prev, &body_ty, arm.span)?,
+                    });
+                }
+                self.check_match_exhaustive(&scrut_ty, arms, *span)?;
+                Ok(result.unwrap())
+            }
             Expr::StructInit { name, fields, span } => {
                 let st = self.structs.get(&name.name).cloned().ok_or_else(|| {
                     TypeError::new(*span, format!("unknown struct `{}`", name.name))
                 })?;
                 let Type::Struct {
-                    fields: decl, name: n,
+                    fields: decl,
+                    name: n,
                 } = st
                 else {
                     return Err(TypeError::new(*span, "not a struct"));
@@ -830,9 +1040,7 @@ impl Checker {
                     (a, b) => Err(TypeError::new(span, format!("cannot add {a} and {b}"))),
                 }
             }
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
-                numeric_result(self, &l, &r, span)
-            }
+            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => numeric_result(self, &l, &r, span),
             BinOp::Eq | BinOp::Ne => {
                 self.unify(&l, &r, span)?;
                 Ok(Type::Bool)
@@ -1003,12 +1211,12 @@ impl Checker {
                 }
                 self.collect_expr_effects(callee, fns, visiting, done, used)?;
                 if let Expr::Ident(id) = callee.as_ref() {
-                    let callee_effects = if let Some(f) = fns.iter().find(|f| f.name.name == id.name)
-                    {
-                        self.infer_fn_effects(f, fns, visiting, done)?
-                    } else {
-                        self.fn_effects(&id.name)
-                    };
+                    let callee_effects =
+                        if let Some(f) = fns.iter().find(|f| f.name.name == id.name) {
+                            self.infer_fn_effects(f, fns, visiting, done)?
+                        } else {
+                            self.fn_effects(&id.name)
+                        };
                     used.union_with(&callee_effects);
                 } else {
                     match self.check_expr(callee) {
@@ -1044,7 +1252,12 @@ impl Checker {
                 Ok(())
             }
             Expr::Unary { expr, .. } => self.collect_expr_effects(expr, fns, visiting, done, used),
-            Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+            Expr::Binary { left, right, .. }
+            | Expr::Assign {
+                target: left,
+                value: right,
+                ..
+            } => {
                 self.collect_expr_effects(left, fns, visiting, done, used)?;
                 self.collect_expr_effects(right, fns, visiting, done, used)
             }
@@ -1076,6 +1289,15 @@ impl Checker {
             Expr::StructInit { fields, .. } => {
                 for (_, v) in fields {
                     self.collect_expr_effects(v, fns, visiting, done, used)?;
+                }
+                Ok(())
+            }
+            Expr::Match {
+                scrutinee, arms, ..
+            } => {
+                self.collect_expr_effects(scrutinee, fns, visiting, done, used)?;
+                for arm in arms {
+                    self.collect_expr_effects(&arm.body, fns, visiting, done, used)?;
                 }
                 Ok(())
             }
