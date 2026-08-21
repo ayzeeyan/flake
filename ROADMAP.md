@@ -16,7 +16,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 3 | Stronger gradual ownership | **done** |
 | 4 | Standard library expansion | **done** |
 | 5 | Better diagnostics and comprehensive tests | **done** |
-| 6 | Polish, documentation and examples | pending |
+| 6 | Polish, documentation and examples | **done** |
 | 7 | Flake v0.3 complete | pending |
 
 ## What v0.3 milestone 1 delivers
@@ -56,6 +56,13 @@ There is no LLVM, Cranelift, or C transpilation.
 - Missing `import` names the module and search path
 - Tests cover write/read file, stdlib natives, missing modules, and
   interpreter / VM / native agreement on every example
+
+## What v0.3 milestone 6 delivers
+
+- README, tour, architecture, and codegen docs describe native code, modules,
+  ownership, and the stdlib
+- Examples: [modules](examples/modules.flk), [stdlib](examples/stdlib.flk),
+  [borrow](examples/borrow.flk)
 
 ## v0.2 milestones
 

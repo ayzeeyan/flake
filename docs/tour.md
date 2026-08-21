@@ -2,9 +2,9 @@
 
 **Clarity, crystallized.**
 
-This is the v0.2 tour. Flake is a braced, immutable-by-default language with
-local type inference, an explicit `dyn` escape hatch, effect annotations, and
-opt-in ownership.
+This is the v0.3 tour. Flake is a braced, immutable-by-default language with
+local type inference, an explicit `dyn` escape hatch, effect annotations,
+opt-in ownership, multi-file `import`, and a small standard library.
 
 ## Hello
 

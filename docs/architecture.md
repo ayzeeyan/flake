@@ -24,6 +24,9 @@ source → lexer → parser → AST
 | `flake-codegen` | Pure-Rust x86-64 encoder and PE writer |
 | `flake-cli` | `flake` CLI: `run`, `check`, `repl`, `ir`, `build` |
 
+`import name` loads `name.flk` next to the importer, then walks parent
+directories for `std/name.flk`.
+
 The CLI type-checks before running (pass `--skip-check` to bypass).
 
 ```bash

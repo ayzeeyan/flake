@@ -61,6 +61,7 @@ fn all_examples_typecheck() {
         "config.flk",
         "modules.flk",
         "stdlib.flk",
+        "borrow.flk",
     ] {
         check_example(name);
     }
@@ -128,6 +129,13 @@ fn stdlib_output() {
 }
 
 #[test]
+fn borrow_output() {
+    let out = run_example("borrow.flk");
+    assert!(out.contains("borrowed Flake"), "{out}");
+    assert!(out.contains("moved Flake"), "{out}");
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",
@@ -139,6 +147,7 @@ fn native_matches_interpreter_on_all_examples() {
         "config.flk",
         "modules.flk",
         "stdlib.flk",
+        "borrow.flk",
     ] {
         let interp = run_example(name);
         let output = flake_bin()
@@ -169,6 +178,7 @@ fn vm_matches_interpreter_on_all_examples() {
         "config.flk",
         "modules.flk",
         "stdlib.flk",
+        "borrow.flk",
     ] {
         let interp = run_example(name);
         let vm = run_example_vm(name);

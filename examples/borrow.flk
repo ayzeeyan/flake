@@ -1,0 +1,15 @@
+// Scope-based borrows in a `strict` function.
+// `&x` lasts until the inner block ends; then `x` can be moved.
+
+strict fn show() / io {
+    let name: owned String = "Flake"
+    {
+        let r = &name
+        print("borrowed {r}")
+    }
+    print("moved {name}")
+}
+
+fn main() {
+    show()
+}

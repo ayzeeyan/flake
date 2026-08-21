@@ -43,8 +43,9 @@ between:
 
 ## Status
 
-**v0.2** — full bytecode VM parity, a custom IR, and a pure-Rust x86-64
-backend that emits Windows PE executables. No LLVM or Cranelift.
+**v0.3** — practical native x86-64, real `import` modules, stronger gradual
+ownership, and a usable standard library. Interpreter, VM, and native stay in
+sync. No LLVM or Cranelift.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
 for a language tour.
@@ -58,6 +59,8 @@ cargo test
 flake run examples/hello.flk
 flake run --vm examples/hello.flk
 flake run --native examples/hello.flk
+flake run examples/modules.flk
+flake run examples/stdlib.flk
 flake build examples/hello.flk -o hello.exe
 flake check examples/hello.flk
 flake ir examples/hello.flk
