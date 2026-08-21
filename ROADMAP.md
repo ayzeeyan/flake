@@ -1,9 +1,8 @@
 # Flake Roadmap
 
-**v0.4 is complete** except the final packaging commit. v0.3 delivered practical
-native x86-64, modules, stronger ownership, and a small standard library. v0.4
-raises the native backend to production quality (register allocation, full ABI),
-matures ownership, and expands the language surface.
+**v0.4 is complete.** Production-quality native x86-64, mature gradual ownership,
+enums/`match`, `pub` modules, and a useful standard library. Interpreter, VM,
+and native stay in sync. There is no LLVM, Cranelift, or C transpilation.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -17,7 +16,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 4 | Standard library maturity | **done** |
 | 5 | Cross-backend consistency and diagnostics | **done** |
 | 6 | Polish, documentation and examples | **done** |
-| 7 | Flake v0.4 complete | pending |
+| 7 | Flake v0.4 complete | **done** |
 
 ## What v0.4 milestone 1 delivers
 
@@ -57,6 +56,15 @@ There is no LLVM, Cranelift, or C transpilation.
 
 - Docs (README, tour, architecture, codegen, ownership, grammar) describe v0.4
 - Example: [app](examples/app.flk) — enums, stdlib, native-ready
+
+## What v0.4 delivers
+
+- Linear-scan register allocation and a solid Windows x64 ABI
+- SSE2 floats, indirect calls, enums/`match`, modules with `pub`
+- Stronger gradual ownership that stays optional
+- Prelude + `std/` (`list`, `string`, `math`, `option`, `result`)
+- Interpreter, VM, and native agreement on examples and snippets
+- Still 100% pure Rust with a fully owned compiler pipeline
 
 ## v0.3 milestones
 
