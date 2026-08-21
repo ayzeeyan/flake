@@ -20,6 +20,14 @@ impl TypeError {
     }
 
     #[must_use]
+    pub fn with_help(span: Span, message: impl Into<String>, help: impl Into<String>) -> Self {
+        Self {
+            span,
+            message: format!("{}\nhelp: {}", message.into(), help.into()),
+        }
+    }
+
+    #[must_use]
     pub fn display(&self, source: &Source) -> String {
         render(source, self.span, "error", &self.message)
     }

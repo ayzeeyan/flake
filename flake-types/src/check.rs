@@ -368,6 +368,21 @@ impl Checker {
             .or_else(|| self.structs.get(name).cloned())
     }
 
+    fn known_names(&self) -> Vec<String> {
+        let mut names = HashSet::new();
+        for scope in &self.scopes {
+            names.extend(scope.keys().cloned());
+        }
+        names.extend(self.functions.keys().cloned());
+        names.extend(self.enums.keys().cloned());
+        names.extend(self.structs.keys().cloned());
+        names.into_iter().collect()
+    }
+
+    fn suggest(&self, name: &str) -> Option<String> {
+        suggest_name(name, &self.known_names())
+    }
+
     fn check_program(&mut self, program: &Program) -> Result<(), TypeError> {
         for item in &program.items {
             match item {
@@ -445,16 +460,22 @@ impl Checker {
                     self.resolve(ty)
                 };
                 let Type::Enum { name, variants } = enum_ty.without_ownership() else {
-                    return Err(TypeError::new(*span, "match variant on non-enum"));
+                    return Err(TypeError::with_help(
+                        *span,
+                        "match variant on a non-enum value",
+                        "use `Enum.Variant` patterns only when matching an enum",
+                    ));
                 };
                 let Some((_, fields)) = variants.iter().find(|(n, _)| n == &variant.name) else {
-                    return Err(TypeError::new(
+                    let listed: Vec<_> = variants.iter().map(|(n, _)| n.as_str()).collect();
+                    return Err(TypeError::with_help(
                         variant.span,
                         format!("enum `{name}` has no variant `{}`", variant.name),
+                        format!("available variants: {}", listed.join(", ")),
                     ));
                 };
                 if binds.len() != fields.len() {
-                    return Err(TypeError::new(
+                    return Err(TypeError::with_help(
                         *span,
                         format!(
                             "variant `{}` expects {} field(s), got {}",
@@ -462,6 +483,7 @@ impl Checker {
                             fields.len(),
                             binds.len()
                         ),
+                        "bind each tuple field, or use `_` for a field you do not need",
                     ));
                 }
                 for (b, ft) in binds.iter().zip(fields.iter()) {
@@ -504,19 +526,21 @@ impl Checker {
                 if missing.is_empty() {
                     Ok(())
                 } else {
-                    Err(TypeError::new(
+                    Err(TypeError::with_help(
                         span,
                         format!(
-                            "non-exhaustive match on `{name}`: missing {}; add a `_` arm or cover the remaining variants",
+                            "non-exhaustive match on `{name}`: missing {}",
                             missing.join(", ")
                         ),
+                        "add a `_` arm or cover the remaining variants",
                     ))
                 }
             }
             Type::Dyn | Type::Var(_) => Ok(()),
-            other => Err(TypeError::new(
+            other => Err(TypeError::with_help(
                 span,
-                format!("non-exhaustive match on {other}: add a `_` or identifier arm"),
+                format!("non-exhaustive match on {other}"),
+                "add a `_` or identifier arm",
             )),
         }
     }
@@ -741,7 +765,13 @@ impl Checker {
                 Literal::String(_) => Type::String,
             }),
             Expr::Ident(id) => self.lookup(&id.name).ok_or_else(|| {
-                TypeError::new(id.span, format!("undefined variable `{}`", id.name))
+                let msg = format!("undefined variable `{}`", id.name);
+                match self.suggest(&id.name) {
+                    Some(alt) => {
+                        TypeError::with_help(id.span, msg, format!("did you mean `{alt}`?"))
+                    }
+                    None => TypeError::new(id.span, msg),
+                }
             }),
             Expr::Interpolated { parts, .. } => {
                 for part in parts {
@@ -921,17 +951,23 @@ impl Checker {
                         .find(|(n, _)| n == &field.name)
                         .map(|(_, ty)| ty.clone())
                         .ok_or_else(|| {
-                            TypeError::new(
+                            TypeError::with_help(
                                 field.span,
                                 format!("module `{name}` has no export `{}`", field.name),
+                                format!(
+                                    "if `{}` exists in `{name}.flk`, mark it `pub`",
+                                    field.name
+                                ),
                             )
                         }),
                     Type::Enum { name, variants } => {
                         let Some((_, fields)) = variants.iter().find(|(n, _)| n == &field.name)
                         else {
-                            return Err(TypeError::new(
+                            let listed: Vec<_> = variants.iter().map(|(n, _)| n.as_str()).collect();
+                            return Err(TypeError::with_help(
                                 field.span,
                                 format!("enum `{name}` has no variant `{}`", field.name),
+                                format!("available variants: {}", listed.join(", ")),
                             ));
                         };
                         if fields.is_empty() {
@@ -1370,6 +1406,42 @@ fn assign_bin(op: AssignOp) -> BinOp {
         AssignOp::DivAssign => BinOp::Div,
         AssignOp::RemAssign => BinOp::Rem,
     }
+}
+
+fn suggest_name(name: &str, candidates: &[String]) -> Option<String> {
+    let mut best: Option<(usize, &str)> = None;
+    for cand in candidates {
+        if cand == name {
+            continue;
+        }
+        let d = edit_distance(name, cand);
+        if d == 0 || d > 2 {
+            continue;
+        }
+        if best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, cand.as_str()));
+        }
+    }
+    best.map(|(_, s)| s.to_string())
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.len().abs_diff(b.len()) > 2 {
+        return 3;
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        cur[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
 }
 
 fn occurs(id: u32, ty: &Type) -> bool {

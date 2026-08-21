@@ -15,7 +15,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Mature gradual ownership | **done** |
 | 3 | Language and module expansion | **done** |
 | 4 | Standard library maturity | **done** |
-| 5 | Cross-backend consistency and diagnostics | pending |
+| 5 | Cross-backend consistency and diagnostics | **done** |
 | 6 | Polish, documentation and examples | pending |
 | 7 | Flake v0.4 complete | pending |
 
@@ -46,6 +46,12 @@ There is no LLVM, Cranelift, or C transpilation.
 - `std/` modules: `list`, `string`, `math`, `option`, `result` (prelude + explicit imports)
 - Native-path support for the new natives
 - Example: [stdlib](examples/stdlib.flk)
+
+## What v0.4 milestone 5 delivers
+
+- Cross-backend snippet tests (interpreter, VM, native) plus every example
+- `help:` notes for non-exhaustive `match`, unknown variants, missing exports, and similar names
+- Private-item errors suggest marking the declaration `pub`
 
 ## v0.3 milestones
 

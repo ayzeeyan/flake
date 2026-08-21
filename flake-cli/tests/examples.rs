@@ -202,3 +202,51 @@ fn vm_matches_interpreter_on_all_examples() {
         assert_eq!(interp, vm, "{name}: interpreter and VM diverged");
     }
 }
+
+fn run_snippet(src: &str, extra: &[&str]) -> String {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!(
+        "flake-snippet-{}-{}.flk",
+        std::process::id(),
+        extra.join("_").replace('-', "")
+    ));
+    std::fs::write(&path, src).expect("write snippet");
+    let mut cmd = flake_bin();
+    cmd.arg("run");
+    for flag in extra {
+        cmd.arg(flag);
+    }
+    let output = cmd.arg(&path).output().expect("run snippet");
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        output.status.success(),
+        "snippet {extra:?} failed:\n{}\n{src}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+#[test]
+fn snippets_agree_across_backends() {
+    let snippets = [
+        "fn main() { print(1 + 2 * 3) print(trim(\"  hi  \")) print(upper(\"ab\")) }",
+        r#"
+enum Color { Red Green Rgb(Int, Int, Int) }
+fn main() {
+    print(match Color.Red { Color.Red => 1 Color.Green => 2 Color.Rgb(r, g, b) => r })
+    print(match Color.Rgb(9, 0, 0) { Color.Red => 0 Color.Green => 0 Color.Rgb(r, g, b) => r })
+}
+"#,
+        r#"
+fn add(a: Int, b: Int) -> Int { a + b }
+fn main() { print(add(40, 2)) print(if true { "yes" } else { "no" }) }
+"#,
+    ];
+    for src in snippets {
+        let interp = run_snippet(src, &[]);
+        let vm = run_snippet(src, &["--vm"]);
+        let native = run_snippet(src, &["--native"]);
+        assert_eq!(interp, vm, "interpreter vs VM:\n{src}");
+        assert_eq!(interp, native, "interpreter vs native:\n{src}");
+    }
+}

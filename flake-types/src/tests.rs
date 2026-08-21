@@ -338,6 +338,25 @@ fn main() { f(Color.Red) }
 "#);
     assert!(msg.contains("non-exhaustive"), "{msg}");
     assert!(msg.contains("Green"), "{msg}");
+    assert!(msg.contains("help:"), "{msg}");
+}
+
+#[test]
+fn unknown_variant_lists_alternatives() {
+    let msg = err(r#"
+enum Color { Red Green }
+fn main() { print(Color.Blue) }
+"#);
+    assert!(msg.contains("no variant"), "{msg}");
+    assert!(msg.contains("Red"), "{msg}");
+    assert!(msg.contains("Green"), "{msg}");
+}
+
+#[test]
+fn undefined_suggests_similar_name() {
+    let msg = err(&main("print(prnt(1))"));
+    assert!(msg.contains("undefined"), "{msg}");
+    assert!(msg.contains("print"), "{msg}");
 }
 
 #[test]

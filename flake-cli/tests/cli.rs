@@ -27,6 +27,26 @@ fn help_flag_lists_core_commands() {
 }
 
 #[test]
+fn match_error_includes_help() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("flake-match-help-{}.flk", std::process::id()));
+    std::fs::write(
+        &path,
+        "enum Color { Red Green }\nfn main() { match Color.Red { Color.Red => 1 } }\n",
+    )
+    .unwrap();
+    let output = flake_bin().arg("check").arg(&path).output().expect("check");
+    let _ = std::fs::remove_file(&path);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("non-exhaustive") || stderr.contains("Green"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("help") || stderr.contains("_"), "{stderr}");
+}
+
+#[test]
 fn missing_import_reports_module_name() {
     let dir = std::env::temp_dir();
     let path = dir.join(format!("flake-missing-import-{}.flk", std::process::id()));
