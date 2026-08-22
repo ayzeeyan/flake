@@ -26,6 +26,7 @@ pub struct Vm<'io> {
     frames: Vec<Frame>,
     globals: HashMap<String, Value>,
     stdout: &'io mut dyn Write,
+    current_span: Span,
 }
 
 impl<'io> Vm<'io> {
@@ -39,6 +40,7 @@ impl<'io> Vm<'io> {
             frames: Vec::new(),
             globals,
             stdout,
+            current_span: Span::DUMMY,
         }
     }
 
@@ -60,8 +62,20 @@ impl<'io> Vm<'io> {
     }
 
     fn run(&mut self) -> Result<Value, VmError> {
+        self.run_inner()
+            .map_err(|error| error.with_fallback_span(self.current_span))
+    }
+
+    fn run_inner(&mut self) -> Result<Value, VmError> {
         while let Some(frame_index) = self.frames.len().checked_sub(1) {
             let ip = self.frames[frame_index].ip;
+            self.current_span = self.frames[frame_index]
+                .func
+                .chunk
+                .spans
+                .get(ip)
+                .copied()
+                .unwrap_or(Span::DUMMY);
             let op = self.frames[frame_index].func.chunk.ops.get(ip).cloned();
             self.frames[frame_index].ip += 1;
             let Some(op) = op else {

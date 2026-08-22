@@ -102,7 +102,6 @@ impl EffectSet {
         }
     }
 
-    #[must_use]
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.effects.iter().map(|e| e.name.as_str())
     }

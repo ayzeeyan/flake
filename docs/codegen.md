@@ -82,14 +82,20 @@ Result `?` lowers to a tag comparison and an early native return. Scalar
 literal patterns lower to ordinary comparisons, without assuming an enum
 layout. Native maps select string equality for String keys and direct scalar
 equality for Int/Bool keys; construction, duplicate replacement, lookup,
-assignment, membership, and display share that representation. Missing-key
+assignment, membership, and display share that representation. Entries remain
+in typed-key order through insertion and growth, matching deterministic
+interpreter/VM display independent of literal order. Missing-key
 lookup is a runtime error, while `contains` remains the non-failing presence
 test. Concrete map values retain enough type information for native String,
 Int, Bool, and Float display.
 
-Float arithmetic continues to use SSE2. Unary negation flips the IEEE-754 sign
-bit, while native `print`, `str`, and interpolation route through `rt_ftoa`
-instead of truncating to an integer.
+Float arithmetic continues to use SSE2, including mixed Int/Float conversion,
+remainder, comparisons, and typed `abs`/`min`/`max`. Unary negation flips the
+IEEE-754 sign bit, while native `print`, `str`, and interpolation route through
+`rt_ftoa` instead of truncating to an integer. Native integer operations report
+division-by-zero and overflow failures instead of leaking processor exceptions
+or wrapping. Concrete list element types similarly drive deterministic String,
+Int, Bool, and Float display.
 
 ## Executable production
 
@@ -104,4 +110,4 @@ lowers `spawn f(args)` as the call and `await task` as its underlying value.
 This lets typed `conc` programs compile and produce coherent pure results
 without claiming that the PE runtime has a scheduler. Scheduling-visible
 side-effect order can differ. Interpreter and VM retain real, scope-bound task
-handles; a native task runtime is later v0.5 work.
+handles; a native task runtime is post-v0.5 work.

@@ -184,6 +184,71 @@ fn infers_concrete_map_key_and_value_ir_types() {
 }
 
 #[test]
+fn infers_concrete_list_element_ir_types() {
+    let source = Source::new(
+        "lists.flk",
+        "fn main() { let words = [\"flake\", \"snow\"] let values = [1.5, 2.5] print(words, values) }",
+    );
+    let module = lower(&source).expect("lower lists");
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    assert!(
+        main.locals
+            .iter()
+            .any(|local| local.ty == IrType::List(Box::new(IrType::String)))
+    );
+    assert!(
+        main.locals
+            .iter()
+            .any(|local| local.ty == IrType::List(Box::new(IrType::Float)))
+    );
+}
+
+#[test]
+fn numeric_native_calls_preserve_their_argument_ir_type() {
+    let source = Source::new(
+        "numeric-natives.flk",
+        r#"
+fn main() {
+    let absolute = abs(-1.25)
+    let low = min(3, 1, 2)
+    let high = max(1.0, 3.5, 2.0)
+    print(absolute, low, high)
+}
+"#,
+    );
+    let module = lower(&source).expect("lower numeric natives");
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    for (name, expected) in [
+        ("abs", IrType::Float),
+        ("min", IrType::Int),
+        ("max", IrType::Float),
+    ] {
+        let destination = main
+            .blocks
+            .iter()
+            .flat_map(|block| &block.insts)
+            .find_map(|inst| match inst {
+                Inst::Call {
+                    dest: Some(dest),
+                    callee: Callee::Static(callee),
+                    ..
+                } if callee == name => Some(*dest),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing call to {name}"));
+        assert_eq!(main.local(destination).unwrap().ty, expected);
+    }
+}
+
+#[test]
 fn lowers_scalar_match_without_assuming_an_enum_tag() {
     let dump = ir("fn classify(n: Int) -> Int { match n { 0 => 10 1 => 20 _ => 30 } }");
     assert!(dump.contains("eq"), "{dump}");

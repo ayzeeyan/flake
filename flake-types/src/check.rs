@@ -18,6 +18,7 @@ struct Checker {
     structs: HashMap<String, Type>,
     aliases: HashMap<String, Type>,
     functions: HashMap<String, Type>,
+    overloaded_builtins: HashSet<String>,
     enums: HashMap<String, Type>,
     ambiguous_imports: HashMap<String, Vec<String>>,
     type_context: Option<String>,
@@ -32,6 +33,7 @@ impl Checker {
             structs: HashMap::new(),
             aliases: HashMap::new(),
             functions: HashMap::new(),
+            overloaded_builtins: HashSet::new(),
             enums: HashMap::new(),
             ambiguous_imports: HashMap::new(),
             type_context: None,
@@ -154,6 +156,11 @@ impl Checker {
         self.functions.insert(
             "remove_file".into(),
             mk(vec![Type::String], Type::Nil, &["io"]),
+        );
+        self.overloaded_builtins.extend(
+            ["print", "assert", "abs", "min", "max", "range"]
+                .into_iter()
+                .map(str::to_string),
         );
     }
 
@@ -546,6 +553,7 @@ impl Checker {
         for item in &program.items {
             if let Item::Fn(func) = item {
                 let ty = self.lower_fn_type(func)?;
+                self.overloaded_builtins.remove(&func.name.name);
                 self.functions.insert(func.name.name.clone(), ty);
             }
         }
@@ -1126,15 +1134,10 @@ impl Checker {
                 let fty = self.resolve(&fty);
                 match fty.without_ownership() {
                     Type::Fn { params, ret, .. } => {
-                        // `print` is variadic in the interpreter; accept any arity.
-                        let variadic_print = matches!(
-                            callee.as_ref(),
-                            Expr::Ident(id) if matches!(
-                                id.name.as_str(),
-                                "print" | "assert" | "min" | "max" | "range"
-                            )
-                        );
-                        if !variadic_print && params.len() != args.len() {
+                        if let Some(name) = self.overloaded_builtin_name(callee) {
+                            return self.check_overloaded_builtin(name, args, *span);
+                        }
+                        if params.len() != args.len() {
                             return Err(TypeError::new(
                                 *span,
                                 format!(
@@ -1403,6 +1406,103 @@ impl Checker {
         }
     }
 
+    fn overloaded_builtin_name<'a>(&self, callee: &'a Expr) -> Option<&'a str> {
+        let Expr::Ident(id) = callee else {
+            return None;
+        };
+        if self.scopes.iter().any(|scope| scope.contains_key(&id.name)) {
+            return None;
+        }
+        self.overloaded_builtins
+            .contains(&id.name)
+            .then_some(id.name.as_str())
+    }
+
+    fn check_overloaded_builtin(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Type, TypeError> {
+        match name {
+            "print" => {
+                for arg in args {
+                    self.check_expr(arg)?;
+                }
+                Ok(Type::Nil)
+            }
+            "assert" => {
+                self.check_arity_range(name, args.len(), 1, Some(2), span)?;
+                let condition = self.check_expr(&args[0])?;
+                self.unify(&Type::Bool, &condition, args[0].span())?;
+                if let Some(message) = args.get(1) {
+                    let message_ty = self.check_expr(message)?;
+                    self.unify(&Type::String, &message_ty, message.span())?;
+                }
+                Ok(Type::Nil)
+            }
+            "abs" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                self.check_numeric_arg(name, &args[0])
+            }
+            "min" | "max" => {
+                self.check_arity_range(name, args.len(), 2, None, span)?;
+                let mut result = self.check_numeric_arg(name, &args[0])?;
+                for arg in &args[1..] {
+                    let ty = self.check_numeric_arg(name, arg)?;
+                    result = self.unify(&result, &ty, arg.span())?;
+                }
+                Ok(self.resolve(&result))
+            }
+            "range" => {
+                self.check_arity_range(name, args.len(), 1, Some(2), span)?;
+                for arg in args {
+                    let ty = self.check_expr(arg)?;
+                    self.unify(&Type::Int, &ty, arg.span())?;
+                }
+                Ok(Type::Range)
+            }
+            _ => unreachable!("only overloaded builtins reach this method"),
+        }
+    }
+
+    fn check_numeric_arg(&mut self, name: &str, arg: &Expr) -> Result<Type, TypeError> {
+        let ty = self.check_expr(arg)?;
+        let resolved = self.resolve(&ty).without_ownership();
+        match resolved {
+            Type::Int | Type::Float | Type::Dyn | Type::Var(_) => Ok(resolved),
+            other => Err(TypeError::with_help(
+                arg.span(),
+                format!("{name}() expected Int or Float, found {other}"),
+                "numeric helpers accept only homogeneous Int or Float arguments",
+            )),
+        }
+    }
+
+    fn check_arity_range(
+        &self,
+        name: &str,
+        actual: usize,
+        minimum: usize,
+        maximum: Option<usize>,
+        span: Span,
+    ) -> Result<(), TypeError> {
+        let valid = actual >= minimum && maximum.is_none_or(|maximum| actual <= maximum);
+        if valid {
+            return Ok(());
+        }
+        let expected = match maximum {
+            Some(maximum) if minimum == maximum => format!("{minimum}"),
+            Some(maximum) => format!("{minimum} or {maximum}"),
+            None => format!("at least {minimum}"),
+        };
+        Err(TypeError::with_help(
+            span,
+            format!("{name}() expected {expected} argument(s), got {actual}"),
+            format!("use one of the supported `{name}(...)` forms"),
+        ))
+    }
+
     fn check_binary(
         &mut self,
         op: BinOp,
@@ -1436,7 +1536,23 @@ impl Checker {
                     (a, b) => Err(TypeError::new(span, format!("cannot add {a} and {b}"))),
                 }
             }
-            BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => numeric_result(self, &l, &r, span),
+            BinOp::Sub | BinOp::Mul | BinOp::Div => numeric_result(self, &l, &r, span),
+            BinOp::Rem => {
+                let common = self.unify(&l, &r, span)?;
+                match self.resolve(&common).without_ownership() {
+                    Type::Int => Ok(Type::Int),
+                    Type::Float => Ok(Type::Float),
+                    Type::Dyn => Ok(Type::Dyn),
+                    Type::Var(id) => {
+                        self.unify(&Type::Var(id), &Type::Int, span)?;
+                        Ok(Type::Int)
+                    }
+                    other => Err(TypeError::new(
+                        span,
+                        format!("remainder expects two Ints or two Floats, found {other}"),
+                    )),
+                }
+            }
             BinOp::Eq | BinOp::Ne => {
                 self.unify(&l, &r, span)?;
                 Ok(Type::Bool)
@@ -1522,13 +1638,7 @@ impl Checker {
             ));
         }
 
-        let stored = if declared.specified {
-            declared
-        } else if func.name.name == "main" {
-            used
-        } else {
-            used
-        };
+        let stored = if declared.specified { declared } else { used };
         self.set_fn_effects(&func.name.name, stored.clone());
         Ok(stored)
     }
@@ -1614,14 +1724,11 @@ impl Checker {
                             self.fn_effects(&id.name)
                         };
                     used.union_with(&callee_effects);
-                } else {
-                    match self.check_expr(callee) {
-                        Ok(ty) => match self.resolve(&ty) {
-                            Type::Fn { effects, .. } => used.union_with(&effects),
-                            Type::Dyn | Type::Var(_) => used.union_with(&EffectSet::top_level()),
-                            _ => {}
-                        },
-                        Err(_) => {}
+                } else if let Ok(ty) = self.check_expr(callee) {
+                    match self.resolve(&ty) {
+                        Type::Fn { effects, .. } => used.union_with(&effects),
+                        Type::Dyn | Type::Var(_) => used.union_with(&EffectSet::top_level()),
+                        _ => {}
                     }
                 }
                 Ok(())

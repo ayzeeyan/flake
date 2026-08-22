@@ -51,17 +51,20 @@ between:
 
 ## Status
 
-**v0.5 is in development.** Milestones 1–4 are complete: typed structured
+**v0.5 is in development.** Milestones 1–5 are complete: typed structured
 tasks, Result-style `?` propagation, scalar and enum patterns, stronger match
 diagnostics, and typed maps now sit alongside a more mature native x86-64
 backend with CFG-aware register reuse, typed indirect calls, better Float/map
 runtime behavior, and hardened PE production. Hierarchical dotted imports,
 private-by-default APIs, canonical module identities, and deterministic name
-resolution make multi-file projects practical. Native concurrency retains its
+resolution make multi-file projects practical. A feature-level parity and
+failure matrix now locks interpreter, VM, and native behavior together; VM
+runtime diagnostics retain source spans. Native concurrency retains its
 documented synchronous fallback. No LLVM, Cranelift, or transpilation.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
-for a language tour.
+for a language tour. Backend consistency policy and test commands live in
+[docs/testing.md](docs/testing.md).
 
 ## Build and run
 

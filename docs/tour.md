@@ -279,13 +279,13 @@ Prelude natives (no `import`):
 | `first`, `last` | ends of a list or string | pure |
 | `str`, `int`, `float` | conversions | `alloc` for `str` |
 | `type_of(x)` | runtime type name | `alloc` |
-| `assert(cond, msg?)` | check a condition | `panic` |
+| `assert(cond, message?)` | check a condition; optional message is a String | `panic` |
 | `read_file` / `write_file` | UTF-8 files | `io` (`+ alloc` for read) |
 | `file_exists`, `remove_file` | path checks / delete | `io` |
 | `env(name)`, `cwd()` | environment | `io` |
 | `trim`, `upper`, `lower` | ASCII/Unicode string case and trim | `alloc` |
 | `contains`, `starts_with`, `ends_with` | list/string/map search | pure |
-| `abs`, `min`, `max` | numeric helpers | pure |
+| `abs`, `min`, `max` | typed Int or homogeneous Float helpers | pure |
 | `range(n)` / `range(a, b)` | integer range | pure |
 | `join(list, sep)` | concatenate | `alloc` |
 | `split(s, sep)` | split a string | `alloc` |

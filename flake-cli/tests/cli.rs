@@ -77,6 +77,64 @@ fn run_without_file_fails() {
 }
 
 #[test]
+fn run_rejects_conflicting_backend_flags() {
+    let source = temp_source("backend-conflict");
+    std::fs::write(&source, "fn main() {}\n").expect("write source");
+    let output = flake_bin()
+        .arg("run")
+        .arg("--vm")
+        .arg("--native")
+        .arg(&source)
+        .output()
+        .expect("reject backend conflict");
+    let _ = std::fs::remove_file(source);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+    assert!(
+        stderr.contains("--vm") && stderr.contains("--native"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn overloaded_builtin_errors_are_reported_before_execution() {
+    let source = temp_source("builtin-arity");
+    std::fs::write(&source, "fn main() { range(1, 2, 3) }\n").expect("write source");
+    let output = flake_bin()
+        .arg("check")
+        .arg(&source)
+        .output()
+        .expect("check builtin arity");
+    let _ = std::fs::remove_file(source);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("range() expected 1 or 2"), "{stderr}");
+    assert!(stderr.contains("help"), "{stderr}");
+}
+
+#[test]
+fn vm_runtime_diagnostic_highlights_the_failing_expression() {
+    let source = temp_source("vm-runtime-span");
+    std::fs::write(
+        &source,
+        "fn main() {\n    let numerator = 42\n    print(numerator / 0)\n}\n",
+    )
+    .expect("write source");
+    let output = flake_bin()
+        .arg("run")
+        .arg("--vm")
+        .arg(&source)
+        .output()
+        .expect("run failing VM program");
+    let _ = std::fs::remove_file(source);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("division by zero"), "{stderr}");
+    assert!(stderr.contains("numerator / 0"), "{stderr}");
+}
+
+#[test]
 fn check_hello_example() {
     let hello = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")

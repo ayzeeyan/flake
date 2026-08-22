@@ -524,10 +524,7 @@ fn lower_stmt(b: &mut Builder, stmt: &Stmt) {
             b.emit(Inst::Move { dest, src: val });
         }
         Stmt::Return { value, .. } => {
-            let v = match value {
-                Some(e) => Some(lower_expr(b, e)),
-                None => None,
-            };
+            let v = value.as_ref().map(|e| lower_expr(b, e));
             b.emit(Inst::Return { value: v });
         }
         Stmt::Expr(e) => {
@@ -668,7 +665,8 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
         }
         Expr::List { elements, .. } => {
             let items: Vec<_> = elements.iter().map(|e| lower_expr(b, e)).collect();
-            let dest = b.alloc(None, IrType::List(Box::new(IrType::Dyn)));
+            let element_ty = common_local_type(b, &items);
+            let dest = b.alloc(None, IrType::List(Box::new(element_ty)));
             b.emit(Inst::MakeList { dest, items });
             dest
         }
@@ -785,7 +783,7 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             };
             let dest_ty = match &callee {
                 Callee::Static(name) => {
-                    let native = native_result_ty(name);
+                    let native = native_call_result_ty(b, name, &arg_ids);
                     if !matches!(native, IrType::Dyn) || is_native_name(name) {
                         native
                     } else {
@@ -1385,4 +1383,15 @@ fn native_result_ty(name: &str) -> IrType {
         "float" => IrType::Float,
         _ => IrType::Dyn,
     }
+}
+
+fn native_call_result_ty(b: &Builder, name: &str, args: &[LocalId]) -> IrType {
+    if matches!(name, "abs" | "min" | "max") {
+        return args
+            .first()
+            .and_then(|id| b.locals.iter().find(|local| local.id == *id))
+            .map(|local| local.ty.clone())
+            .unwrap_or(IrType::Dyn);
+    }
+    native_result_ty(name)
 }

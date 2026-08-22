@@ -256,10 +256,42 @@ fn main() {
     print(abs(-7))
     print(min(3, 1, 4))
     print(max(3, 1, 4))
+    print(abs(-1.25))
+    print(min(4.5, -2.25, 3.0))
+    print(max(-4.5, -2.25, -3.0))
 }
 "#))
     .expect("abs min max");
-    assert_eq!(out, "7\n1\n4\n");
+    assert_eq!(out, "7\n1\n4\n1.25\n-2.25\n-2.25\n");
+}
+
+#[test]
+fn native_maps_sort_keys_and_grow_without_losing_entries() {
+    let out = run_native(&src(r#"
+fn main() {
+    let values = { 9: "nine" }
+    values[8] = "eight"
+    values[7] = "seven"
+    values[6] = "six"
+    values[5] = "five"
+    values[4] = "four"
+    values[3] = "three"
+    values[2] = "two"
+    values[1] = "one"
+    values[0] = "zero"
+    print(values)
+    print({ "z": 26, "a": 1, "m": 13 })
+}
+"#))
+    .expect("sorted growing maps");
+    assert_eq!(
+        out,
+        concat!(
+            "{0: \"zero\", 1: \"one\", 2: \"two\", 3: \"three\", 4: \"four\", ",
+            "5: \"five\", 6: \"six\", 7: \"seven\", 8: \"eight\", 9: \"nine\"}\n",
+            "{\"a\": 1, \"m\": 13, \"z\": 26}\n",
+        )
+    );
 }
 
 #[test]
@@ -317,10 +349,49 @@ fn native_float_arith() {
 fn main() {
     print(int(1.5 + 2.5))
     print(int(float(10) / float(2)))
+    print(1 + 2.5)
+    print(7.5 % 2.0)
+    print(2 < 2.5)
+    let nan = 0.0 / 0.0
+    print(nan == nan, nan != nan)
 }
 "#))
     .expect("float native");
-    assert_eq!(out, "4\n5\n");
+    assert_eq!(out, "4\n5\n3.5\n1.5\ntrue\nfalse true\n");
+}
+
+#[test]
+fn native_typed_lists_display_consistently() {
+    let out = run_native(&src(r#"
+fn main() {
+    let words = ["snow", "flake"]
+    let ratios = [1.25, -2.5]
+    let flags = [true, false]
+    print(words)
+    print(ratios, ratios[0])
+    print(flags)
+}
+"#))
+    .expect("typed list display");
+    assert_eq!(
+        out,
+        "[\"snow\", \"flake\"]\n[1.25, -2.5] 1.25\n[true, false]\n"
+    );
+}
+
+#[test]
+fn native_checked_integer_failures_are_explicit() {
+    for (expression, expected) in [
+        ("42 / 0", "division by zero"),
+        ("9223372036854775807 + 1", "integer overflow"),
+        ("(-9223372036854775807 - 1) / -1", "integer overflow"),
+        ("-(-9223372036854775807 - 1)", "integer overflow"),
+        ("abs(-9223372036854775807 - 1)", "integer overflow"),
+    ] {
+        let source = src(&format!("fn main() {{ print({expression}) }}"));
+        let error = run_native(&source).expect_err("native arithmetic should fail");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
 }
 
 #[test]

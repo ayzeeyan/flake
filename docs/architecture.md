@@ -49,7 +49,9 @@ Maps retain concrete key/value types in IR. Interpreter and VM use typed hash
 keys, while native code selects string or scalar comparison in the in-tree
 linear-map runtime. `contains(map, key)` uses a dedicated presence test so
 stored falsey values remain distinguishable from missing keys; indexing a
-missing native key now reports an explicit runtime error.
+missing native key now reports an explicit runtime error. Display order follows
+the typed key order on every backend; native insertion keeps the linear map
+sorted even while it grows.
 
 Function references lower to typed IR addresses and native code labels.
 Direct and indirect calls share Windows x64 ABI argument staging, including
@@ -80,3 +82,6 @@ flake ir file.flk             # dump IR
 
 Diagnostics use miette. Messages may include a `help:` line (ownership,
 non-exhaustive `match`, unknown variants, similar names, missing `pub`).
+Bytecode instructions retain their originating AST span, so VM runtime errors
+point to the failing expression. The cross-backend policy and test layers are
+documented in [testing.md](testing.md).

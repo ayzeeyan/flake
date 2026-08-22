@@ -1,12 +1,14 @@
 # Flake Roadmap
 
-**v0.5 is in development.** Milestones 1–4 are complete. Typed, scope-bound
+**v0.5 is in development.** Milestones 1–5 are complete. Typed, scope-bound
 tasks make `conc` operational; Result-style `?`, scalar patterns, stronger enum
 checking, and typed maps expand the core language; and the owned x86-64 backend
 now has CFG-aware register reuse, typed indirect calls, stronger native runtime
 coverage, and more reliable executable production. Project-rooted dotted
 imports, strict `pub` APIs, canonical module identities, and isolated module
 environments now support comfortable hierarchical multi-file projects.
+Focused success and failure matrices now hold the interpreter, VM, and native
+paths to one observable contract, with richer builtin and VM diagnostics.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -18,7 +20,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Core language expansion (enums, pattern matching, errors, maps) | **done** |
 | 3 | Native backend maturation | **done** |
 | 4 | Strengthened module system | **done** |
-| 5 | Cross-backend consistency and expanded testing | planned |
+| 5 | Cross-backend consistency and expanded testing | **done** |
 | 6 | v0.5 polish, documentation, and examples | planned |
 | 7 | Flake v0.5 complete | planned |
 
@@ -97,6 +99,29 @@ timers, cancellation API, or native task runtime.
   the interpreter, VM, and native backend
 - Dedicated [module documentation](docs/modules.md) covering layout,
   resolution, visibility, namespaces, and current package boundaries
+
+## What v0.5 milestone 5 delivers
+
+- A table-driven feature matrix with exact expected output across interpreter,
+  VM, and native execution for arithmetic, Floats, strings, lists, maps,
+  structs, enums/patterns, Result `?`, indirect wide calls, recursion,
+  short-circuiting, ranges, and pure task results
+- Cross-backend failure coverage for assertions, missing map keys, child-task
+  failures, and malformed builtin calls, plus cooperative scheduling and
+  single-join checks for interpreter and VM
+- Explicit static contracts for overloaded builtins: variadic `print`,
+  optional-message `assert`, typed `abs`, homogeneous numeric `min`/`max`, and
+  one- or two-argument `range`, with actionable arity/type diagnostics
+- Correct native Float lowering for mixed arithmetic, remainder, comparisons,
+  `abs`, `min`, and `max`, including concrete IR types and SSE operations in
+  the owned x86-64 encoder; integer overflow/division failures are explicit
+- Deterministic typed-key map ordering on every backend, including native map
+  insertion, growth, update, and display independent of literal order
+- Concrete IR list element types and consistent native display for String,
+  Int, Bool, and Float lists
+- Source spans attached to VM bytecode so runtime failures highlight the
+  responsible expression, plus a clear CLI error for conflicting backend flags
+- Dedicated [testing and consistency documentation](docs/testing.md)
 
 ## v0.4 milestones (complete)
 

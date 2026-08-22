@@ -1,5 +1,7 @@
 //! Instruction set for the Flake bytecode VM.
 
+use flake_ast::Span;
+
 use crate::value::Value;
 
 /// A compiled function body.
@@ -7,6 +9,8 @@ use crate::value::Value;
 pub struct Chunk {
     pub ops: Vec<Op>,
     pub constants: Vec<Value>,
+    pub spans: Vec<Span>,
+    current_span: Span,
 }
 
 impl Chunk {
@@ -14,13 +18,24 @@ impl Chunk {
         Self {
             ops: Vec::new(),
             constants: Vec::new(),
+            spans: Vec::new(),
+            current_span: Span::DUMMY,
         }
     }
 
     pub fn emit(&mut self, op: Op) -> usize {
         let i = self.ops.len();
         self.ops.push(op);
+        self.spans.push(self.current_span);
         i
+    }
+
+    pub fn replace_span(&mut self, span: Span) -> Span {
+        std::mem::replace(&mut self.current_span, span)
+    }
+
+    pub fn set_span(&mut self, span: Span) {
+        self.current_span = span;
     }
 
     pub fn add_constant(&mut self, value: Value) -> u16 {

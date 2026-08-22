@@ -13,6 +13,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_itoa(asm, iat);
     emit_ftoa(asm);
     emit_streq(asm);
+    emit_strcmp(asm);
     emit_starts_with(asm);
     emit_strndup(asm);
     emit_quote(asm);
@@ -445,6 +446,27 @@ fn emit_streq(asm: &mut Asm) {
     asm.ret();
 }
 
+fn emit_strcmp(asm: &mut Asm) {
+    // rcx, rdx -> signed lexical ordering for UTF-8 C strings.
+    asm.label("rt_strcmp");
+    asm.label(".sc_loop");
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x01]); // movzx eax, byte [rcx]
+    asm.bytes.extend_from_slice(&[0x44, 0x0F, 0xB6, 0x02]); // movzx r8, byte [rdx]
+    asm.cmp_rr(Reg::Rax, Reg::R8);
+    asm.jcc_label(Cc::Ne, ".sc_diff");
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".sc_equal");
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC1]); // inc rcx
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC2]); // inc rdx
+    asm.jmp_label(".sc_loop");
+    asm.label(".sc_diff");
+    asm.sub_rr(Reg::Rax, Reg::R8);
+    asm.ret();
+    asm.label(".sc_equal");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.ret();
+}
+
 fn emit_starts_with(asm: &mut Asm) {
     // rcx = s, rdx = prefix → rax = 1 if s starts with prefix.
     asm.label("rt_starts_with");
@@ -652,10 +674,12 @@ fn emit_list_pop(asm: &mut Asm) {
 }
 
 fn emit_display_list(asm: &mut Asm) {
-    // rcx = list → rax = "[a, b, c]"
+    // rcx = list, rdx = element mode (0 dyn, 1 String, 2 Int, 3 Bool, 4 Float)
+    // -> rax = "[a, b, c]".
     asm.label("rt_display_list");
     prologue(asm, 80);
     asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-48, Reg::Rdx);
     asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
     asm.test_rr(Reg::Rax, Reg::Rax);
     asm.jcc_label(Cc::NZ, ".dl_go");
@@ -694,7 +718,33 @@ fn emit_display_list(asm: &mut Asm) {
     asm.shl_ri(Reg::R8, 3);
     asm.add_rr(Reg::Rcx, Reg::R8);
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
+    asm.mov_rm_rbp(Reg::Rax, -48);
+    asm.mov_ri(Reg::R10, 1);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dl_value_string");
+    asm.mov_ri(Reg::R10, 2);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dl_value_int");
+    asm.mov_ri(Reg::R10, 3);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dl_value_bool");
+    asm.mov_ri(Reg::R10, 4);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dl_value_float");
     asm.call_label("rt_repr");
+    asm.jmp_label(".dl_value_done");
+    asm.label(".dl_value_string");
+    asm.call_label("rt_quote");
+    asm.jmp_label(".dl_value_done");
+    asm.label(".dl_value_int");
+    asm.call_label("rt_itoa");
+    asm.jmp_label(".dl_value_done");
+    asm.label(".dl_value_bool");
+    asm.call_label("rt_bool_repr");
+    asm.jmp_label(".dl_value_done");
+    asm.label(".dl_value_float");
+    asm.call_label("rt_ftoa");
+    asm.label(".dl_value_done");
     asm.mov_rr(Reg::Rdx, Reg::Rax);
     asm.mov_rm_rbp(Reg::Rcx, -16);
     asm.call_label("rt_concat2");
@@ -978,7 +1028,7 @@ fn emit_map_set(asm: &mut Asm) {
     asm.mov_rm(Reg::R9, Reg::Rcx, 0);
     asm.mov_rm_rbp(Reg::R8, -32);
     asm.cmp_rr(Reg::R8, Reg::R9);
-    asm.jcc_label(Cc::Ge, ".ms_append");
+    asm.jcc_label(Cc::Ge, ".ms_insert");
     asm.shl_ri(Reg::R8, 4);
     asm.add_rr(Reg::Rcx, Reg::R8);
     asm.mov_rm_rbp(Reg::Rax, -56);
@@ -986,9 +1036,10 @@ fn emit_map_set(asm: &mut Asm) {
     asm.jcc_label(Cc::Z, ".ms_scalar");
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::Rdx, -16);
-    asm.call_label("rt_streq");
+    asm.call_label("rt_strcmp");
     asm.test_rr(Reg::Rax, Reg::Rax);
-    asm.jcc_label(Cc::NZ, ".ms_hit");
+    asm.jcc_label(Cc::Z, ".ms_hit");
+    asm.jcc_label(Cc::G, ".ms_insert");
     asm.jmp_label(".ms_next");
     asm.label(".ms_scalar");
     asm.mov_rm_rbp(Reg::Rcx, -8);
@@ -999,6 +1050,7 @@ fn emit_map_set(asm: &mut Asm) {
     asm.mov_rm_rbp(Reg::Rdx, -16);
     asm.cmp_rr(Reg::Rax, Reg::Rdx);
     asm.jcc_label(Cc::E, ".ms_hit");
+    asm.jcc_label(Cc::G, ".ms_insert");
     asm.label(".ms_next");
     asm.mov_rm_rbp(Reg::R8, -32);
     asm.add_ri(Reg::R8, 1);
@@ -1013,7 +1065,7 @@ fn emit_map_set(asm: &mut Asm) {
     asm.mov_mr(Reg::Rcx, 24, Reg::Rdx);
     asm.mov_rm_rbp(Reg::Rax, -8);
     epilogue(asm);
-    asm.label(".ms_append");
+    asm.label(".ms_insert");
     asm.mov_rm_rbp(Reg::Rcx, -8);
     asm.mov_rm(Reg::R8, Reg::Rcx, 0); // len
     asm.mov_rm(Reg::R9, Reg::Rcx, 8); // cap
@@ -1045,9 +1097,30 @@ fn emit_map_set(asm: &mut Asm) {
     asm.mov_mr(Reg::Rax, 8, Reg::R10);
     asm.mov_mr_rbp(-8, Reg::Rax);
     asm.label(".ms_store");
+    // Shift the sorted suffix right by one entry. At loop index `i`, the
+    // source entry starts at map + i*16 and its destination is 16 bytes on.
     asm.mov_rm_rbp(Reg::Rcx, -8);
     asm.mov_rm(Reg::R8, Reg::Rcx, 0);
-    asm.mov_rr(Reg::R9, Reg::R8);
+    asm.mov_mr_rbp(-64, Reg::R8);
+    asm.label(".ms_shift");
+    asm.mov_rm_rbp(Reg::R8, -64);
+    asm.mov_rm_rbp(Reg::R9, -32);
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Le, ".ms_store_item");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rr(Reg::Rdx, Reg::R8);
+    asm.shl_ri(Reg::Rdx, 4);
+    asm.add_rr(Reg::Rcx, Reg::Rdx);
+    asm.mov_rm(Reg::R10, Reg::Rcx, 0);
+    asm.mov_mr(Reg::Rcx, 16, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::Rcx, 8);
+    asm.mov_mr(Reg::Rcx, 24, Reg::R11);
+    asm.sub_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-64, Reg::R8);
+    asm.jmp_label(".ms_shift");
+    asm.label(".ms_store_item");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm_rbp(Reg::R9, -32);
     asm.shl_ri(Reg::R9, 4);
     asm.add_rr(Reg::Rcx, Reg::R9);
     asm.mov_rm_rbp(Reg::Rdx, -16);
@@ -1055,6 +1128,7 @@ fn emit_map_set(asm: &mut Asm) {
     asm.mov_rm_rbp(Reg::Rdx, -24);
     asm.mov_mr(Reg::Rcx, 24, Reg::Rdx);
     asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm(Reg::R8, Reg::Rcx, 0);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr(Reg::Rcx, 0, Reg::R8);
     asm.mov_rr(Reg::Rax, Reg::Rcx);

@@ -40,10 +40,10 @@ enum Commands {
         #[arg(long)]
         skip_check: bool,
         /// Execute on the bytecode VM instead of the tree-walking interpreter
-        #[arg(long)]
+        #[arg(long, conflicts_with = "native")]
         vm: bool,
         /// Compile to native x86-64 and run the executable
-        #[arg(long)]
+        #[arg(long, conflicts_with = "vm")]
         native: bool,
     },
     /// Compile a Flake program to a native x86-64 executable

@@ -119,7 +119,8 @@ fn floats_and_scientific() {
             TokenKind::Float(d),
             TokenKind::Float(e),
         ] => {
-            assert!((a - 3.14).abs() < 1e-10);
+            let expected = "3.14".parse::<f64>().unwrap();
+            assert!((a - expected).abs() < 1e-10);
             assert!((b - 0.5).abs() < 1e-10);
             assert!((c - 0.25).abs() < 1e-10);
             assert!((d - 1e3).abs() < 1e-10);
@@ -261,7 +262,7 @@ fn nested_block_comments() {
 fn block_comment_with_newline_separates_statements() {
     let got = kinds("let x = 1 /*\n*/ let y = 2");
     assert!(
-        got.iter().any(|k| *k == TokenKind::Newline),
+        got.contains(&TokenKind::Newline),
         "expected a newline token from the block comment, got {got:?}"
     );
 }

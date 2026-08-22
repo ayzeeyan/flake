@@ -355,3 +355,18 @@ print(len(map))
         "int\nstring\nbool\ntrue\nfalse\n3\n"
     );
 }
+
+#[test]
+fn runtime_errors_retain_the_failing_bytecode_span() {
+    let text = r#"
+fn main() {
+    let numerator = 42
+    print(numerator / 0)
+}
+"#;
+    let source = Source::new("runtime-span.flk", text);
+    let error = execute_captured(&source).expect_err("division must fail");
+    let span = error.span().expect("VM errors carry a span");
+    assert_eq!(source.locate(span.start).line, 4, "{span:?}");
+    assert!(source.slice(span).contains("numerator / 0"), "{span:?}");
+}

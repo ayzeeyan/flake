@@ -251,13 +251,14 @@ impl<'src> Lexer<'src> {
         self.consume_digits_with_underscores(false)?;
 
         // `1..10` is an integer followed by `..`, not a float.
-        if self.peek() == Some('.') && self.peek2() != Some('.') {
-            if self.peek2().is_some_and(|c| c.is_ascii_digit()) {
-                self.bump(); // '.'
-                self.consume_digits_with_underscores(true)?;
-                self.maybe_exponent()?;
-                return self.finish_float(start);
-            }
+        if self.peek() == Some('.')
+            && self.peek2() != Some('.')
+            && self.peek2().is_some_and(|c| c.is_ascii_digit())
+        {
+            self.bump(); // '.'
+            self.consume_digits_with_underscores(true)?;
+            self.maybe_exponent()?;
+            return self.finish_float(start);
         }
 
         if matches!(self.peek(), Some('e' | 'E')) {

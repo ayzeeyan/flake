@@ -635,6 +635,71 @@ fn main() { }
 }
 
 #[test]
+fn overloaded_builtins_check_supported_forms_and_preserve_numeric_types() {
+    ok(r#"
+fn main() {
+    print()
+    print(1, "two", true)
+    assert(true)
+    assert(true, "still true")
+    let one_arg = range(3)
+    let two_args = range(1, 3)
+    let integer: Int = abs(-4)
+    let decimal: Float = abs(-1.5)
+    let low: Int = min(3, 1, 2)
+    let high: Float = max(1.0, 3.5, 2.0)
+    print(one_arg, two_args, integer, decimal, low, high)
+}
+"#);
+}
+
+#[test]
+fn overloaded_builtins_report_bad_arity_during_checking() {
+    for (source, expected) in [
+        ("fn main() { assert() }", "expected 1 or 2"),
+        (
+            "fn main() { assert(true, \"ok\", \"extra\") }",
+            "expected 1 or 2",
+        ),
+        ("fn main() { range() }", "expected 1 or 2"),
+        ("fn main() { range(1, 2, 3) }", "expected 1 or 2"),
+        ("fn main() { min(1) }", "expected at least 2"),
+        ("fn main() { abs(1, 2) }", "expected 1 argument"),
+    ] {
+        let message = err(source);
+        assert!(message.contains(expected), "{message}");
+        assert!(message.contains("help:"), "{message}");
+    }
+}
+
+#[test]
+fn overloaded_builtins_reject_backend_ambiguous_types() {
+    for source in [
+        "fn main() { assert(1) }",
+        "fn main() { assert(true, 42) }",
+        "fn main() { range(1.5) }",
+        "fn main() { abs(\"no\") }",
+        "fn main() { min(1, 2.0) }",
+        "fn main() { max(true, false) }",
+    ] {
+        let message = err(source);
+        assert!(
+            message.contains("type mismatch")
+                || message.contains("expected Int or Float")
+                || message.contains("String"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn remainder_requires_homogeneous_numeric_operands() {
+    ok("fn main() { let integer: Int = 7 % 3 let decimal: Float = 7.5 % 2.0 }");
+    let message = err("fn main() { print(7 % 2.0) }");
+    assert!(message.contains("type mismatch"), "{message}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

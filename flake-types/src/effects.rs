@@ -111,7 +111,6 @@ impl EffectSet {
         self.inner.is_subset(&other.inner)
     }
 
-    #[must_use]
     pub fn iter(&self) -> impl Iterator<Item = &Effect> {
         self.inner.iter()
     }

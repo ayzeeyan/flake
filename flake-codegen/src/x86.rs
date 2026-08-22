@@ -31,6 +31,8 @@ impl Reg {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cc {
+    O,
+    P,
     Z,
     NZ,
     L,
@@ -235,6 +237,12 @@ impl Asm {
     pub fn xor_rr(&mut self, dst: Reg, src: Reg) {
         self.rex_wr(src, dst);
         self.bytes.push(0x31);
+        self.modrm_rr(src, dst);
+    }
+
+    pub fn and_rr(&mut self, dst: Reg, src: Reg) {
+        self.rex_wr(src, dst);
+        self.bytes.push(0x21);
         self.modrm_rr(src, dst);
     }
 
@@ -469,7 +477,7 @@ impl Asm {
 
     fn modrm_disp(&mut self, reg: Reg, rm: Reg, disp: i32) {
         // rbp as r/m requires a displacement
-        if disp >= -128 && disp <= 127 {
+        if (-128..=127).contains(&disp) {
             let byte = 0b01_000_000 | ((reg.id() & 7) << 3) | (rm.id() & 7);
             self.bytes.push(byte);
             self.bytes.push(disp as i8 as u8);
@@ -483,6 +491,8 @@ impl Asm {
 
 fn setcc_op(cc: Cc) -> u8 {
     match cc {
+        Cc::O => 0x90,
+        Cc::P => 0x9A,
         Cc::Z | Cc::E => 0x94,
         Cc::NZ | Cc::Ne => 0x95,
         Cc::L => 0x9C,
@@ -498,6 +508,8 @@ fn setcc_op(cc: Cc) -> u8 {
 
 fn jcc_op(cc: Cc) -> u8 {
     match cc {
+        Cc::O => 0x80,
+        Cc::P => 0x8A,
         Cc::Z | Cc::E => 0x84,
         Cc::NZ | Cc::Ne => 0x85,
         Cc::L => 0x8C,

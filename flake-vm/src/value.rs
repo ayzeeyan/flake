@@ -10,7 +10,7 @@ use crate::opcode::Chunk;
 pub type TaskRef = Rc<RefCell<TaskState>>;
 
 /// A map key with preserved runtime identity.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MapKey {
     String(Rc<str>),
     Int(i64),
@@ -240,11 +240,12 @@ impl Value {
             }
             Self::Map(map) => {
                 let map = map.borrow();
-                let mut inner: Vec<_> = map
-                    .iter()
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by_key(|(key, _)| (*key).clone());
+                let inner: Vec<_> = entries
+                    .into_iter()
                     .map(|(k, v)| format!("{}: {}", k.repr(), v.repr()))
                     .collect();
-                inner.sort();
                 format!("{{{}}}", inner.join(", "))
             }
             Self::Struct { name, fields } => {

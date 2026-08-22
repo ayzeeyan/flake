@@ -80,7 +80,7 @@ pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
         )?;
     }
 
-    asm.finish().map_err(|m| CodegenError::new(m))?;
+    asm.finish().map_err(CodegenError::new)?;
     Ok(Compiled {
         code: asm.bytes,
         strings,
@@ -137,6 +137,7 @@ fn epilogue(asm: &mut Asm, frame: &Frame) {
     asm.ret();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_function(
     module: &Module,
     func: &Function,
@@ -192,6 +193,7 @@ fn emit_function(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_inst(
     module: &Module,
     func: &Function,
@@ -269,15 +271,38 @@ fn emit_inst(
             let floaty = matches!(local_ty(func, *lhs), IrType::Float)
                 || matches!(local_ty(func, *rhs), IrType::Float);
             if floaty {
-                asm.movq_xmm_r(0, Reg::Rax);
-                asm.movq_xmm_r(1, Reg::R10);
+                if matches!(local_ty(func, *lhs), IrType::Float) {
+                    asm.movq_xmm_r(0, Reg::Rax);
+                } else {
+                    asm.cvtsi2sd_xmm(0, Reg::Rax);
+                }
+                if matches!(local_ty(func, *rhs), IrType::Float) {
+                    asm.movq_xmm_r(1, Reg::R10);
+                } else {
+                    asm.cvtsi2sd_xmm(1, Reg::R10);
+                }
                 match op {
                     BinOp::Add => asm.addsd_xmm0_xmm1(),
                     BinOp::Sub => asm.subsd_xmm0_xmm1(),
                     BinOp::Mul => asm.mulsd_xmm0_xmm1(),
                     BinOp::Div => asm.divsd_xmm0_xmm1(),
+                    BinOp::Rem => {
+                        asm.movq_r_xmm(Reg::R9, 0);
+                        asm.divsd_xmm0_xmm1();
+                        asm.cvttsd2si_r_xmm0(Reg::R11);
+                        asm.cvtsi2sd_xmm0(Reg::R11);
+                        asm.mulsd_xmm0_xmm1();
+                        asm.movq_r_xmm(Reg::R11, 0);
+                        asm.movq_xmm_r(0, Reg::R9);
+                        asm.movq_xmm_r(1, Reg::R11);
+                        asm.subsd_xmm0_xmm1();
+                    }
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                         asm.ucomisd_xmm0_xmm1();
+                        let id = next_id(uniq);
+                        let unordered = format!(".fcmp_unordered{id}");
+                        let done = format!(".fcmp_done{id}");
+                        asm.jcc_label(Cc::P, &unordered);
                         let cc = match op {
                             BinOp::Eq => Cc::E,
                             BinOp::Ne => Cc::Ne,
@@ -289,6 +314,14 @@ fn emit_inst(
                         };
                         asm.setcc(cc, Reg::Rax);
                         asm.movzx_rax_al();
+                        asm.jmp_label(&done);
+                        asm.label(unordered);
+                        if matches!(op, BinOp::Eq | BinOp::Ne) {
+                            asm.mov_ri(Reg::Rax, i64::from(matches!(op, BinOp::Ne)));
+                        } else {
+                            emit_runtime_failure(asm, strings, strs, "cannot compare NaN");
+                        }
+                        asm.label(done);
                         frame.store(asm, *dest, Reg::Rax);
                         return Ok(());
                     }
@@ -299,10 +332,38 @@ fn emit_inst(
                 return Ok(());
             }
             match op {
-                BinOp::Add => asm.add_rr(Reg::Rax, Reg::R10),
-                BinOp::Sub => asm.sub_rr(Reg::Rax, Reg::R10),
-                BinOp::Mul => asm.imul_rr(Reg::Rax, Reg::R10),
+                BinOp::Add | BinOp::Sub | BinOp::Mul => {
+                    match op {
+                        BinOp::Add => asm.add_rr(Reg::Rax, Reg::R10),
+                        BinOp::Sub => asm.sub_rr(Reg::Rax, Reg::R10),
+                        BinOp::Mul => asm.imul_rr(Reg::Rax, Reg::R10),
+                        _ => unreachable!(),
+                    }
+                    let id = next_id(uniq);
+                    let overflow = format!(".bin_overflow{id}");
+                    let done = format!(".bin_done{id}");
+                    asm.jcc_label(Cc::O, &overflow);
+                    asm.jmp_label(&done);
+                    asm.label(overflow);
+                    emit_runtime_failure(asm, strings, strs, "integer overflow");
+                    asm.label(done);
+                }
                 BinOp::Div | BinOp::Rem => {
+                    let id = next_id(uniq);
+                    let nonzero = format!(".div_nonzero{id}");
+                    let safe = format!(".div_safe{id}");
+                    asm.test_rr(Reg::R10, Reg::R10);
+                    asm.jcc_label(Cc::NZ, &nonzero);
+                    emit_runtime_failure(asm, strings, strs, "division by zero");
+                    asm.label(nonzero);
+                    asm.mov_ri(Reg::R11, -1);
+                    asm.cmp_rr(Reg::R10, Reg::R11);
+                    asm.jcc_label(Cc::Ne, &safe);
+                    asm.mov_ri(Reg::R11, i64::MIN);
+                    asm.cmp_rr(Reg::Rax, Reg::R11);
+                    asm.jcc_label(Cc::Ne, &safe);
+                    emit_runtime_failure(asm, strings, strs, "integer overflow");
+                    asm.label(safe);
                     asm.cqo();
                     asm.idiv(Reg::R10);
                     if matches!(op, BinOp::Rem) {
@@ -340,7 +401,17 @@ fn emit_inst(
                     asm.mov_ri(Reg::R10, i64::MIN);
                     asm.xor_rr(Reg::Rax, Reg::R10);
                 }
-                UnOp::Neg => asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]),
+                UnOp::Neg => {
+                    asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]);
+                    let id = next_id(uniq);
+                    let overflow = format!(".neg_overflow{id}");
+                    let done = format!(".neg_done{id}");
+                    asm.jcc_label(Cc::O, &overflow);
+                    asm.jmp_label(&done);
+                    asm.label(overflow);
+                    emit_runtime_failure(asm, strings, strs, "integer overflow");
+                    asm.label(done);
+                }
                 UnOp::Not => {
                     asm.test_rr(Reg::Rax, Reg::Rax);
                     asm.xor_rr(Reg::Rax, Reg::Rax);
@@ -496,6 +567,18 @@ fn next_id(uniq: &mut u32) -> u32 {
     id
 }
 
+fn emit_runtime_failure(
+    asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
+    message: &str,
+) {
+    asm.xor_rr(Reg::Rcx, Reg::Rcx);
+    let at = asm.lea_rip(Reg::Rdx);
+    strs.push((at, intern_cstring(strings, message)));
+    asm.call_label("rt_assert");
+}
+
 fn load_as_cstr(
     func: &Function,
     frame: &Frame,
@@ -547,7 +630,10 @@ fn load_as_cstr(
             let at = asm.lea_rip(Reg::Rax);
             strs.push((at, intern_cstring(strings, "nil")));
         }
-        IrType::List(_) => asm.call_label("rt_display_list"),
+        IrType::List(element) => {
+            asm.mov_ri(Reg::Rdx, map_value_mode(&element));
+            asm.call_label("rt_display_list");
+        }
         IrType::Map(key, value) => {
             asm.mov_ri(Reg::Rdx, map_key_mode(&key));
             asm.mov_ri(Reg::R8, map_value_mode(&value));
@@ -688,6 +774,7 @@ fn emit_iter_next(
     asm.label(format!(".nend{id}"));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_call(
     func: &Function,
     frame: &Frame,
@@ -714,12 +801,14 @@ fn emit_call(
             emit_binary_rt(frame, "rt_split", dest, args, asm);
             Ok(())
         }
-        Callee::Static(name) if name == "abs" => emit_native_abs(frame, dest, args, asm, uniq),
+        Callee::Static(name) if name == "abs" => {
+            emit_native_abs(func, frame, dest, args, asm, strings, strs, uniq)
+        }
         Callee::Static(name) if name == "min" => {
-            emit_native_minmax(frame, dest, args, asm, uniq, true)
+            emit_native_minmax(func, frame, dest, args, asm, strings, strs, uniq, true)
         }
         Callee::Static(name) if name == "max" => {
-            emit_native_minmax(frame, dest, args, asm, uniq, false)
+            emit_native_minmax(func, frame, dest, args, asm, strings, strs, uniq, false)
         }
         Callee::Static(name) if name == "range" => emit_native_range(frame, dest, args, asm),
         Callee::Static(name) if name == "str" => {
@@ -854,6 +943,7 @@ fn emit_binary_rt(
     store_rax(frame, dest, asm);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_native_print(
     func: &Function,
     frame: &Frame,
@@ -909,7 +999,8 @@ fn emit_native_print(
                 strs.push((at, intern_cstring(strings, "nil")));
                 asm.call_label("rt_print_cstr");
             }
-            IrType::List(_) => {
+            IrType::List(element) => {
+                asm.mov_ri(Reg::Rdx, map_value_mode(&element));
                 asm.call_label("rt_display_list");
                 asm.mov_rr(Reg::Rcx, Reg::Rax);
                 asm.call_label("rt_print_cstr");
@@ -996,49 +1087,81 @@ fn emit_native_pop(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_native_abs(
+    func: &Function,
     frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
     uniq: &mut u32,
 ) -> Result<(), CodegenError> {
-    if args.is_empty() {
+    if args.len() != 1 {
         return Err(CodegenError::new("abs() expected 1 argument"));
     }
-    let id = next_id(uniq);
     frame.load(asm, args[0], Reg::Rax);
-    asm.test_rr(Reg::Rax, Reg::Rax);
-    asm.jcc_label(Cc::Ge, format!(".abs{id}"));
-    asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]);
-    asm.label(format!(".abs{id}"));
+    if matches!(local_ty(func, args[0]), IrType::Float) {
+        // IEEE-754 absolute value is the input with its sign bit cleared.
+        asm.mov_ri(Reg::R10, i64::MAX);
+        asm.and_rr(Reg::Rax, Reg::R10);
+    } else {
+        let id = next_id(uniq);
+        let overflow = format!(".abs_overflow{id}");
+        let done = format!(".abs_done{id}");
+        asm.test_rr(Reg::Rax, Reg::Rax);
+        asm.jcc_label(Cc::Ge, &done);
+        asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]);
+        asm.jcc_label(Cc::O, &overflow);
+        asm.jmp_label(&done);
+        asm.label(overflow);
+        emit_runtime_failure(asm, strings, strs, "integer overflow");
+        asm.label(done);
+    }
     store_rax(frame, dest, asm);
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_native_minmax(
+    func: &Function,
     frame: &Frame,
     dest: Option<&LocalId>,
     args: &[LocalId],
     asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
     uniq: &mut u32,
     is_min: bool,
 ) -> Result<(), CodegenError> {
     if args.len() < 2 {
         return Err(CodegenError::new("min/max expected at least 2 arguments"));
     }
+    let floaty = args
+        .iter()
+        .all(|arg| matches!(local_ty(func, *arg), IrType::Float));
     frame.load(asm, args[0], Reg::Rax);
     for a in &args[1..] {
         let id = next_id(uniq);
         frame.load(asm, *a, Reg::R10);
-        asm.cmp_rr(Reg::Rax, Reg::R10);
         let keep = format!(".mm{id}");
-        if is_min {
-            asm.jcc_label(Cc::Le, &keep);
+        if floaty {
+            asm.movq_xmm_r(0, Reg::Rax);
+            asm.movq_xmm_r(1, Reg::R10);
+            asm.ucomisd_xmm0_xmm1();
+            let unordered = format!(".mm_nan{id}");
+            asm.jcc_label(Cc::P, &unordered);
+            asm.jcc_label(if is_min { Cc::Be } else { Cc::Ae }, &keep);
+            asm.mov_rr(Reg::Rax, Reg::R10);
+            asm.jmp_label(&keep);
+            asm.label(unordered);
+            emit_runtime_failure(asm, strings, strs, "cannot compare NaN");
         } else {
-            asm.jcc_label(Cc::Ge, &keep);
+            asm.cmp_rr(Reg::Rax, Reg::R10);
+            asm.jcc_label(if is_min { Cc::Le } else { Cc::Ge }, &keep);
+            asm.mov_rr(Reg::Rax, Reg::R10);
         }
-        asm.mov_rr(Reg::Rax, Reg::R10);
         asm.label(keep);
     }
     store_rax(frame, dest, asm);
@@ -1060,7 +1183,7 @@ fn emit_native_range(
             frame.load(asm, args[0], Reg::R10);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
         }
-        n if n >= 2 => {
+        2 => {
             frame.load(asm, args[0], Reg::R10);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
             frame.load(asm, args[1], Reg::R10);
@@ -1134,7 +1257,7 @@ fn emit_native_assert(
     _strings: &mut Vec<Vec<u8>>,
     _strs: &mut Vec<(usize, usize)>,
 ) -> Result<(), CodegenError> {
-    if args.is_empty() {
+    if args.is_empty() || args.len() > 2 {
         return Err(CodegenError::new("assert() expected 1 or 2 arguments"));
     }
     frame.load(asm, args[0], Reg::Rcx);

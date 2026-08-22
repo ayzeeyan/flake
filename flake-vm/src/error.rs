@@ -21,6 +21,13 @@ impl VmError {
     pub fn display(&self, source: &Source) -> String {
         render(source, self.span, "error", &self.message)
     }
+
+    pub fn with_fallback_span(mut self, span: Span) -> Self {
+        if self.span == Span::DUMMY {
+            self.span = span;
+        }
+        self
+    }
 }
 
 #[derive(Debug, Error)]

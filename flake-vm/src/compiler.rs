@@ -192,6 +192,13 @@ impl<'a> FnCompiler<'a> {
     }
 
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), VmError> {
+        let previous = self.chunk.replace_span(stmt.span());
+        let result = self.compile_stmt_inner(stmt);
+        self.chunk.set_span(previous);
+        result
+    }
+
+    fn compile_stmt_inner(&mut self, stmt: &Stmt) -> Result<(), VmError> {
         match stmt {
             Stmt::Let(s) | Stmt::Var(s) => {
                 self.compile_expr(&s.value)?;
@@ -312,6 +319,13 @@ impl<'a> FnCompiler<'a> {
     }
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), VmError> {
+        let previous = self.chunk.replace_span(expr.span());
+        let result = self.compile_expr_inner(expr);
+        self.chunk.set_span(previous);
+        result
+    }
+
+    fn compile_expr_inner(&mut self, expr: &Expr) -> Result<(), VmError> {
         match expr {
             Expr::Literal { value, .. } => {
                 self.emit_literal(value);
@@ -961,6 +975,7 @@ fn compile_fn(func: &FnDecl, names: &Names) -> Result<Function, VmError> {
     let params: Vec<String> = func.params.iter().map(|p| p.name.name.clone()).collect();
     let arity = params.len() as u8;
     let mut compiler = FnCompiler::new(params, names);
+    compiler.chunk.set_span(func.span);
     compiler.compile_block_value(&func.body, false)?;
     compiler.chunk.emit(Op::Return);
     Ok(compiler.finish(names.global(&func.name.name), arity))

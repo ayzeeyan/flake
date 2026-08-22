@@ -17,10 +17,7 @@ pub fn emit(source: &Source, span: Span, message: &str) {
     } else {
         miette::miette!(labels = labeled, "{main}")
     }
-    .with_source_code(NamedSource::new(
-        source.name().to_string(),
-        source.text().to_string(),
-    ));
+    .with_source_code(NamedSource::new(source.name(), source.text().to_string()));
     eprintln!("{report:?}");
 }
 
