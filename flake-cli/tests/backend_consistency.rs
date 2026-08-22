@@ -50,6 +50,10 @@ impl Drop for TempSource {
 fn flake_bin() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_flake"));
     command.env("NO_COLOR", "1");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("std");
+    command.env("FLAKE_STD", std_dir);
     command
 }
 
@@ -493,3 +497,74 @@ fn main() / conc {
         assert!(stderr.contains("already awaited"), "{backend:?}: {stderr}");
     }
 }
+
+#[test]
+fn stdlib_expansion_agrees_across_all_backends() {
+    let source = r#"
+import list
+import string
+import math
+import option
+import result
+
+fn double_num(x: Int) -> Int { x * 2 }
+fn is_gt_two(x: Int) -> Bool { x > 2 }
+fn add_acc(acc: Int, x: Int) -> Int { acc + x }
+
+fn main() {
+    let xs = [1, 2, 3, 4]
+    print(list.index_of(xs, 3), list.index_of(xs, 99))
+    print(list.contains_item(xs, 2), list.contains_item(xs, 5))
+    print(list.map(xs, double_num))
+    print(list.filter(xs, is_gt_two))
+    print(list.fold(xs, 10, add_acc))
+    print(list.any(xs, is_gt_two), list.all(xs, is_gt_two))
+    print(list.flatten([[1, 2], [3, 4]]))
+    print(list.min_item(xs), list.max_item(xs))
+
+    print(string.lines("a\nb\nc"))
+    print(string.words("  hello   world  "))
+    print(string.pad_left("42", 5, "0"))
+    print(string.pad_right("hi", 5, "."))
+    print(string.slice("flake", 1, 4))
+    print(string.char_at("flake", 2))
+
+    print(math.gcd(48, 18), math.lcm(12, 18))
+    print(math.factorial(5), math.is_even(6), math.is_odd(7))
+
+    let opt_some = option.Option.Some(10)
+    let opt_none = option.Option.None
+    print(option.is_none(opt_some), option.is_none(opt_none))
+    print(option.unwrap_or(option.map_option(opt_some, double_num), 0))
+
+    let res_ok = result.Result.Ok(5)
+    let res_err = result.Result.Err("fail")
+    print(result.is_ok(result.map_result(res_ok, double_num)))
+    print(result.error_or(result.map_err(res_err, string.to_upper), "none"))
+}
+"#;
+    let expected = concat!(
+        "2 -1\n",
+        "true false\n",
+        "[2, 4, 6, 8]\n",
+        "[3, 4]\n",
+        "20\n",
+        "true false\n",
+        "[1, 2, 3, 4]\n",
+        "1 4\n",
+        "[\"a\", \"b\", \"c\"]\n",
+        "[\"hello\", \"world\"]\n",
+        "00042\n",
+        "hi...\n",
+        "lak\n",
+        "a\n",
+        "6 36\n",
+        "120 true true\n",
+        "false true\n",
+        "20\n",
+        "true\n",
+        "FAIL\n",
+    );
+    assert_all_backends("stdlib-expansion", source, expected);
+}
+

@@ -21,3 +21,72 @@ pub fn repeat(s: String, n: Int) -> String {
     }
     out
 }
+
+pub fn lines(s: String) -> [String] {
+    split(s, "\n")
+}
+
+pub fn words(s: String) -> [String] {
+    let parts = split(s, " ")
+    var out = []
+    for p in parts {
+        if len(trim(p)) > 0 {
+            push(out, p)
+        }
+    }
+    out
+}
+
+pub fn pad_left(s: String, width: Int, pad: String) -> String {
+    let slen = len(s)
+    if slen >= width || len(pad) == 0 {
+        return s
+    }
+    let needed = width - slen
+    var prefix = ""
+    while len(prefix) < needed {
+        prefix = "{prefix}{pad}"
+    }
+    "{prefix}{s}"
+}
+
+pub fn pad_right(s: String, width: Int, pad: String) -> String {
+    let slen = len(s)
+    if slen >= width || len(pad) == 0 {
+        return s
+    }
+    let needed = width - slen
+    var suffix = ""
+    while len(suffix) < needed {
+        suffix = "{suffix}{pad}"
+    }
+    "{s}{suffix}"
+}
+
+pub fn slice(s: String, start: Int, end: Int) -> String {
+    var out = ""
+    var i = start
+    while i < end && i < len(s) {
+        out = "{out}{s[i]}"
+        i = i + 1
+    }
+    out
+}
+
+pub fn char_at(s: String, idx: Int) -> String {
+    s[idx]
+}
+
+pub fn to_upper(s: String) -> String {
+    upper(s)
+}
+
+pub fn to_lower(s: String) -> String {
+    lower(s)
+}
+
+pub fn trim_str(s: String) -> String {
+    trim(s)
+}
+
+

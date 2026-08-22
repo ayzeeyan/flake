@@ -62,3 +62,103 @@ pub fn sum(xs) -> Int {
     }
     s
 }
+
+pub fn index_of(xs, target: dyn) -> Int {
+    var i = 0
+    while i < len(xs) {
+        if xs[i] == target {
+            return i
+        }
+        i = i + 1
+    }
+    -1
+}
+
+pub fn contains_item(xs, item: dyn) -> Bool {
+    index_of(xs, item) >= 0
+}
+
+pub fn map(xs, f: fn(dyn) -> dyn) -> [dyn] {
+    var out = []
+    for x in xs {
+        push(out, f(x))
+    }
+    out
+}
+
+pub fn filter(xs, pred: fn(dyn) -> Bool) -> [dyn] {
+    var out = []
+    for x in xs {
+        if pred(x) {
+            push(out, x)
+        }
+    }
+    out
+}
+
+pub fn fold(xs, init: dyn, f: fn(dyn, dyn) -> dyn) -> dyn {
+    var acc = init
+    for x in xs {
+        acc = f(acc, x)
+    }
+    acc
+}
+
+pub fn any(xs, pred: fn(dyn) -> Bool) -> Bool {
+    for x in xs {
+        if pred(x) {
+            return true
+        }
+    }
+    false
+}
+
+pub fn all(xs, pred: fn(dyn) -> Bool) -> Bool {
+    for x in xs {
+        if !pred(x) {
+            return false
+        }
+    }
+    true
+}
+
+pub fn flatten(xss) -> [dyn] {
+    var out = []
+    for sub in xss {
+        for item in sub {
+            push(out, item)
+        }
+    }
+    out
+}
+
+pub fn min_item(xs) -> dyn {
+    if len(xs) == 0 {
+        return nil
+    }
+    var m = xs[0]
+    var i = 1
+    while i < len(xs) {
+        if xs[i] < m {
+            m = xs[i]
+        }
+        i = i + 1
+    }
+    m
+}
+
+pub fn max_item(xs) -> dyn {
+    if len(xs) == 0 {
+        return nil
+    }
+    var m = xs[0]
+    var i = 1
+    while i < len(xs) {
+        if xs[i] > m {
+            m = xs[i]
+        }
+        i = i + 1
+    }
+    m
+}
+

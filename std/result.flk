@@ -42,3 +42,25 @@ pub fn unwrap(r: Result) -> dyn / panic {
         }
     }
 }
+
+pub fn map_result(r: Result, f: fn(dyn) -> dyn) -> Result {
+    match r {
+        Result.Ok(v) => Result.Ok(f(v))
+        Result.Err(m) => Result.Err(m)
+    }
+}
+
+pub fn map_err(r: Result, f: fn(String) -> String) -> Result {
+    match r {
+        Result.Ok(v) => Result.Ok(v)
+        Result.Err(m) => Result.Err(f(m))
+    }
+}
+
+pub fn and_then(r: Result, f: fn(dyn) -> Result) -> Result {
+    match r {
+        Result.Ok(v) => f(v)
+        Result.Err(m) => Result.Err(m)
+    }
+}
+

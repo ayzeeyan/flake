@@ -18,3 +18,18 @@ pub fn unwrap_or(o: Option, fallback: dyn) -> dyn {
         Option.None => fallback
     }
 }
+
+pub fn is_none(o: Option) -> Bool {
+    match o {
+        Option.Some(v) => false
+        Option.None => true
+    }
+}
+
+pub fn map_option(o: Option, f: fn(dyn) -> dyn) -> Option {
+    match o {
+        Option.Some(v) => Option.Some(f(v))
+        Option.None => Option.None
+    }
+}
+

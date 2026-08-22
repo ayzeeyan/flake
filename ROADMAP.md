@@ -10,8 +10,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Native backend reliability improvements | **done** |
 | 2 | Module system polish | **done** |
-| 3 | Standard library expansion | in progress |
-| 4 | Language polish and expanded testing | planned |
+| 3 | Standard library expansion | **done** |
+| 4 | Language polish and expanded testing | in progress |
 | 5 | Flake v0.5.1 complete | planned |
 
 ## What v0.5.1 milestone 1 delivers
@@ -29,6 +29,16 @@ There is no LLVM, Cranelift, or C transpilation.
   - Full struct field type propagation in IR lowering across modules and qualified names.
   - Consistent string equality comparison across dynamic and struct-field values in native code.
   - Non-trivial multi-file [pipeline project](examples/projects/pipeline/main.flk) combining domain models, transform services, format utilities, and cross-backend execution.
+
+## What v0.5.1 milestone 3 delivers
+
+- Practical standard library expansion across modules:
+  - `std/list.flk`: `index_of`, `contains_item`, `map`, `filter`, `fold`, `any`, `all`, `flatten`, `min_item`, `max_item`.
+  - `std/string.flk`: `lines`, `words`, `pad_left`, `pad_right`, `slice`, `char_at`, `to_upper`, `to_lower`, `trim_str`.
+  - `std/math.flk`: `gcd`, `lcm`, `factorial`, `is_even`, `is_odd`.
+  - `std/option.flk`: `is_none`, `map_option`.
+  - `std/result.flk`: `map_result`, `map_err`, `and_then`.
+  - 100% agreement and cross-backend test coverage across Interpreter, VM, and Native x86-64.
 
 ## v0.5 milestones (complete)
 

@@ -23,3 +23,43 @@ pub fn sign(x: Int) -> Int {
         0
     }
 }
+
+pub fn gcd(a: Int, b: Int) -> Int {
+    var x = abs(a)
+    var y = abs(b)
+    while y != 0 {
+        let t = y
+        y = x % y
+        x = t
+    }
+    x
+}
+
+pub fn lcm(a: Int, b: Int) -> Int {
+    if a == 0 || b == 0 {
+        return 0
+    }
+    abs(a * b) / gcd(a, b)
+}
+
+pub fn factorial(n: Int) -> Int {
+    if n <= 1 {
+        return 1
+    }
+    var res = 1
+    var i = 2
+    while i <= n {
+        res = res * i
+        i = i + 1
+    }
+    res
+}
+
+pub fn is_even(n: Int) -> Bool {
+    n % 2 == 0
+}
+
+pub fn is_odd(n: Int) -> Bool {
+    n % 2 != 0
+}
+
