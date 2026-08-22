@@ -51,7 +51,7 @@ between:
 
 ## Status
 
-**v0.5 is in development.** Milestones 1–6 are complete: typed structured
+**Flake v0.5 is complete.** Typed structured
 tasks, Result-style `?` propagation, scalar and enum patterns, stronger match
 diagnostics, and typed maps now sit alongside a more mature native x86-64
 backend with CFG-aware register reuse, typed indirect calls, better Float/map
@@ -68,6 +68,9 @@ See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.m
 for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
+
+See the [v0.5 release notes](docs/release-notes-v0.5.md) for the complete
+feature and compatibility summary.
 
 ## Build and run
 

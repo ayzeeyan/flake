@@ -21,7 +21,10 @@ fn version_flag_prints_semver() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("flake"), "stdout: {stdout}");
-    assert!(stdout.contains("0.4.0"), "stdout: {stdout}");
+    assert!(
+        stdout.contains(env!("CARGO_PKG_VERSION")),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]

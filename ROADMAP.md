@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**v0.5 is in development.** Milestones 1–6 are complete. Typed, scope-bound
+**Flake v0.5 is complete.** All seven milestones are done. Typed, scope-bound
 tasks make `conc` operational; Result-style `?`, scalar patterns, stronger enum
 checking, and typed maps expand the core language; and the owned x86-64 backend
 now has CFG-aware register reuse, typed indirect calls, stronger native runtime
@@ -24,7 +24,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 4 | Strengthened module system | **done** |
 | 5 | Cross-backend consistency and expanded testing | **done** |
 | 6 | v0.5 polish, documentation, and examples | **done** |
-| 7 | Flake v0.5 complete | planned |
+| 7 | Flake v0.5 complete | **done** |
 
 ## What v0.5 milestone 1 delivers
 
@@ -141,6 +141,39 @@ timers, cancellation API, or native task runtime.
   errors, modules, IR, code generation, and testing documentation
 - README and roadmap navigation that distinguish implemented v0.5 behavior
   from post-v0.5 runtime, platform, package, lifetime, and optimization work
+
+## What v0.5 milestone 7 delivers
+
+- Workspace and CLI release version `0.5.0`, with all internal crates kept on
+  the single workspace version
+- Final interpreter, VM, native, example, diagnostic, and release-profile
+  verification on the completed source tree
+- A dependency and source audit confirming the pipeline remains pure Rust,
+  contains no LLVM or Cranelift integration, and invokes no foreign compiler or
+  transpilation stage
+- Final [v0.5 release notes](docs/release-notes-v0.5.md), completed milestone
+  status, and explicit post-v0.5 boundaries
+
+## What v0.5 delivers
+
+- First-class `conc` with typed, scope-bound, single-join `Task[T]` handles;
+  interpreter and VM execute cooperative tasks while native has a documented
+  synchronous fallback
+- Algebraic enums, exhaustive enum/Bool matching, scalar literal patterns,
+  Result-style `?`, and deterministic typed maps
+- A more mature owned x86-64 pipeline with CFG-aware register allocation,
+  typed indirect calls, checked integer failures, fuller Float/list/map
+  behavior, and reliable PE replacement
+- Comfortable hierarchical source projects through dotted imports, canonical
+  module identities, private-by-default APIs, qualified types/patterns, and
+  deterministic resolution diagnostics
+- A 290-test workspace gate at finalization, including exact-output and shared
+  failure matrices across interpreter, VM, and native plus every registered
+  example
+- A cohesive language tour, architecture, ownership, concurrency, module,
+  error, IR, native, testing, and examples documentation set
+- A 100% Rust, fully owned compiler pipeline with no LLVM, Cranelift, or
+  transpilation
 
 ## v0.4 milestones (complete)
 
