@@ -14,7 +14,7 @@ pub enum IrType {
     Struct(String),
     Range,
     Iter,
-    Func,
+    Func(Box<IrType>),
     Dyn,
     Unknown,
 }
@@ -32,7 +32,7 @@ impl fmt::Display for IrType {
             Self::Struct(n) => f.write_str(n),
             Self::Range => f.write_str("Range"),
             Self::Iter => f.write_str("Iter"),
-            Self::Func => f.write_str("fn"),
+            Self::Func(ret) => write!(f, "fn -> {ret}"),
             Self::Dyn => f.write_str("dyn"),
             Self::Unknown => f.write_str("?"),
         }

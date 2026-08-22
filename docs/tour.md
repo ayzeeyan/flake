@@ -290,9 +290,11 @@ flake run examples/hello.flk            # tree-walking interpreter
 flake run --vm examples/hello.flk       # bytecode VM (full language)
 flake run --native examples/hello.flk   # x86-64 PE (Windows)
 flake build examples/hello.flk -o hello.exe
+flake build examples/hello.flk -o hello.exe --emit-asm
 flake ir examples/hello.flk             # dump the custom IR
 ```
 
 The VM and native backend match the interpreter on all examples. Native code
-uses a linear-scan register allocator and the Windows x64 ABI; see
-[codegen.md](codegen.md).
+uses CFG-aware liveness/interference register allocation and the Windows x64
+ABI. `flake build` emits only the executable unless `--emit-asm` is requested;
+see [codegen.md](codegen.md).

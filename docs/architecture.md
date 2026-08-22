@@ -36,7 +36,14 @@ scalar `match` patterns become explicit comparisons and CFG branches; Result
 Maps retain concrete key/value types in IR. Interpreter and VM use typed hash
 keys, while native code selects string or scalar comparison in the in-tree
 linear-map runtime. `contains(map, key)` uses a dedicated presence test so
-stored falsey values remain distinguishable from missing keys.
+stored falsey values remain distinguishable from missing keys; indexing a
+missing native key now reports an explicit runtime error.
+
+Function references lower to typed IR addresses and native code labels.
+Direct and indirect calls share Windows x64 ABI argument staging, including
+arguments beyond the four register positions. Native register allocation uses
+CFG liveness and interference coloring to reuse callee-saved registers across
+non-overlapping locals.
 
 `spawn` captures a callable and its evaluated arguments in a task registered
 to the current function invocation. Interpreter and VM task scopes drive a
@@ -46,13 +53,16 @@ opcodes. For v0.5 milestone 1, IR/native lowering intentionally erases the
 task wrapper and executes the call synchronously; this keeps native builds
 coherent until a native task runtime exists.
 
-The CLI type-checks before running (pass `--skip-check` to bypass).
+The CLI type-checks before running (pass `--skip-check` to bypass) and before
+native builds. `flake build` writes only the executable unless `--emit-asm` is
+requested.
 
 ```bash
 flake run file.flk            # interpreter
 flake run --vm file.flk       # bytecode VM
 flake run --native file.flk   # compile + execute native image
 flake build file.flk -o out.exe
+flake build file.flk -o out.exe --emit-asm
 flake ir file.flk             # dump IR
 ```
 

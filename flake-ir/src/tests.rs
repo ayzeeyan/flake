@@ -1,6 +1,6 @@
 use flake_ast::Source;
 
-use crate::{Inst, IrType, lower, print_module};
+use crate::{Callee, Inst, IrType, lower, print_module};
 
 fn ir(src: &str) -> String {
     let source = Source::new("t.flk", src);
@@ -14,6 +14,44 @@ fn lowers_add() {
     assert!(dump.contains("fn add(a: Int, b: Int) -> Int"), "{dump}");
     assert!(dump.contains("add %"), "{dump}");
     assert!(dump.contains("return %"), "{dump}");
+}
+
+#[test]
+fn materializes_typed_function_addresses_for_indirect_calls() {
+    let source = Source::new(
+        "functions.flk",
+        r#"
+fn greet(name: String) -> String { "Hello, {name}" }
+fn apply(f: fn(String) -> String, name: String) -> String { f(name) }
+fn main() { print(apply(greet, "Flake")) }
+"#,
+    );
+    let module = lower(&source).expect("lower function values");
+    assert!(
+        module
+            .functions
+            .iter()
+            .flat_map(|function| &function.blocks)
+            .any(|block| block.insts.iter().any(|inst| matches!(
+                inst,
+                Inst::LoadFunction { name, .. } if name == "greet"
+            )))
+    );
+    let apply = module
+        .functions
+        .iter()
+        .find(|function| function.name == "apply")
+        .expect("apply function");
+    assert_eq!(
+        apply.local(apply.params[0]).map(|local| &local.ty),
+        Some(&IrType::Func(Box::new(IrType::String)))
+    );
+    assert!(apply.blocks.iter().any(|block| {
+        block.insts.iter().any(|inst| {
+            matches!(inst, Inst::Call { callee: Callee::Local(_), dest: Some(dest), .. }
+            if apply.local(*dest).is_some_and(|local| local.ty == IrType::String))
+        })
+    }));
 }
 
 #[test]

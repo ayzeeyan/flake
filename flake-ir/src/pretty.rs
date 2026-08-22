@@ -78,6 +78,7 @@ pub fn print_function(func: &Function, out: &mut String) {
 fn format_inst(inst: &Inst) -> String {
     match inst {
         Inst::LoadConst { dest, value } => format!("%{} = const {}", dest.0, format_const(value)),
+        Inst::LoadFunction { dest, name } => format!("%{} = fnaddr {name}", dest.0),
         Inst::Move { dest, src } => format!("%{} = %{}", dest.0, src.0),
         Inst::Binary {
             dest, op, lhs, rhs, ..

@@ -17,14 +17,15 @@ No LLVM, Cranelift, or foreign IR is involved.
 ## Design goals
 
 1. **Simple to emit** from the AST (one local per binding or temporary).
-2. **Simple to lower** to stack bytecode and to x86-64 stack frames.
+2. **Simple to lower** to stack bytecode and to x86-64 stack/register frames.
 3. **Explicit control flow.** The last instruction of every block is `Jump`,
    `Branch`, or `Return`.
 4. **Carry language facts** that later passes need: effect sets, `strict` /
    `owned` flags, struct layouts.
 
 SSA φ-nodes are deliberately omitted. Values that live across blocks are
-ordinary locals (the x86-64 backend maps them to stack slots).
+ordinary locals; the x86-64 backend uses CFG liveness to place them in
+callee-saved registers or stack slots.
 
 ## Units
 
@@ -43,7 +44,8 @@ A **function** has:
 - a list of **basic blocks**, with `bb0` as the entry
 
 A **local** is `%id` with an optional source name and an IR type (`Int`,
-`Bool`, `String`, `dyn`, …).
+`Bool`, `String`, `Map[K, V]`, `fn -> R`, `dyn`, …). Function values retain
+their return type so an indirect call produces a correctly typed result.
 
 In v0.5 milestone 1, structured task handles remain an interpreter/VM runtime
 concept. IR lowering maps `spawn call()` to the call result and `await task` to
@@ -55,9 +57,11 @@ fallback, not a promise of native parallel scheduling.
 | Instruction | Meaning |
 | --- | --- |
 | `%d = const c` | load a literal |
+| `%d = fnaddr name` | materialize a user or imported function address |
 | `%d = %s` | copy |
 | `%d = add/sub/… %a, %b` | arithmetic / compare |
-| `%d = call name(%a, …)` | static call (user fn or builtin) |
+| `%d = call name(%a, …)` | direct call (user fn or builtin) |
+| `%d = call %f(%a, …)` | indirect call through a function local |
 | `%d = %o[%i]` / `%o[%i] = %v` | index |
 | `%d = %o.field` / `%o.field = %v` | struct field |
 | `%d = list […]` / `map` / `struct` / `range` | constructors |

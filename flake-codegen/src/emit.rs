@@ -229,6 +229,20 @@ fn emit_inst(
                 frame.store(asm, *dest, Reg::Rax);
             }
         },
+        Inst::LoadFunction { dest, name } => {
+            if !module
+                .functions
+                .iter()
+                .any(|function| function.name == *name)
+            {
+                return Err(CodegenError::new(format!(
+                    "native backend cannot use builtin `{name}` as a function value; wrap it in a user function"
+                )));
+            }
+            asm.lea_label(Reg::Rax, name);
+            frame.store(asm, *dest, Reg::Rax);
+            gas.push_str(&format!("    lea rax, [rip + {name}]\n"));
+        }
         Inst::Move { dest, src } => {
             frame.load(asm, *src, Reg::Rax);
             frame.store(asm, *dest, Reg::Rax);
@@ -322,6 +336,10 @@ fn emit_inst(
         Inst::Unary { dest, op, src } => {
             frame.load(asm, *src, Reg::Rax);
             match op {
+                UnOp::Neg if matches!(local_ty(func, *src), IrType::Float) => {
+                    asm.mov_ri(Reg::R10, i64::MIN);
+                    asm.xor_rr(Reg::Rax, Reg::R10);
+                }
                 UnOp::Neg => asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]),
                 UnOp::Not => {
                     asm.test_rr(Reg::Rax, Reg::Rax);
@@ -500,9 +518,7 @@ fn load_as_cstr(
             asm.call_label("rt_itoa");
         }
         IrType::Float => {
-            asm.movq_xmm_r(0, Reg::Rcx);
-            asm.cvttsd2si_r_xmm0(Reg::Rcx);
-            asm.call_label("rt_itoa");
+            asm.call_label("rt_ftoa");
         }
         IrType::Unknown | IrType::Dyn => {
             asm.mov_ri(Reg::R10, 0x10000);
@@ -532,8 +548,9 @@ fn load_as_cstr(
             strs.push((at, intern_cstring(strings, "nil")));
         }
         IrType::List(_) => asm.call_label("rt_display_list"),
-        IrType::Map(key, _) => {
+        IrType::Map(key, value) => {
             asm.mov_ri(Reg::Rdx, map_key_mode(&key));
+            asm.mov_ri(Reg::R8, map_value_mode(&value));
             asm.call_label("rt_display_map");
         }
         IrType::Range => asm.call_label("rt_display_range"),
@@ -796,8 +813,10 @@ fn emit_call(
         }
         Callee::Static(name) => emit_user_call(frame, name, dest, args, asm),
         Callee::Local(id) => {
+            let space = prepare_call_args(frame, args, asm);
             frame.load(asm, *id, Reg::Rax);
             asm.call_r(Reg::Rax);
+            finish_call_args(space, asm);
             store_rax(frame, dest, asm);
             Ok(())
         }
@@ -857,9 +876,9 @@ fn emit_native_print(
             IrType::String => asm.call_label("rt_print_cstr"),
             IrType::Int => asm.call_label("rt_print_i64"),
             IrType::Float => {
-                asm.movq_xmm_r(0, Reg::Rcx);
-                asm.cvttsd2si_r_xmm0(Reg::Rcx);
-                asm.call_label("rt_print_i64");
+                asm.call_label("rt_ftoa");
+                asm.mov_rr(Reg::Rcx, Reg::Rax);
+                asm.call_label("rt_print_cstr");
             }
             IrType::Dyn | IrType::Unknown => {
                 let id = next_id(uniq);
@@ -895,8 +914,9 @@ fn emit_native_print(
                 asm.mov_rr(Reg::Rcx, Reg::Rax);
                 asm.call_label("rt_print_cstr");
             }
-            IrType::Map(key, _) => {
+            IrType::Map(key, value) => {
                 asm.mov_ri(Reg::Rdx, map_key_mode(&key));
+                asm.mov_ri(Reg::R8, map_value_mode(&value));
                 asm.call_label("rt_display_map");
                 asm.mov_rr(Reg::Rcx, Reg::Rax);
                 asm.call_label("rt_print_cstr");
@@ -1226,6 +1246,14 @@ fn emit_user_call(
     args: &[LocalId],
     asm: &mut Asm,
 ) -> Result<(), CodegenError> {
+    let space = prepare_call_args(frame, args, asm);
+    asm.call_label(name);
+    finish_call_args(space, asm);
+    store_rax(frame, dest, asm);
+    Ok(())
+}
+
+fn prepare_call_args(frame: &Frame, args: &[LocalId], asm: &mut Asm) -> i32 {
     let win_args = [Reg::Rcx, Reg::Rdx, Reg::R8, Reg::R9];
     let extra = args.len().saturating_sub(4);
     let mut space = 0i32;
@@ -1243,12 +1271,13 @@ fn emit_user_call(
     for (i, a) in args.iter().enumerate().take(4) {
         frame.load(asm, *a, win_args[i]);
     }
-    asm.call_label(name);
-    if extra > 0 {
+    space
+}
+
+fn finish_call_args(space: i32, asm: &mut Asm) {
+    if space > 0 {
         asm.add_ri(Reg::Rsp, space);
     }
-    store_rax(frame, dest, asm);
-    Ok(())
 }
 
 fn emit_get_index(
@@ -1361,6 +1390,16 @@ fn map_key_mode(ty: &IrType) -> i64 {
     }
 }
 
+fn map_value_mode(ty: &IrType) -> i64 {
+    match ty {
+        IrType::String => 1,
+        IrType::Int => 2,
+        IrType::Bool => 3,
+        IrType::Float => 4,
+        _ => 0,
+    }
+}
+
 fn ir_type_name(ty: &IrType) -> &'static str {
     match ty {
         IrType::Nil => "Nil",
@@ -1373,7 +1412,7 @@ fn ir_type_name(ty: &IrType) -> &'static str {
         IrType::Struct(_) => "Struct",
         IrType::Range => "Range",
         IrType::Iter => "Iter",
-        IrType::Func => "Function",
+        IrType::Func(_) => "Function",
         IrType::Dyn | IrType::Unknown => "dyn",
     }
 }

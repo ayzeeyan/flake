@@ -180,6 +180,13 @@ impl Names {
         }
         Some(qualify(module, field))
     }
+
+    fn function_global(&self, name: &str) -> Option<String> {
+        if self.local_fns.contains(name) {
+            return Some(self.global(name));
+        }
+        self.imported_fns.get(name).cloned()
+    }
 }
 
 fn fn_names(program: &Program) -> HashSet<String> {
@@ -545,8 +552,18 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             Literal::String(s) => b.const_val(Const::String(s.clone()), IrType::String),
         },
         Expr::Ident(id) => lookup(b, &id.name).unwrap_or_else(|| {
-            // treat as global / native / function reference
-            b.alloc(Some(id.name.clone()), IrType::Func)
+            let name = b
+                .names
+                .function_global(&id.name)
+                .unwrap_or_else(|| id.name.clone());
+            let ret = b
+                .fn_rets
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| native_result_ty(&name));
+            let dest = b.alloc(Some(id.name.clone()), IrType::Func(Box::new(ret)));
+            b.emit(Inst::LoadFunction { dest, name });
+            dest
         }),
         Expr::Interpolated { parts, .. } => {
             let mut items = Vec::new();
@@ -598,7 +615,13 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             let src = lower_expr(b, expr);
             match op {
                 AstUn::Neg => {
-                    let dest = b.alloc(None, IrType::Int);
+                    let ty = b
+                        .locals
+                        .iter()
+                        .find(|local| local.id == src)
+                        .map(|local| local.ty.clone())
+                        .unwrap_or(IrType::Int);
+                    let dest = b.alloc(None, ty);
                     b.emit(Inst::Unary {
                         dest,
                         op: UnOp::Neg,
@@ -681,7 +704,15 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                         b.fn_rets.get(name).cloned().unwrap_or(IrType::Dyn)
                     }
                 }
-                Callee::Local(_) => IrType::Dyn,
+                Callee::Local(id) => b
+                    .locals
+                    .iter()
+                    .find(|local| local.id == *id)
+                    .and_then(|local| match &local.ty {
+                        IrType::Func(ret) => Some((**ret).clone()),
+                        _ => None,
+                    })
+                    .unwrap_or(IrType::Dyn),
             };
             let dest = b.alloc(None, dest_ty);
             b.emit(Inst::Call {
@@ -727,6 +758,18 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                     items: vec![t],
                 });
                 return dest;
+            }
+            if let Expr::Ident(module) = target.as_ref() {
+                if let Some(name) = b.names.field_global(&module.name, &field.name) {
+                    if let Some(ret) = b.fn_rets.get(&name).cloned() {
+                        let dest = b.alloc(
+                            Some(format!("{}.{}", module.name, field.name)),
+                            IrType::Func(Box::new(ret)),
+                        );
+                        b.emit(Inst::LoadFunction { dest, name });
+                        return dest;
+                    }
+                }
             }
             let obj = lower_expr(b, target);
             let dest = b.alloc(None, IrType::Dyn);
@@ -1198,7 +1241,11 @@ fn lower_type(ty: Option<&TypeExpr>) -> IrType {
         | Some(TypeExpr::Mut { inner, .. })
         | Some(TypeExpr::Ref { inner, .. })
         | Some(TypeExpr::Optional { inner, .. }) => lower_type(Some(inner)),
-        Some(TypeExpr::Fn { .. }) => IrType::Func,
+        Some(TypeExpr::Fn { ret, .. }) => IrType::Func(Box::new(
+            ret.as_deref()
+                .map(|ret| lower_type(Some(ret)))
+                .unwrap_or(IrType::Nil),
+        )),
     }
 }
 

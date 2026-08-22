@@ -1,9 +1,10 @@
 # Flake Roadmap
 
-**v0.5 is in development.** Milestones 1–2 are complete. Typed, scope-bound
-tasks make `conc` operational, while Result-style `?`, scalar patterns,
-stronger enum checking, and typed maps expand the core language coherently
-across the interpreter, VM, IR, and native x86-64 backend.
+**v0.5 is in development.** Milestones 1–3 are complete. Typed, scope-bound
+tasks make `conc` operational; Result-style `?`, scalar patterns, stronger enum
+checking, and typed maps expand the core language; and the owned x86-64 backend
+now has CFG-aware register reuse, typed indirect calls, stronger native runtime
+coverage, and more reliable executable production.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -13,7 +14,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Structured concurrency foundations (`conc` effect) | **done** |
 | 2 | Core language expansion (enums, pattern matching, errors, maps) | **done** |
-| 3 | Native backend maturation | planned |
+| 3 | Native backend maturation | **done** |
 | 4 | Strengthened module system | planned |
 | 5 | Cross-backend consistency and expanded testing | planned |
 | 6 | v0.5 polish, documentation, and examples | planned |
@@ -54,6 +55,26 @@ timers, cancellation API, or native task runtime.
 - Expanded `std/result.flk`, dedicated [error documentation](docs/errors.md),
   and the cross-backend [data example](examples/data.flk)
 
+## What v0.5 milestone 3 delivers
+
+- CFG liveness analysis, interference construction, and hotness-guided greedy
+  coloring onto callee-saved GPRs; non-overlapping locals reuse registers while
+  simultaneous aggregate/call operands remain distinct
+- Typed function-address IR and real first-class native function values,
+  including local and imported functions, typed return values, and indirect
+  Windows-ABI calls with stack arguments beyond the fourth parameter
+- Native Float negation and deterministic decimal formatting for `print`,
+  `str`, and interpolation instead of integer truncation
+- Stronger map runtime behavior: concrete String/Int/Bool/Float value display
+  and an explicit runtime error for a missing key
+- PE32+ headers with accurate code/data sizes and virtual section sizes
+- Staged executable replacement, reliable temp cleanup, and preserved native
+  stdout/stderr on process failure
+- `flake build` type-checks before code generation, emits only the requested
+  `.exe` by default, and writes a `.s` listing only with `--emit-asm`
+- Focused regression coverage for register reuse, aggregate interference,
+  indirect calls, maps, floats, PE metadata, and CLI artifact behavior
+
 ## v0.4 milestones (complete)
 
 | # | Milestone | Status |
@@ -70,7 +91,7 @@ timers, cancellation API, or native task runtime.
 
 - Linear-scan-style register allocation onto Windows callee-saved GPRs
 - Solid Windows x64 ABI (home space, stack args, callee-saved save/restore)
-- Native floats via SSE2; indirect calls via `call r64`
+- Native floats via SSE2; low-level indirect-call encoding via `call r64`
 - Existing examples still match the interpreter on `flake run --native`
 
 ## What v0.4 milestone 2 delivers
@@ -108,7 +129,7 @@ timers, cancellation API, or native task runtime.
 ## What v0.4 delivers
 
 - Linear-scan register allocation and a solid Windows x64 ABI
-- SSE2 floats, indirect calls, enums/`match`, modules with `pub`
+- SSE2 floats, indirect-call encoding, enums/`match`, modules with `pub`
 - Stronger gradual ownership that stays optional
 - Prelude + `std/` (`list`, `string`, `math`, `option`, `result`)
 - Interpreter, VM, and native agreement on examples and snippets
@@ -206,5 +227,5 @@ foundation, REPL. See git history milestones 0–10.
 3. Package manager / versioned dependencies / lockfile
 4. Full parallel async runtime, scheduler, I/O reactor, and cancellation API
 5. Self-hosting
-6. Inlining and other optimisations beyond linear-scan register allocation
+6. Inlining and other optimisations beyond the current CFG-aware register allocator
 7. Nested modules / dotted import paths

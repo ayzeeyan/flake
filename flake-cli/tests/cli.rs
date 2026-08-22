@@ -1,9 +1,18 @@
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static UNIQUE: AtomicU64 = AtomicU64::new(0);
 
 fn flake_bin() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flake"));
     cmd.env("NO_COLOR", "1");
     cmd
+}
+
+fn temp_source(label: &str) -> PathBuf {
+    let id = UNIQUE.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("flake-cli-{label}-{}-{id}.flk", std::process::id()))
 }
 
 #[test]
@@ -143,4 +152,95 @@ fn run_hello_example() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "Hello, World!\n");
+}
+
+#[test]
+fn build_emits_only_the_executable_by_default() {
+    let source = temp_source("build-exe");
+    let exe = source.with_extension("exe");
+    let asm = source.with_extension("s");
+    std::fs::write(&source, "fn main() { print(42) }\n").expect("write source");
+    std::fs::write(&exe, b"stale executable").expect("seed old output");
+
+    let output = flake_bin()
+        .arg("build")
+        .arg(&source)
+        .arg("--output")
+        .arg(&exe)
+        .output()
+        .expect("build executable");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(exe.is_file(), "native executable was not written");
+    assert!(!asm.exists(), "assembly should be opt-in");
+    let native = Command::new(&exe).output().expect("run built executable");
+    assert!(native.status.success());
+    assert_eq!(String::from_utf8_lossy(&native.stdout), "42\n");
+
+    let _ = std::fs::remove_file(source);
+    let _ = std::fs::remove_file(exe);
+}
+
+#[test]
+fn build_emit_asm_writes_an_explicit_listing() {
+    let source = temp_source("build-asm");
+    let exe = source.with_extension("exe");
+    let asm = source.with_extension("s");
+    std::fs::write(&source, "fn main() { print(42) }\n").expect("write source");
+
+    let output = flake_bin()
+        .arg("build")
+        .arg(&source)
+        .arg("--output")
+        .arg(&exe)
+        .arg("--emit-asm")
+        .output()
+        .expect("build with assembly");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(exe.is_file());
+    let listing = std::fs::read_to_string(&asm).expect("assembly listing");
+    assert!(listing.contains("Flake x86-64"), "{listing}");
+    assert!(listing.contains("main:"), "{listing}");
+
+    let _ = std::fs::remove_file(source);
+    let _ = std::fs::remove_file(exe);
+    let _ = std::fs::remove_file(asm);
+}
+
+#[test]
+fn build_rejects_type_errors_before_writing_artifacts() {
+    let source = temp_source("build-check");
+    let exe = source.with_extension("exe");
+    let asm = source.with_extension("s");
+    std::fs::write(
+        &source,
+        "fn needs_int(value: Int) {}\nfn main() { needs_int(\"not an int\") }\n",
+    )
+    .expect("write invalid source");
+
+    let output = flake_bin()
+        .arg("build")
+        .arg(&source)
+        .arg("--output")
+        .arg(&exe)
+        .arg("--emit-asm")
+        .output()
+        .expect("reject invalid build");
+    assert!(!output.status.success());
+    assert!(!exe.exists(), "invalid build wrote an executable");
+    assert!(!asm.exists(), "invalid build wrote an assembly listing");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("type") || stderr.contains("expected"),
+        "{stderr}"
+    );
+
+    let _ = std::fs::remove_file(source);
 }

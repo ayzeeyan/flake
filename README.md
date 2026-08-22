@@ -51,11 +51,12 @@ between:
 
 ## Status
 
-**v0.5 is in development.** Milestones 1–2 are complete: typed structured
+**v0.5 is in development.** Milestones 1–3 are complete: typed structured
 tasks, Result-style `?` propagation, scalar and enum patterns, stronger match
-diagnostics, and typed maps work across the interpreter, VM, and native
-x86-64 path. Native concurrency retains its documented synchronous fallback.
-No LLVM or Cranelift.
+diagnostics, and typed maps now sit alongside a more mature native x86-64
+backend with CFG-aware register reuse, typed indirect calls, better Float/map
+runtime behavior, and hardened PE production. Native concurrency retains its
+documented synchronous fallback. No LLVM, Cranelift, or transpilation.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
 for a language tour.
@@ -76,6 +77,7 @@ flake run examples/data.flk
 flake run --vm examples/concurrency.flk
 flake run --native examples/app.flk
 flake build examples/hello.flk -o hello.exe
+flake build examples/hello.flk -o hello.exe --emit-asm
 flake check examples/hello.flk
 flake ir examples/hello.flk
 flake repl

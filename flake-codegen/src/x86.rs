@@ -126,6 +126,34 @@ impl Asm {
         self.modrm_disp(src, Reg::Rbp, disp);
     }
 
+    pub fn mov_m8_rbp(&mut self, disp: i32, src: Reg) {
+        if src.id() >= 8 {
+            self.bytes.push(0x44);
+        } else if matches!(src, Reg::Rsp | Reg::Rbp | Reg::Rsi | Reg::Rdi) {
+            self.bytes.push(0x40);
+        }
+        self.bytes.push(0x88);
+        self.modrm_disp(src, Reg::Rbp, disp);
+    }
+
+    pub fn mov_m8_imm_rbp(&mut self, disp: i32, value: u8) {
+        self.bytes.push(0xC6);
+        self.modrm_disp(Reg::Rax, Reg::Rbp, disp);
+        self.bytes.push(value);
+    }
+
+    pub fn cmp_m8_imm_rbp(&mut self, disp: i32, value: u8) {
+        self.bytes.push(0x80);
+        if (-128..=127).contains(&disp) {
+            self.bytes.push(0b01_111_101);
+            self.bytes.push(disp as i8 as u8);
+        } else {
+            self.bytes.push(0b10_111_101);
+            self.bytes.extend_from_slice(&disp.to_le_bytes());
+        }
+        self.bytes.push(value);
+    }
+
     pub fn mov_rm(&mut self, dst: Reg, base: Reg, disp: i32) {
         self.rex_wr(dst, base);
         self.bytes.push(0x8B);
@@ -317,12 +345,18 @@ impl Asm {
 
     /// `cvtsi2sd xmm0, r64`
     pub fn cvtsi2sd_xmm0(&mut self, src: Reg) {
+        self.cvtsi2sd_xmm(0, src);
+    }
+
+    /// `cvtsi2sd xmm{k}, r64`
+    pub fn cvtsi2sd_xmm(&mut self, xmm: u8, src: Reg) {
         let mut rex = 0x48;
         if src.id() >= 8 {
             rex |= 0x01;
         }
         self.bytes.extend_from_slice(&[0xF2, rex, 0x0F, 0x2A]);
-        self.bytes.push(0b11_000_000 | (src.id() & 7));
+        self.bytes
+            .push(0b11_000_000 | ((xmm & 7) << 3) | (src.id() & 7));
     }
 
     /// `cvttsd2si r64, xmm0`
@@ -352,6 +386,14 @@ impl Asm {
         let at = self.bytes.len();
         self.bytes.extend_from_slice(&0i32.to_le_bytes());
         at
+    }
+
+    /// `lea dst, [rip+label]` for an in-image code or data symbol.
+    pub fn lea_label(&mut self, dst: Reg, label: impl Into<String>) {
+        self.rex_wr_rm(dst, Reg::Rbp);
+        self.bytes.push(0x8D);
+        self.bytes.push(((dst.id() & 7) << 3) | 0b101);
+        self.reloc_rel32(label.into());
     }
 
     #[allow(dead_code)]

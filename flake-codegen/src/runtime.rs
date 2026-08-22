@@ -11,6 +11,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_concat(asm, iat);
     emit_alloc(asm, iat);
     emit_itoa(asm, iat);
+    emit_ftoa(asm);
     emit_streq(asm);
     emit_starts_with(asm);
     emit_strndup(asm);
@@ -271,6 +272,96 @@ fn emit_itoa(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.mov_rr(Reg::Rax, Reg::R10);
     epilogue(asm);
     let _ = iat;
+}
+
+fn emit_ftoa(asm: &mut Asm) {
+    const DIGITS: i32 = 15;
+    const SCALE: i64 = 1_000_000_000_000_000;
+    const BUFFER: i32 = -96;
+
+    // rcx = f64 bits → rax = fixed-precision decimal with trailing zeroes
+    // removed. Fifteen fractional digits preserve practical f64 output while
+    // keeping the freestanding runtime compact and deterministic.
+    asm.label("rt_ftoa");
+    prologue(asm, 144);
+    asm.mov_mr_rbp(-8, Reg::Rcx); // absolute f64 bits
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.test_rr(Reg::Rcx, Reg::Rcx);
+    asm.jcc_label(Cc::Ge, ".ft_abs_ready");
+    asm.mov_ri(Reg::R8, 1);
+    asm.mov_ri(Reg::R10, i64::MIN);
+    asm.xor_rr(Reg::Rcx, Reg::R10);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.label(".ft_abs_ready");
+    asm.mov_mr_rbp(-16, Reg::R8); // sign flag
+
+    asm.movq_xmm_r(0, Reg::Rcx);
+    asm.cvttsd2si_r_xmm0(Reg::Rax);
+    asm.mov_mr_rbp(-24, Reg::Rax); // integer part
+
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.movq_xmm_r(0, Reg::Rcx);
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    asm.cvtsi2sd_xmm(1, Reg::Rax);
+    asm.subsd_xmm0_xmm1();
+    asm.mov_ri(Reg::R10, (SCALE as f64).to_bits() as i64);
+    asm.movq_xmm_r(1, Reg::R10);
+    asm.mulsd_xmm0_xmm1();
+    asm.mov_ri(Reg::R10, 0.5f64.to_bits() as i64);
+    asm.movq_xmm_r(1, Reg::R10);
+    asm.addsd_xmm0_xmm1();
+    asm.cvttsd2si_r_xmm0(Reg::Rax);
+    asm.mov_ri(Reg::R10, SCALE);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::L, ".ft_no_carry");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.mov_rm_rbp(Reg::R10, -24);
+    asm.add_ri(Reg::R10, 1);
+    asm.mov_mr_rbp(-24, Reg::R10);
+    asm.label(".ft_no_carry");
+    asm.mov_mr_rbp(-32, Reg::Rax); // scaled fractional part
+
+    asm.mov_rm_rbp(Reg::Rcx, -24);
+    asm.call_label("rt_itoa");
+    asm.mov_mr_rbp(-40, Reg::Rax);
+    asm.mov_rm_rbp(Reg::R8, -16);
+    asm.test_rr(Reg::R8, Reg::R8);
+    asm.jcc_label(Cc::Z, ".ft_sign_done");
+    asm.mov_m8_imm_rbp(-104, b'-');
+    asm.mov_m8_imm_rbp(-103, 0);
+    lea_rbp(asm, Reg::Rcx, -104);
+    asm.mov_rm_rbp(Reg::Rdx, -40);
+    asm.call_label("rt_concat2");
+    asm.mov_mr_rbp(-40, Reg::Rax);
+    asm.label(".ft_sign_done");
+
+    asm.mov_rm_rbp(Reg::Rax, -32);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::NZ, ".ft_fraction");
+    asm.mov_rm_rbp(Reg::Rax, -40);
+    epilogue(asm);
+
+    asm.label(".ft_fraction");
+    asm.mov_m8_imm_rbp(BUFFER, b'.');
+    asm.mov_m8_imm_rbp(BUFFER + DIGITS + 1, 0);
+    for digit in (0..DIGITS).rev() {
+        asm.cqo();
+        asm.mov_ri(Reg::R10, 10);
+        asm.idiv(Reg::R10);
+        asm.add_ri(Reg::Rdx, i32::from(b'0'));
+        asm.mov_m8_rbp(BUFFER + 1 + digit, Reg::Rdx);
+    }
+    for digit in (1..DIGITS).rev() {
+        let offset = BUFFER + 1 + digit;
+        asm.cmp_m8_imm_rbp(offset, b'0');
+        asm.jcc_label(Cc::Ne, ".ft_fraction_done");
+        asm.mov_m8_imm_rbp(offset, 0);
+    }
+    asm.label(".ft_fraction_done");
+    asm.mov_rm_rbp(Reg::Rcx, -40);
+    lea_rbp(asm, Reg::Rdx, BUFFER);
+    asm.call_label("rt_concat2");
+    epilogue(asm);
 }
 
 fn emit_join(asm: &mut Asm) {
@@ -622,11 +713,13 @@ fn emit_display_list(asm: &mut Asm) {
 }
 
 fn emit_display_map(asm: &mut Asm) {
-    // rcx = map, rdx = key mode (0 Int, 1 String, 2 Bool) → display string.
+    // rcx = map, rdx = key mode (0 Int, 1 String, 2 Bool),
+    // r8 = value mode (0 dyn, 1 String, 2 Int, 3 Bool, 4 Float).
     asm.label("rt_display_map");
-    prologue(asm, 80);
+    prologue(asm, 96);
     asm.mov_mr_rbp(-8, Reg::Rcx);
     asm.mov_mr_rbp(-48, Reg::Rdx);
+    asm.mov_mr_rbp(-56, Reg::R8);
     asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
     asm.test_rr(Reg::Rax, Reg::Rax);
     asm.jcc_label(Cc::NZ, ".dm_go");
@@ -696,7 +789,33 @@ fn emit_display_map(asm: &mut Asm) {
     asm.shl_ri(Reg::R8, 4);
     asm.add_rr(Reg::Rcx, Reg::R8);
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 24); // value
+    asm.mov_rm_rbp(Reg::Rax, -56);
+    asm.mov_ri(Reg::R10, 1);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dm_value_string");
+    asm.mov_ri(Reg::R10, 2);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dm_value_int");
+    asm.mov_ri(Reg::R10, 3);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dm_value_bool");
+    asm.mov_ri(Reg::R10, 4);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dm_value_float");
     asm.call_label("rt_repr");
+    asm.jmp_label(".dm_value_done");
+    asm.label(".dm_value_string");
+    asm.call_label("rt_quote");
+    asm.jmp_label(".dm_value_done");
+    asm.label(".dm_value_int");
+    asm.call_label("rt_itoa");
+    asm.jmp_label(".dm_value_done");
+    asm.label(".dm_value_bool");
+    asm.call_label("rt_bool_repr");
+    asm.jmp_label(".dm_value_done");
+    asm.label(".dm_value_float");
+    asm.call_label("rt_ftoa");
+    asm.label(".dm_value_done");
     asm.mov_rr(Reg::Rdx, Reg::Rax);
     asm.mov_rm_rbp(Reg::Rcx, -16);
     asm.call_label("rt_concat2");
@@ -739,9 +858,9 @@ fn emit_display_range(asm: &mut Asm) {
 }
 
 fn emit_map_get(asm: &mut Asm) {
-    // rcx = map, rdx = key, r8 = string-key flag → rax = value or 0.
+    // rcx = map, rdx = key, r8 = string-key flag → rax = value or fail.
     asm.label("rt_map_get");
-    prologue(asm, 48);
+    prologue(asm, 96);
     asm.mov_mr_rbp(-8, Reg::Rcx);
     asm.mov_mr_rbp(-16, Reg::Rdx);
     asm.mov_mr_rbp(-32, Reg::R8);
@@ -786,6 +905,12 @@ fn emit_map_get(asm: &mut Asm) {
     asm.mov_rm(Reg::Rax, Reg::Rcx, 24);
     epilogue(asm);
     asm.label(".mg_miss");
+    for (index, byte) in b"map key not found\0".iter().copied().enumerate() {
+        asm.mov_m8_imm_rbp(-64 + index as i32, byte);
+    }
+    asm.xor_rr(Reg::Rcx, Reg::Rcx);
+    lea_rbp(asm, Reg::Rdx, -64);
+    asm.call_label("rt_assert");
     asm.xor_rr(Reg::Rax, Reg::Rax);
     epilogue(asm);
 }
@@ -793,7 +918,7 @@ fn emit_map_get(asm: &mut Asm) {
 fn emit_map_has(asm: &mut Asm) {
     // rcx = map, rdx = key, r8 = string-key flag → rax = Bool.
     asm.label("rt_map_has");
-    prologue(asm, 48);
+    prologue(asm, 64);
     asm.mov_mr_rbp(-8, Reg::Rcx);
     asm.mov_mr_rbp(-16, Reg::Rdx);
     asm.mov_mr_rbp(-32, Reg::R8);
@@ -841,7 +966,7 @@ fn emit_map_has(asm: &mut Asm) {
 fn emit_map_set(asm: &mut Asm) {
     // rcx = map, rdx = key, r8 = val, r9 = string-key flag → rax = map.
     asm.label("rt_map_set");
-    prologue(asm, 80);
+    prologue(asm, 96);
     asm.mov_mr_rbp(-8, Reg::Rcx);
     asm.mov_mr_rbp(-16, Reg::Rdx);
     asm.mov_mr_rbp(-24, Reg::R8);

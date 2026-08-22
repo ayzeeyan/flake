@@ -48,16 +48,15 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
 
     let text_rva = SECT_ALIGN;
     let text_raw = FILE_ALIGN * 2; // 0x400
-    let text_vsize = align(compiled.code.len() as u32, SECT_ALIGN);
+    let text_vsize = compiled.code.len() as u32;
+    let text_span = align(text_vsize.max(1), SECT_ALIGN);
     let text_raw_size = align(compiled.code.len() as u32, FILE_ALIGN);
-    let rdata_rva = text_rva + text_vsize;
+    let rdata_vsize = rdata.len() as u32;
+    let rdata_rva = text_rva + text_span;
     let rdata_raw = text_raw + text_raw_size;
     let rdata_raw_size = align(rdata.len() as u32, FILE_ALIGN);
     let size_of_headers = text_raw;
-    let size_of_image = align(
-        rdata_rva + align(rdata.len() as u32, SECT_ALIGN),
-        SECT_ALIGN,
-    );
+    let size_of_image = align(rdata_rva + rdata_vsize.max(1), SECT_ALIGN);
 
     // Fill INT and IAT with RVAs of hint/name.
     for (i, hint) in hint_offs.iter().enumerate() {
@@ -107,7 +106,10 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
 
     let opt = coff + 20; // 0x98
     buf[opt..opt + 2].copy_from_slice(&0x020Bu16.to_le_bytes()); // PE32+
+    buf[opt + 4..opt + 8].copy_from_slice(&text_raw_size.to_le_bytes());
+    buf[opt + 8..opt + 12].copy_from_slice(&rdata_raw_size.to_le_bytes());
     buf[opt + 16..opt + 20].copy_from_slice(&(text_rva + compiled.entry as u32).to_le_bytes());
+    buf[opt + 20..opt + 24].copy_from_slice(&text_rva.to_le_bytes());
     buf[opt + 24..opt + 32].copy_from_slice(&IMAGE_BASE.to_le_bytes());
     buf[opt + 32..opt + 36].copy_from_slice(&SECT_ALIGN.to_le_bytes());
     buf[opt + 36..opt + 40].copy_from_slice(&FILE_ALIGN.to_le_bytes());
@@ -144,7 +146,7 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
     write_section(
         &mut buf[sect + 40..],
         b".rdata\0\0",
-        align(rdata.len() as u32, SECT_ALIGN),
+        rdata_vsize,
         rdata_rva,
         rdata_raw_size,
         rdata_raw,
@@ -171,4 +173,42 @@ fn write_section(
     buf[16..20].copy_from_slice(&raw_size.to_le_bytes());
     buf[20..24].copy_from_slice(&raw_ptr.to_le_bytes());
     buf[36..40].copy_from_slice(&chr.to_le_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn u32_at(bytes: &[u8], offset: usize) -> u32 {
+        u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("u32 field"))
+    }
+
+    #[test]
+    fn pe_headers_describe_actual_sections() {
+        let compiled = Compiled {
+            code: vec![0x90; 0x321],
+            strings: vec![b"flake\0".to_vec()],
+            entry: 7,
+            iat_patches: Vec::new(),
+            str_patches: Vec::new(),
+            gas: String::new(),
+        };
+        let pe = write_pe(&compiled);
+        let opt = 0x98;
+        let sections = opt + 240;
+        let text = sections;
+        let rdata = sections + 40;
+
+        assert_eq!(u32_at(&pe, opt + 4), 0x400, "SizeOfCode");
+        assert_eq!(u32_at(&pe, opt + 8), u32_at(&pe, rdata + 16));
+        assert_eq!(u32_at(&pe, opt + 16), SECT_ALIGN + 7);
+        assert_eq!(u32_at(&pe, opt + 20), SECT_ALIGN, "BaseOfCode");
+        assert_eq!(u32_at(&pe, text + 8), 0x321, "text virtual size");
+        assert_eq!(u32_at(&pe, text + 12), SECT_ALIGN);
+        assert_eq!(u32_at(&pe, text + 16), 0x400, "text raw size");
+        assert_eq!(u32_at(&pe, rdata + 12), SECT_ALIGN * 2);
+        assert!(u32_at(&pe, rdata + 8) > 0, "rdata virtual size");
+        assert!(u32_at(&pe, rdata + 8) <= u32_at(&pe, rdata + 16));
+        assert_eq!(u32_at(&pe, opt + 56) % SECT_ALIGN, 0, "SizeOfImage");
+    }
 }

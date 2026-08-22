@@ -1,5 +1,6 @@
 use flake_ast::Source;
 
+use crate::regalloc::{Loc, allocate};
 use crate::{compile_asm, compile_exe, run_native};
 
 fn src(text: &str) -> Source {
@@ -36,6 +37,122 @@ fn native_function_call() {
     ))
     .expect("add native");
     assert_eq!(out, "42\n");
+}
+
+#[test]
+fn native_indirect_calls_preserve_types_and_full_abi() {
+    let out = run_native(&src(r#"
+fn add(a: Int, b: Int) -> Int { a + b }
+fn sum5(a: Int, b: Int, c: Int, d: Int, e: Int) -> Int { a + b + c + d + e }
+fn greet(name: String) -> String { "Hello, {name}" }
+fn half(value: Float) -> Float { value / 2.0 }
+
+fn apply(f: fn(Int, Int) -> Int, a: Int, b: Int) -> Int { f(a, b) }
+fn apply5(
+    f: fn(Int, Int, Int, Int, Int) -> Int,
+    a: Int,
+    b: Int,
+    c: Int,
+    d: Int,
+    e: Int,
+) -> Int {
+    f(a, b, c, d, e)
+}
+
+fn main() {
+    let op = add
+    let make_greeting = greet
+    let halve = half
+    print(op(20, 22))
+    print(apply(add, 19, 23))
+    print(apply5(sum5, 1, 2, 3, 4, 5))
+    print(make_greeting("Flake") == "Hello, Flake")
+    print(halve(5.0))
+}
+"#))
+    .expect("indirect calls native");
+    assert_eq!(out, "42\n42\n15\ntrue\n2.5\n");
+}
+
+#[test]
+fn builtin_function_values_have_an_actionable_native_diagnostic() {
+    let err = compile_exe(&src(r#"
+fn main() {
+    let measure = len
+    print(measure("flake"))
+}
+"#))
+    .expect_err("builtin function pointer should be rejected")
+    .to_string();
+    assert!(err.contains("builtin `len`"), "{err}");
+    assert!(err.contains("wrap it in a user function"), "{err}");
+}
+
+#[test]
+fn cfg_allocator_reuses_registers_for_disjoint_locals() {
+    let source = src(r#"
+fn main() {
+    let first = 10
+    print(first)
+    print(first)
+    let second = 20
+    print(second)
+    print(second)
+    let third = 30
+    print(third)
+    print(third)
+}
+"#);
+    let module = flake_ir::lower(&source).expect("lower allocator probe");
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let frame = allocate(main);
+    let register_for = |name: &str| {
+        let local = main
+            .locals
+            .iter()
+            .find(|local| local.name.as_deref() == Some(name))
+            .expect("named local");
+        match frame.loc(local.id) {
+            Loc::Reg(register) => register,
+            Loc::Slot(slot) => panic!("{name} unexpectedly spilled to {slot}"),
+        }
+    };
+    assert_eq!(register_for("first"), register_for("second"));
+    assert_eq!(register_for("second"), register_for("third"));
+}
+
+#[test]
+fn cfg_allocator_keeps_aggregate_inputs_distinct_from_the_destination() {
+    let module = flake_ir::lower(&src(
+        r#"fn main() { let values = { "host": "localhost", "port": 8080 }; print(values) }"#,
+    ))
+    .expect("lower map allocator probe");
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let frame = allocate(main);
+    let (dest, keys, values) = main
+        .blocks
+        .iter()
+        .flat_map(|block| &block.insts)
+        .find_map(|inst| match inst {
+            flake_ir::Inst::MakeMap { dest, keys, values } => Some((dest, keys, values)),
+            _ => None,
+        })
+        .expect("map instruction");
+    for input in keys.iter().chain(values) {
+        assert_ne!(
+            frame.loc(*dest),
+            frame.loc(*input),
+            "aggregate destination reused a live input"
+        );
+    }
 }
 
 #[test]
@@ -207,6 +324,20 @@ fn main() {
 }
 
 #[test]
+fn native_float_display_negation_and_string_conversion() {
+    let out = run_native(&src(r#"
+fn main() {
+    print(-1.5)
+    print(1.25 + 2.5)
+    print("value={-0.125}")
+    print(str(2.0))
+}
+"#))
+    .expect("float display native");
+    assert_eq!(out, "-1.5\n3.75\nvalue=-0.125\n2\n");
+}
+
+#[test]
 fn asm_assigns_callee_saved_regs() {
     let asm = compile_asm(&src(r#"
 fn add(a: Int, b: Int) -> Int { a + b }
@@ -278,6 +409,32 @@ fn native_modules() {
     let source = flake_ast::Source::new(path.display().to_string(), text);
     let out = run_native(&source).expect("modules native");
     assert_eq!(out, "2 + 2 = 4\nsquare(5) = 25\n");
+}
+
+#[test]
+fn native_imported_functions_are_first_class_values() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("examples");
+    let path = dir.join("m3-imported-function-values.flk");
+    let source = flake_ast::Source::new(
+        path.display().to_string(),
+        r#"
+import math
+
+fn apply(f: fn(Int, Int) -> Int, a: Int, b: Int) -> Int { f(a, b) }
+
+fn main() {
+    let add = math.add
+    let squared = square
+    print(add(20, 22))
+    print(apply(math.add, 19, 23))
+    print(squared(9))
+}
+"#,
+    );
+    let out = run_native(&source).expect("imported function values native");
+    assert_eq!(out, "42\n42\n81\n");
 }
 
 #[test]
@@ -404,6 +561,36 @@ fn main() {
         out,
         "one\nsecond\ntrue\nfalse\n{1: \"one\", 2: \"second\"}\n{false: \"off\", true: \"on\"}\n"
     );
+}
+
+#[test]
+fn native_map_display_uses_concrete_value_types() {
+    let out = run_native(&src(r#"
+fn main() {
+    let flags = { 1: false, 2: true }
+    let ratios = { "half": 0.5, "negative": -1.25 }
+    print(flags)
+    print(ratios)
+}
+"#))
+    .expect("typed map values native");
+    assert_eq!(
+        out,
+        "{1: false, 2: true}\n{\"half\": 0.5, \"negative\": -1.25}\n"
+    );
+}
+
+#[test]
+fn native_missing_map_key_reports_a_runtime_error() {
+    let err = run_native(&src(r#"
+fn main() {
+    let values = { "known": 1 }
+    print(values["missing"])
+}
+"#))
+    .expect_err("missing map key should fail")
+    .to_string();
+    assert!(err.contains("map key not found"), "{err}");
 }
 
 #[test]

@@ -99,6 +99,10 @@ pub enum Inst {
         dest: LocalId,
         value: Const,
     },
+    LoadFunction {
+        dest: LocalId,
+        name: String,
+    },
     Move {
         dest: LocalId,
         src: LocalId,
