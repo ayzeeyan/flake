@@ -1,0 +1,34 @@
+import domain.ast as ast
+import services.executor as exec
+import utils.display as disp
+
+fn main() {
+    print("running query engine project")
+
+    let r1 = { "id": "1", "name": "Task Alpha", "status": "active", "dept": "eng" }
+    let r2 = { "id": "2", "name": "Task Beta", "status": "pending", "dept": "eng" }
+    let r3 = { "id": "3", "name": "Task Gamma", "status": "active", "dept": "sales" }
+    let r4 = { "id": "4", "name": "Task Delta", "status": "active", "dept": "eng" }
+
+    let dataset = [r1, r2, r3, r4]
+
+    let filter = ast.Filter.And(
+        ast.Filter.Eq("status", "active"),
+        ast.Filter.Eq("dept", "eng")
+    )
+
+    print("Filter: {disp.format_filter(filter)}")
+
+    let res = exec.execute_query(dataset, filter)
+    match res {
+        ast.QueryResult.Ok(rows) => {
+            print("Matched {len(rows)} record(s):")
+            for r in rows {
+                print(disp.format_row(r))
+            }
+        }
+        ast.QueryResult.Error(msg) => {
+            print("Query error: {msg}")
+        }
+    }
+}

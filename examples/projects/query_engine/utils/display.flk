@@ -1,0 +1,18 @@
+// Query Engine display utilities
+
+import domain.ast as ast
+
+pub fn format_filter(filter: ast.Filter) -> String {
+    match filter {
+        ast.Filter.Always => "*"
+        ast.Filter.Eq(k, v) => "({k} == \"{v}\")"
+        ast.Filter.And(l, r) => "({format_filter(l)} AND {format_filter(r)})"
+    }
+}
+
+pub fn format_row(row: Map[String, String]) -> String {
+    let id = if contains(row, "id") { row["id"] } else { "?" }
+    let name = if contains(row, "name") { row["name"] } else { "?" }
+    let status = if contains(row, "status") { row["status"] } else { "?" }
+    "#{id}: {name} [{status}]"
+}

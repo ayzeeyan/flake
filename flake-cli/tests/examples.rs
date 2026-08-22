@@ -17,11 +17,13 @@ const EXAMPLES: &[&str] = &[
     "concurrency.flk",
     "data.flk",
     "task_pipeline.flk",
+    "pattern_matching.flk",
     "projects/inventory/main.flk",
     "projects/telemetry/main.flk",
     "projects/release/main.flk",
     "projects/pipeline/main.flk",
     "projects/analytics/main.flk",
+    "projects/query_engine/main.flk",
 ];
 
 fn flake_bin() -> Command {
@@ -252,6 +254,39 @@ fn analytics_project_output() {
             "[network] dns_lookup: 15\n",
             "=== System & Network Metrics ===\n",
             "Samples: 5 | Total: 285 | Min: 15 | Max: 120 | Avg: 57\n",
+        )
+    );
+}
+
+#[test]
+fn pattern_matching_output() {
+    assert_eq!(
+        run_example("pattern_matching.flk"),
+        concat!(
+            "circle with radius 10\n",
+            "rectangle 4x8\n",
+            "point\n",
+            "moving to (5, 12)\n",
+            "drawing circle radius 25\n",
+            "drawing rectangle 100x50\n",
+            "quitting\n",
+            "origin\n",
+            "point (3, 4)\n",
+            "other list\n",
+        )
+    );
+}
+
+#[test]
+fn query_engine_project_output() {
+    assert_eq!(
+        run_example("projects/query_engine/main.flk"),
+        concat!(
+            "running query engine project\n",
+            "Filter: ((status == \"active\") AND (dept == \"eng\"))\n",
+            "Matched 2 record(s):\n",
+            "#1: Task Alpha [active]\n",
+            "#4: Task Delta [active]\n",
         )
     );
 }

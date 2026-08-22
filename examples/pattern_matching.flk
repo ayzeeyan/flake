@@ -1,0 +1,63 @@
+// Pattern matching and algebraic data types in Flake.
+
+enum Shape {
+    Circle(Int)
+    Rectangle(Int, Int)
+    Point
+}
+
+enum Command {
+    Move(Int, Int)
+    Draw(Shape)
+    Quit
+}
+
+fn describe_shape(s: Shape) -> String {
+    match s {
+        Shape.Circle(r) => "circle with radius {r}"
+        Shape.Rectangle(w, h) => "rectangle {w}x{h}"
+        Shape.Point => "point"
+    }
+}
+
+fn execute_command(cmd: Command) -> String {
+    match cmd {
+        Command.Move(x, y) => "moving to ({x}, {y})"
+        Command.Draw(Shape.Circle(r)) => "drawing circle radius {r}"
+        Command.Draw(Shape.Rectangle(w, h)) => "drawing rectangle {w}x{h}"
+        Command.Draw(Shape.Point) => "drawing a single point"
+        Command.Quit => "quitting"
+    }
+}
+
+fn describe_list(xs: [Int]) -> String {
+    match xs {
+        [0, 0] => "origin"
+        [x, y] => "point ({x}, {y})"
+        _ => "other list"
+    }
+}
+
+fn main() {
+    let s1 = Shape.Circle(10)
+    let s2 = Shape.Rectangle(4, 8)
+    let s3 = Shape.Point
+
+    print(describe_shape(s1))
+    print(describe_shape(s2))
+    print(describe_shape(s3))
+
+    let c1 = Command.Move(5, 12)
+    let c2 = Command.Draw(Shape.Circle(25))
+    let c3 = Command.Draw(Shape.Rectangle(100, 50))
+    let c4 = Command.Quit
+
+    print(execute_command(c1))
+    print(execute_command(c2))
+    print(execute_command(c3))
+    print(execute_command(c4))
+
+    print(describe_list([0, 0]))
+    print(describe_list([3, 4]))
+    print(describe_list([1, 2, 3]))
+}

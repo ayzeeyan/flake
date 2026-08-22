@@ -1,0 +1,29 @@
+// Query Engine execution service
+
+import domain.ast as ast
+
+pub fn matches_filter(row: Map[String, String], filter: ast.Filter) -> Bool {
+    match filter {
+        ast.Filter.Always => true
+        ast.Filter.Eq(field, expected) => {
+            if contains(row, field) {
+                row[field] == expected
+            } else {
+                false
+            }
+        }
+        ast.Filter.And(left, right) => {
+            matches_filter(row, left) && matches_filter(row, right)
+        }
+    }
+}
+
+pub fn execute_query(rows: [Map[String, String]], filter: ast.Filter) -> ast.QueryResult {
+    var matching = []
+    for r in rows {
+        if matches_filter(r, filter) {
+            push(matching, r)
+        }
+    }
+    ast.QueryResult.Ok(matching)
+}

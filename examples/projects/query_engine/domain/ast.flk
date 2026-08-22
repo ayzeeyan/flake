@@ -1,0 +1,12 @@
+// Query Engine AST definitions
+
+pub enum Filter {
+    Eq(String, String)
+    And(Filter, Filter)
+    Always
+}
+
+pub enum QueryResult {
+    Ok([Map[String, String]])
+    Error(String)
+}

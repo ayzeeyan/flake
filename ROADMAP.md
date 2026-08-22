@@ -12,8 +12,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Enums and pattern matching on the bytecode VM | **done** |
 | 3 | Native x86-64 support for enums and pattern matching | **done** |
 | 4 | Stdlib growth and better error-handling ergonomics | **done** |
-| 5 | Examples, expanded testing and consistency | in progress |
-| 6 | Flake v0.5.5 complete | planned |
+| 5 | Examples, expanded testing and consistency | **done** |
+| 6 | Flake v0.5.5 complete | in progress |
 
 ## What v0.5.5 milestone 1 delivers
 
@@ -47,6 +47,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - `std/map.flk`: `from_entries`, `invert_map`, `keys_list`, and `values_list`.
   - `std/math.flk`: `square`, `cube`, `div_ceil`, and `in_range`.
   - Full cross-backend consistency test suite in `flake-cli/tests/backend_consistency.rs`.
+
+## What v0.5.5 milestone 5 delivers
+
+- Examples, expanded multi-file test coverage, and backend consistency:
+  - Added standalone `examples/pattern_matching.flk` demonstrating shapes, commands, nested shapes, and list patterns.
+  - Added multi-file project `examples/projects/query_engine/` showcasing domain AST filters, query execution, and display formatting.
+  - Validated 100% output identity across tree-walking Interpreter, Bytecode VM, and pure-Rust x86-64 native backend on all examples.
 
 ## v0.5.2 milestones (complete)
 
