@@ -173,8 +173,24 @@ impl Checker {
                 &["alloc"],
             ),
         );
+        self.functions.insert(
+            "entries".into(),
+            mk(
+                vec![Type::Map(Box::new(Type::Dyn), Box::new(Type::Dyn))],
+                Type::list(Type::list(Type::Dyn)),
+                &["alloc"],
+            ),
+        );
+        self.functions.insert(
+            "is_empty".into(),
+            mk(vec![Type::Dyn], Type::Bool, &[]),
+        );
+        self.functions.insert(
+            "has_key".into(),
+            mk(vec![Type::Dyn, Type::Dyn], Type::Bool, &[]),
+        );
         self.overloaded_builtins.extend(
-            ["print", "assert", "abs", "min", "max", "range", "keys", "values"]
+            ["print", "assert", "abs", "min", "max", "range", "keys", "values", "entries"]
                 .into_iter()
                 .map(str::to_string),
         );
@@ -1501,6 +1517,19 @@ impl Checker {
                         args[0].span(),
                         format!("values() expected Map, found {other}"),
                         "pass a Map[K, V] to values()",
+                    )),
+                }
+            }
+            "entries" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                let map_ty = self.check_expr(&args[0])?;
+                match self.resolve(&map_ty).without_ownership() {
+                    Type::Map(_k, _v) => Ok(Type::List(Box::new(Type::List(Box::new(Type::Dyn))))),
+                    Type::Dyn | Type::Var(_) => Ok(Type::List(Box::new(Type::List(Box::new(Type::Dyn))))),
+                    other => Err(TypeError::with_help(
+                        args[0].span(),
+                        format!("entries() expected Map, found {other}"),
+                        "pass a Map[K, V] to entries()",
                     )),
                 }
             }

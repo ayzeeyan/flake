@@ -193,6 +193,9 @@ fn install_builtins(env: &Env) {
         NativeFn::RemoveFile,
         NativeFn::Keys,
         NativeFn::Values,
+        NativeFn::Entries,
+        NativeFn::IsEmpty,
+        NativeFn::HasKey,
     ] {
         env.define(native.name(), Value::Native(native), false);
     }
@@ -1376,6 +1379,56 @@ impl<'io> Interpreter<'io> {
                     other => Err(RuntimeError::new(
                         span,
                         format!("values() expected Map, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Entries => {
+                expect_arity("entries", args, 1, span)?;
+                match &args[0] {
+                    Value::Map(map) => {
+                        let mut entries: Vec<_> = map
+                            .borrow()
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+                        let pairs: Vec<_> = entries
+                            .into_iter()
+                            .map(|(k, v)| Value::List(Rc::new(RefCell::new(vec![k.to_value(), v]))))
+                            .collect();
+                        Ok(Value::List(Rc::new(RefCell::new(pairs))))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("entries() expected Map, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::IsEmpty => {
+                expect_arity("is_empty", args, 1, span)?;
+                match &args[0] {
+                    Value::List(l) => Ok(Value::Bool(l.borrow().is_empty())),
+                    Value::String(s) => Ok(Value::Bool(s.is_empty())),
+                    Value::Map(m) => Ok(Value::Bool(m.borrow().is_empty())),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("is_empty() expected List, String, or Map, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::HasKey => {
+                expect_arity("has_key", args, 2, span)?;
+                match &args[0] {
+                    Value::Map(map) => {
+                        let key = map_key(&args[1], span)?;
+                        Ok(Value::Bool(map.borrow().contains_key(&key)))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("has_key() expected Map, found {}", other.type_name()),
                     )
                     .into()),
                 }

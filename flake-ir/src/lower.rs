@@ -1476,6 +1476,9 @@ fn is_native_name(name: &str) -> bool {
             | "remove_file"
             | "keys"
             | "values"
+            | "entries"
+            | "is_empty"
+            | "has_key"
     )
 }
 
@@ -1486,10 +1489,13 @@ fn native_result_ty(name: &str) -> IrType {
         "str" | "join" | "type_of" | "read_file" | "trim" | "upper" | "lower" | "env" | "cwd" => {
             IrType::String
         }
-        "contains" | "starts_with" | "ends_with" | "file_exists" => IrType::Bool,
+        "contains" | "starts_with" | "ends_with" | "file_exists" | "is_empty" | "has_key" => {
+            IrType::Bool
+        }
         "range" => IrType::Range,
         "split" => IrType::List(Box::new(IrType::String)),
         "keys" | "values" => IrType::List(Box::new(IrType::Dyn)),
+        "entries" => IrType::List(Box::new(IrType::List(Box::new(IrType::Dyn)))),
         "float" => IrType::Float,
         _ => IrType::Dyn,
     }
@@ -1522,6 +1528,9 @@ fn native_call_result_ty(b: &Builder, name: &str, args: &[LocalId]) -> IrType {
                 _ => None,
             })
             .unwrap_or_else(|| IrType::List(Box::new(IrType::Dyn)));
+    }
+    if name == "entries" {
+        return IrType::List(Box::new(IrType::List(Box::new(IrType::Dyn))));
     }
     native_result_ty(name)
 }

@@ -424,6 +424,58 @@ pub fn call_native(
                 )),
             }
         }
+        Native::Entries => {
+            expect_arity("entries", args, 1)?;
+            match &args[0] {
+                Value::Map(map) => {
+                    let mut entries: Vec<_> = map
+                        .borrow()
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    let pairs: Vec<_> = entries
+                        .into_iter()
+                        .map(|(k, v)| Value::List(Rc::new(RefCell::new(vec![k.to_value(), v]))))
+                        .collect();
+                    Ok(Value::List(Rc::new(RefCell::new(pairs))))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("entries() expected Map, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::IsEmpty => {
+            expect_arity("is_empty", args, 1)?;
+            match &args[0] {
+                Value::List(l) => Ok(Value::Bool(l.borrow().is_empty())),
+                Value::String(s) => Ok(Value::Bool(s.is_empty())),
+                Value::Map(m) => Ok(Value::Bool(m.borrow().is_empty())),
+                other => Err(VmError::new(
+                    span,
+                    format!("is_empty() expected List, String, or Map, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::HasKey => {
+            expect_arity("has_key", args, 2)?;
+            match &args[0] {
+                Value::Map(map) => {
+                    let key = MapKey::from_value(&args[1]).ok_or_else(|| {
+                        VmError::new(
+                            span,
+                            format!("cannot use {} as a map key", args[1].type_name()),
+                        )
+                    })?;
+                    Ok(Value::Bool(map.borrow().contains_key(&key)))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("has_key() expected Map, found {}", other.type_name()),
+                )),
+            }
+        }
     }
 }
 

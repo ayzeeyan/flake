@@ -935,6 +935,17 @@ fn emit_call(
             emit_unary_rt(frame, "rt_map_values", dest, args, asm);
             Ok(())
         }
+        Callee::Static(name) if name == "entries" => {
+            emit_unary_rt(frame, "rt_map_entries", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "is_empty" => {
+            emit_unary_rt(frame, "rt_is_empty", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "has_key" => {
+            emit_native_contains(func, frame, dest, args, asm)
+        }
         Callee::Static(name) => emit_user_call(frame, name, dest, args, asm),
         Callee::Local(id) => {
             let space = prepare_call_args(frame, args, asm);

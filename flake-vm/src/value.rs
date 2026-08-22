@@ -142,10 +142,13 @@ pub enum Native {
     RemoveFile,
     Keys,
     Values,
+    Entries,
+    IsEmpty,
+    HasKey,
 }
 
 impl Native {
-    pub fn all() -> [Native; 31] {
+    pub fn all() -> [Native; 34] {
         [
             Native::Print,
             Native::Len,
@@ -178,6 +181,9 @@ impl Native {
             Native::RemoveFile,
             Native::Keys,
             Native::Values,
+            Native::Entries,
+            Native::IsEmpty,
+            Native::HasKey,
         ]
     }
 
@@ -215,6 +221,9 @@ impl Native {
             Self::RemoveFile => "remove_file",
             Self::Keys => "keys",
             Self::Values => "values",
+            Self::Entries => "entries",
+            Self::IsEmpty => "is_empty",
+            Self::HasKey => "has_key",
         }
     }
 }

@@ -32,6 +32,8 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_map_set(asm);
     emit_map_keys(asm);
     emit_map_values(asm);
+    emit_map_entries(asm);
+    emit_is_empty(asm);
     emit_split(asm);
     emit_str_index(asm);
     emit_atoi(asm);
@@ -1195,6 +1197,89 @@ fn emit_map_values(asm: &mut Asm) {
     asm.jmp_label(".mv_loop");
     asm.label(".mv_done");
     asm.mov_rm_rbp(Reg::Rax, -24);
+    epilogue(asm);
+}
+
+fn emit_map_entries(asm: &mut Asm) {
+    // rcx = map → rax = List of [key, value] pairs
+    asm.label("rt_map_entries");
+    prologue(asm, 64);
+    asm.mov_mr_rbp(-8, Reg::Rcx); // map
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 0); // len
+    asm.mov_mr_rbp(-16, Reg::Rcx); // len
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-24, Reg::Rax); // outer list
+    asm.mov_rm_rbp(Reg::Rdx, -16); // len
+    asm.mov_mr(Reg::Rax, 0, Reg::Rdx); // outer.len = len
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(-32, Reg::R8); // i = 0
+    asm.label(".me_loop");
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.mov_rm_rbp(Reg::R9, -16);
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".me_done");
+
+    // Allocate 2-element pair [key, value]
+    asm.mov_ri(Reg::Rcx, 2);
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-40, Reg::Rax); // pair
+    asm.mov_ri(Reg::R10, 2);
+    asm.mov_mr(Reg::Rax, 0, Reg::R10); // pair.len = 2
+
+    // Get key and val from map
+    asm.mov_rm_rbp(Reg::Rcx, -8); // map
+    asm.mov_rm_rbp(Reg::R8, -32); // i
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 4); // i * 16
+    asm.add_rr(Reg::Rcx, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::Rcx, 16); // key
+    asm.mov_rm(Reg::Rdx, Reg::Rcx, 24); // val
+    asm.mov_rm_rbp(Reg::Rax, -40); // pair
+    asm.mov_mr(Reg::Rax, 16, Reg::R11); // pair[0] = key
+    asm.mov_mr(Reg::Rax, 24, Reg::Rdx); // pair[1] = val
+
+    // Store pair into outer list
+    asm.mov_rm_rbp(Reg::Rax, -24); // outer list
+    asm.mov_rm_rbp(Reg::R8, -32); // i
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 3); // i * 8
+    asm.add_rr(Reg::Rax, Reg::R10);
+    asm.mov_rm_rbp(Reg::R11, -40); // pair
+    asm.mov_mr(Reg::Rax, 16, Reg::R11); // outer[i] = pair
+
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-32, Reg::R8);
+    asm.jmp_label(".me_loop");
+    asm.label(".me_done");
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    epilogue(asm);
+}
+
+fn emit_is_empty(asm: &mut Asm) {
+    // rcx = collection (list, string, or map) → rax = Bool (1 if empty, 0 otherwise)
+    asm.label("rt_is_empty");
+    prologue(asm, 32);
+    asm.test_rr(Reg::Rcx, Reg::Rcx);
+    asm.jcc_label(Cc::Z, ".ie_true");
+    asm.mov_ri(Reg::R10, 0x10000);
+    asm.cmp_rr(Reg::Rcx, Reg::R10);
+    asm.jcc_label(Cc::L, ".ie_true");
+
+    // Check if it's a list or map (len is at [rcx + 0])
+    // or string (first byte at [rcx + 0] is 0).
+    asm.mov_rm(Reg::R8, Reg::Rcx, 0);
+    asm.test_rr(Reg::R8, Reg::R8);
+    asm.jcc_label(Cc::Z, ".ie_true");
+
+    // Check if first byte is 0 (for C string)
+    asm.bytes.extend_from_slice(&[0x80, 0x39, 0x00]); // cmp byte [rcx], 0
+    asm.jcc_label(Cc::E, ".ie_true");
+
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+    asm.label(".ie_true");
+    asm.mov_ri(Reg::Rax, 1);
     epilogue(asm);
 }
 

@@ -686,5 +686,35 @@ fn main() {
     assert_all_backends("stdlib-v052-expansion", source, expected);
 }
 
+#[test]
+fn entries_is_empty_and_has_key_agree_across_all_backends() {
+    let source = r#"
+fn main() {
+    let m = { "b": 20, "a": 10, "c": 30 }
+    print(entries(m))
+    print(has_key(m, "a"), has_key(m, "z"))
+
+    let im = { 2: "two", 1: "one" }
+    print(entries(im))
+    print(has_key(im, 1), has_key(im, 3))
+
+    print(is_empty([]), is_empty([1, 2]))
+    print(is_empty(""), is_empty("flake"))
+    print(is_empty({}), is_empty(m))
+}
+"#;
+    let expected = concat!(
+        "[[\"a\", 10], [\"b\", 20], [\"c\", 30]]\n",
+        "true false\n",
+        "[[1, \"one\"], [2, \"two\"]]\n",
+        "true false\n",
+        "true false\n",
+        "true false\n",
+        "true false\n",
+    );
+    assert_all_backends("entries-is-empty-has-key", source, expected);
+}
+
+
 
 

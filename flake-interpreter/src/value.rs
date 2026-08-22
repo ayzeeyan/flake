@@ -133,6 +133,9 @@ pub enum NativeFn {
     RemoveFile,
     Keys,
     Values,
+    Entries,
+    IsEmpty,
+    HasKey,
 }
 
 impl NativeFn {
@@ -170,6 +173,9 @@ impl NativeFn {
             Self::RemoveFile => "remove_file",
             Self::Keys => "keys",
             Self::Values => "values",
+            Self::Entries => "entries",
+            Self::IsEmpty => "is_empty",
+            Self::HasKey => "has_key",
         }
     }
 }
