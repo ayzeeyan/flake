@@ -130,4 +130,34 @@ pub fn is_alpha(ch: String) -> Bool {
     low == "u" || low == "v" || low == "w" || low == "x" || low == "y" || low == "z"
 }
 
+pub fn contains_str(s: String, sub: String) -> Bool {
+    if len(sub) == 0 {
+        return true
+    }
+    let parts = split(s, sub)
+    len(parts) > 1
+}
+
+pub fn count_occurrences(s: String, sub: String) -> Int {
+    if len(sub) == 0 {
+        return 0
+    }
+    let parts = split(s, sub)
+    len(parts) - 1
+}
+
+pub fn truncate(s: String, max_len: Int, suffix: String) -> String {
+    if len(s) <= max_len {
+        s
+    } else {
+        let keep = max_len - len(suffix)
+        if keep <= 0 {
+            suffix
+        } else {
+            "{slice(s, 0, keep)}{suffix}"
+        }
+    }
+}
+
+
 

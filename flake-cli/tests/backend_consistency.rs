@@ -715,6 +715,94 @@ fn main() {
     assert_all_backends("entries-is-empty-has-key", source, expected);
 }
 
+#[test]
+fn stdlib_v055_expansion_agrees_across_all_backends() {
+    let source = r#"
+import option
+import result
+import list
+import string
+import map
+import math
+
+fn inc(x: dyn) -> dyn { x + 1 }
+fn is_positive(x: dyn) -> Bool { x > 0 }
+fn fallback_opt() -> option.Option { option.Option.Some(100) }
+fn fallback_res(err: String) -> result.Result { result.Result.Ok(999) }
+fn duplicate(x: dyn) -> [dyn] { [x, x] }
+fn default_zero() -> dyn { 0 }
+fn wrap_some(v: dyn) -> option.Option { option.Option.Some(v) }
+
+fn main() {
+    // Option additions
+    let opt_some = option.Option.Some(5)
+    let opt_none = option.Option.None
+    let nested_opt = option.Option.Some(option.Option.Some(42))
+    print(option.unwrap_or(option.and_then_option(opt_some, wrap_some), 0))
+    print(option.unwrap_or(option.or_else_option(opt_none, fallback_opt), 0))
+    print(option.is_some_and(opt_some, is_positive))
+    print(option.unwrap_or_else(opt_none, default_zero))
+    print(option.unwrap_or(option.flatten_option(nested_opt), 0))
+
+    // Result additions
+    let res_ok = result.Result.Ok(10)
+    let res_err = result.Result.Err("fail")
+    let nested_res = result.Result.Ok(result.Result.Ok(77))
+    print(result.unwrap_or(result.flatten_result(nested_res), 0))
+    print(result.unwrap_or(result.or_else_result(res_err, fallback_res), 0))
+    print(result.unwrap_or_else(res_err, string.reverse_str))
+
+    // List additions
+    let xs = [10, 20, 30]
+    print(list.head(xs), list.last(xs))
+    print(list.intersperse([1, 2, 3], 0))
+    print(list.partition([1, 2, 3, 4, 5], math.is_even))
+    print(list.flat_map([1, 2], duplicate))
+
+    // String additions
+    print(string.contains_str("hello world", "world"), string.contains_str("hello", "xyz"))
+    print(string.count_occurrences("banana", "an"))
+    print(string.truncate("supercalifragilistic", 10, "..."))
+
+    // Map additions
+    let pairs = [["x", "1"], ["y", "2"]]
+    let m = map.from_entries(pairs)
+    print(m["x"], m["y"])
+    let inv = map.invert_map({"a": "1", "b": "2"})
+    print(inv["1"], inv["2"])
+
+    // Math additions
+    print(math.square(7), math.cube(3))
+    print(math.div_ceil(10, 3), math.div_ceil(9, 3))
+    print(math.in_range(5, 1, 10), math.in_range(10, 1, 10))
+}
+"#;
+    let expected = concat!(
+        "5\n",
+        "100\n",
+        "true\n",
+        "0\n",
+        "42\n",
+        "77\n",
+        "999\n",
+        "liaf\n",
+        "10 30\n",
+        "[1, 0, 2, 0, 3]\n",
+        "[[2, 4], [1, 3, 5]]\n",
+        "[1, 1, 2, 2]\n",
+        "true false\n",
+        "2\n",
+        "superca...\n",
+        "1 2\n",
+        "a b\n",
+        "49 27\n",
+        "4 3\n",
+        "true false\n",
+    );
+    assert_all_backends("stdlib-v055-expansion", source, expected);
+}
+
+
 
 
 

@@ -60,3 +60,41 @@ pub fn expect_some(o: Option, msg: String) -> dyn {
     }
 }
 
+pub fn and_then_option(o: Option, f: fn(dyn) -> Option) -> Option {
+    match o {
+        Option.Some(v) => f(v)
+        Option.None => Option.None
+    }
+}
+
+pub fn or_else_option(o: Option, fallback: fn() -> Option) -> Option {
+    match o {
+        Option.Some(v) => Option.Some(v)
+        Option.None => fallback()
+    }
+}
+
+pub fn is_some_and(o: Option, pred: fn(dyn) -> Bool) -> Bool {
+    match o {
+        Option.Some(v) => pred(v)
+        Option.None => false
+    }
+}
+
+pub fn unwrap_or_else(o: Option, f: fn() -> dyn) -> dyn {
+    match o {
+        Option.Some(v) => v
+        Option.None => f()
+    }
+}
+
+pub fn flatten_option(o: Option) -> Option {
+    match o {
+        Option.Some(Option.Some(v)) => Option.Some(v)
+        Option.Some(Option.None) => Option.None
+        Option.Some(v) => Option.Some(v)
+        Option.None => Option.None
+    }
+}
+
+

@@ -88,3 +88,47 @@ pub fn expect_ok(r: Result, msg: String) -> dyn / panic {
     }
 }
 
+pub fn flatten_result(r: Result) -> Result {
+    match r {
+        Result.Ok(Result.Ok(v)) => Result.Ok(v)
+        Result.Ok(Result.Err(m)) => Result.Err(m)
+        Result.Ok(v) => Result.Ok(v)
+        Result.Err(m) => Result.Err(m)
+    }
+}
+
+pub fn or_else_result(r: Result, f: fn(String) -> Result) -> Result {
+    match r {
+        Result.Ok(v) => Result.Ok(v)
+        Result.Err(m) => f(m)
+    }
+}
+
+pub fn unwrap_or_else(r: Result, f: fn(String) -> dyn) -> dyn {
+    match r {
+        Result.Ok(v) => v
+        Result.Err(m) => f(m)
+    }
+}
+
+pub fn inspect_ok(r: Result, f: fn(dyn)) -> Result {
+    match r {
+        Result.Ok(v) => {
+            f(v)
+            Result.Ok(v)
+        }
+        Result.Err(m) => Result.Err(m)
+    }
+}
+
+pub fn inspect_err(r: Result, f: fn(String)) -> Result {
+    match r {
+        Result.Ok(v) => Result.Ok(v)
+        Result.Err(m) => {
+            f(m)
+            Result.Err(m)
+        }
+    }
+}
+
+

@@ -266,3 +266,57 @@ pub fn chunk(xs, size: Int) -> [dyn] {
     out
 }
 
+pub fn head(xs) -> dyn {
+    if len(xs) == 0 {
+        nil
+    } else {
+        xs[0]
+    }
+}
+
+pub fn last(xs) -> dyn {
+    if len(xs) == 0 {
+        nil
+    } else {
+        xs[len(xs) - 1]
+    }
+}
+
+pub fn intersperse(xs, sep: dyn) -> [dyn] {
+    var out = []
+    var i = 0
+    while i < len(xs) {
+        if i > 0 {
+            push(out, sep)
+        }
+        push(out, xs[i])
+        i = i + 1
+    }
+    out
+}
+
+pub fn partition(xs, pred: fn(dyn) -> Bool) -> [dyn] {
+    var matching = []
+    var non_matching = []
+    for x in xs {
+        if pred(x) {
+            push(matching, x)
+        } else {
+            push(non_matching, x)
+        }
+    }
+    [matching, non_matching]
+}
+
+pub fn flat_map(xs, f: fn(dyn) -> [dyn]) -> [dyn] {
+    var out = []
+    for x in xs {
+        let sub = f(x)
+        for item in sub {
+            push(out, item)
+        }
+    }
+    out
+}
+
+

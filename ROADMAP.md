@@ -11,8 +11,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Enums and basic pattern matching (frontend + interpreter) | **done** |
 | 2 | Enums and pattern matching on the bytecode VM | **done** |
 | 3 | Native x86-64 support for enums and pattern matching | **done** |
-| 4 | Stdlib growth and better error-handling ergonomics | in progress |
-| 5 | Examples, expanded testing and consistency | planned |
+| 4 | Stdlib growth and better error-handling ergonomics | **done** |
+| 5 | Examples, expanded testing and consistency | in progress |
 | 6 | Flake v0.5.5 complete | planned |
 
 ## What v0.5.5 milestone 1 delivers
@@ -36,6 +36,17 @@ There is no LLVM, Cranelift, or C transpilation.
   - Native construction and storage of enum variant values as heap-allocated structures with tag and fields.
   - Native machine code generation for nested pattern matching, list pattern destructuring, scalar comparisons, and branch jumps.
   - End-to-end unit tests and cross-backend validation in `flake-codegen` and integration suites.
+
+## What v0.5.5 milestone 4 delivers
+
+- Standard library growth and error-handling ergonomics powered by enums and pattern matching:
+  - `std/option.flk`: `and_then_option`, `or_else_option`, `is_some_and`, `unwrap_or_else`, and nested `flatten_option`.
+  - `std/result.flk`: `flatten_result`, `or_else_result`, `unwrap_or_else`, `inspect_ok`, and `inspect_err`.
+  - `std/list.flk`: `head`, `last`, `intersperse`, `partition`, and `flat_map`.
+  - `std/string.flk`: `contains_str`, `count_occurrences`, and `truncate`.
+  - `std/map.flk`: `from_entries`, `invert_map`, `keys_list`, and `values_list`.
+  - `std/math.flk`: `square`, `cube`, `div_ceil`, and `in_range`.
+  - Full cross-backend consistency test suite in `flake-cli/tests/backend_consistency.rs`.
 
 ## v0.5.2 milestones (complete)
 

@@ -54,3 +54,31 @@ pub fn map_values_with(m: Map[dyn, dyn], f: fn(dyn) -> dyn) -> Map[dyn, dyn] {
     }
     out
 }
+
+pub fn from_entries(pairs: [dyn]) -> Map[dyn, dyn] {
+    var out: Map[dyn, dyn] = {}
+    for pair in pairs {
+        if len(pair) >= 2 {
+            out[pair[0]] = pair[1]
+        }
+    }
+    out
+}
+
+pub fn invert_map(m: Map[dyn, dyn]) -> Map[dyn, dyn] {
+    var out: Map[dyn, dyn] = {}
+    let ks = keys(m)
+    for k in ks {
+        out[m[k]] = k
+    }
+    out
+}
+
+pub fn keys_list(m: Map[dyn, dyn]) -> [dyn] {
+    keys(m)
+}
+
+pub fn values_list(m: Map[dyn, dyn]) -> [dyn] {
+    values(m)
+}
+
