@@ -991,67 +991,54 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
     b.emit(Inst::Move { dest, src: n });
     let exit = b.new_block();
     for arm in arms {
-        let body_b = b.new_block();
-        match &arm.pattern {
-            flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_) => {
-                b.emit(Inst::Jump { target: body_b });
-                b.switch(body_b);
-                if let flake_ast::Pattern::Ident(id) = &arm.pattern {
-                    let slot = b.alloc(Some(id.name.clone()), IrType::Dyn);
-                    b.emit(Inst::Move { dest: slot, src });
-                }
-                let val = lower_expr(b, &arm.body);
-                if !b.sealed() {
-                    b.emit(Inst::Move { dest, src: val });
-                    b.emit(Inst::Jump { target: exit });
-                }
-                break;
-            }
-            flake_ast::Pattern::Literal { value, .. } => {
-                let want = lower_literal(b, value);
-                let cmp = b.alloc(None, IrType::Bool);
-                b.emit(Inst::Binary {
-                    dest: cmp,
-                    op: BinOp::Eq,
-                    lhs: src,
-                    rhs: want,
-                });
-                let next = b.new_block();
-                b.emit(Inst::Branch {
-                    cond: cmp,
-                    then_block: body_b,
-                    else_block: next,
-                });
-                b.switch(body_b);
-                let val = lower_expr(b, &arm.body);
-                if !b.sealed() {
-                    b.emit(Inst::Move { dest, src: val });
-                    b.emit(Inst::Jump { target: exit });
-                }
-                b.switch(next);
-            }
-            flake_ast::Pattern::Variant {
-                variant, fields, ty, ..
-            } => {
+        let is_catch_all = matches!(&arm.pattern, flake_ast::Pattern::Wildcard { .. })
+            || matches!(&arm.pattern, flake_ast::Pattern::Ident(id) if id.name == "_" || (!id.name.chars().next().is_some_and(|c| c.is_uppercase()) && !b.enums.values().any(|vs| vs.iter().any(|(n, _)| n == &id.name))));
+
+        let next_arm = b.new_block();
+        lower_pattern_test(b, src, &arm.pattern, next_arm);
+        let val = lower_expr(b, &arm.body);
+        if !b.sealed() {
+            b.emit(Inst::Move { dest, src: val });
+            b.emit(Inst::Jump { target: exit });
+        }
+        if is_catch_all {
+            break;
+        }
+        b.switch(next_arm);
+    }
+    if !b.sealed() {
+        b.emit(Inst::Jump { target: exit });
+    }
+    b.switch(exit);
+    dest
+}
+
+fn lower_pattern_test(
+    b: &mut Builder,
+    val: LocalId,
+    pat: &flake_ast::Pattern,
+    fail_block: BlockId,
+) {
+    match pat {
+        flake_ast::Pattern::Wildcard { .. } => {}
+        flake_ast::Pattern::Ident(id) => {
+            if id.name == "_" {
+                // do nothing
+            } else if id.name.chars().next().is_some_and(|c| c.is_uppercase())
+                && b.enums.values().any(|vs| vs.iter().any(|(n, _)| n == &id.name))
+            {
+                let tag_val = b
+                    .enums
+                    .values()
+                    .find_map(|vs| vs.iter().position(|(n, _)| n == &id.name))
+                    .unwrap_or(0) as i64;
                 let zero = b.const_val(Const::Int(0), IrType::Int);
                 let tag = b.alloc(None, IrType::Int);
                 b.emit(Inst::GetIndex {
                     dest: tag,
-                    obj: src,
+                    obj: val,
                     index: zero,
                 });
-                let ename = ty.as_ref().map(|t| t.name.as_str()).unwrap_or("");
-                let (tag_val, field_types) = b
-                    .enums
-                    .get(ename)
-                    .and_then(|variants| {
-                        variants
-                            .iter()
-                            .enumerate()
-                            .find(|(_, (name, _))| name == &variant.name)
-                    })
-                    .map(|(tag, (_, fields))| (tag as i64, fields.clone()))
-                    .unwrap_or((0, Vec::new()));
                 let want = b.const_val(Const::Int(tag_val), IrType::Int);
                 let cmp = b.alloc(None, IrType::Bool);
                 b.emit(Inst::Binary {
@@ -1060,84 +1047,141 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
                     lhs: tag,
                     rhs: want,
                 });
-                let next = b.new_block();
+                let pass = b.new_block();
                 b.emit(Inst::Branch {
                     cond: cmp,
-                    then_block: body_b,
-                    else_block: next,
+                    then_block: pass,
+                    else_block: fail_block,
                 });
-                b.switch(body_b);
-                for (fi, field_pat) in fields.iter().enumerate() {
-                    let field_ty = field_types.get(fi).cloned().unwrap_or(IrType::Dyn);
-                    if let flake_ast::Pattern::Ident(id) = field_pat {
-                        if id.name != "_" {
-                            let idx = b.const_val(Const::Int((fi + 1) as i64), IrType::Int);
-                            let slot = b.alloc(Some(id.name.clone()), field_ty);
-                            b.emit(Inst::GetIndex {
-                                dest: slot,
-                                obj: src,
-                                index: idx,
-                            });
-                        }
-                    }
-                }
-                let val = lower_expr(b, &arm.body);
-                if !b.sealed() {
-                    b.emit(Inst::Move { dest, src: val });
-                    b.emit(Inst::Jump { target: exit });
-                }
-                b.switch(next);
+                b.switch(pass);
+            } else {
+                let var_ty = b
+                    .locals
+                    .iter()
+                    .find(|l| l.id == val)
+                    .map(|l| l.ty.clone())
+                    .unwrap_or(IrType::Dyn);
+                let slot = b.alloc(Some(id.name.clone()), var_ty);
+                b.emit(Inst::Move { dest: slot, src: val });
             }
-            flake_ast::Pattern::List { patterns, .. } => {
-                let len_fn = Callee::Static("len".to_string());
-                let len_res = b.alloc(None, IrType::Int);
-                b.emit(Inst::Call {
-                    dest: Some(len_res),
-                    callee: len_fn,
-                    args: vec![src],
+        }
+        flake_ast::Pattern::Literal { value, .. } => {
+            let want = lower_literal(b, value);
+            let cmp = b.alloc(None, IrType::Bool);
+            b.emit(Inst::Binary {
+                dest: cmp,
+                op: BinOp::Eq,
+                lhs: val,
+                rhs: want,
+            });
+            let pass = b.new_block();
+            b.emit(Inst::Branch {
+                cond: cmp,
+                then_block: pass,
+                else_block: fail_block,
+            });
+            b.switch(pass);
+        }
+        flake_ast::Pattern::List { patterns, .. } => {
+            let len_fn = Callee::Static("len".to_string());
+            let len_res = b.alloc(None, IrType::Int);
+            b.emit(Inst::Call {
+                dest: Some(len_res),
+                callee: len_fn,
+                args: vec![val],
+            });
+            let want_len = b.const_val(Const::Int(patterns.len() as i64), IrType::Int);
+            let cmp = b.alloc(None, IrType::Bool);
+            b.emit(Inst::Binary {
+                dest: cmp,
+                op: BinOp::Eq,
+                lhs: len_res,
+                rhs: want_len,
+            });
+            let pass = b.new_block();
+            b.emit(Inst::Branch {
+                cond: cmp,
+                then_block: pass,
+                else_block: fail_block,
+            });
+            b.switch(pass);
+
+            for (i, p) in patterns.iter().enumerate() {
+                let idx = b.const_val(Const::Int(i as i64), IrType::Int);
+                let elem = b.alloc(None, IrType::Dyn);
+                b.emit(Inst::GetIndex {
+                    dest: elem,
+                    obj: val,
+                    index: idx,
                 });
-                let want_len = b.const_val(Const::Int(patterns.len() as i64), IrType::Int);
-                let cmp = b.alloc(None, IrType::Bool);
-                b.emit(Inst::Binary {
-                    dest: cmp,
-                    op: BinOp::Eq,
-                    lhs: len_res,
-                    rhs: want_len,
+                lower_pattern_test(b, elem, p, fail_block);
+            }
+        }
+        flake_ast::Pattern::Variant {
+            variant,
+            fields,
+            ty,
+            ..
+        } => {
+            let zero = b.const_val(Const::Int(0), IrType::Int);
+            let tag = b.alloc(None, IrType::Int);
+            b.emit(Inst::GetIndex {
+                dest: tag,
+                obj: val,
+                index: zero,
+            });
+            let (tag_val, field_types) = if let Some(t) = ty {
+                b.enums
+                    .get(&t.name)
+                    .and_then(|variants| {
+                        variants
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (name, _))| name == &variant.name)
+                    })
+                    .map(|(tag, (_, fields))| (tag as i64, fields.clone()))
+                    .unwrap_or((0, Vec::new()))
+            } else {
+                b.enums
+                    .values()
+                    .find_map(|variants| {
+                        variants
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (name, _))| name == &variant.name)
+                            .map(|(tag, (_, fields))| (tag as i64, fields.clone()))
+                    })
+                    .unwrap_or((0, Vec::new()))
+            };
+            let want = b.const_val(Const::Int(tag_val), IrType::Int);
+            let cmp = b.alloc(None, IrType::Bool);
+            b.emit(Inst::Binary {
+                dest: cmp,
+                op: BinOp::Eq,
+                lhs: tag,
+                rhs: want,
+            });
+            let pass = b.new_block();
+            b.emit(Inst::Branch {
+                cond: cmp,
+                then_block: pass,
+                else_block: fail_block,
+            });
+            b.switch(pass);
+
+            for (fi, field_pat) in fields.iter().enumerate() {
+                let field_ty = field_types.get(fi).cloned().unwrap_or(IrType::Dyn);
+                let idx = b.const_val(Const::Int((fi + 1) as i64), IrType::Int);
+                let f_val = b.alloc(None, field_ty);
+                b.emit(Inst::GetIndex {
+                    dest: f_val,
+                    obj: val,
+                    index: idx,
                 });
-                let next = b.new_block();
-                b.emit(Inst::Branch {
-                    cond: cmp,
-                    then_block: body_b,
-                    else_block: next,
-                });
-                b.switch(body_b);
-                for (i, p) in patterns.iter().enumerate() {
-                    if let flake_ast::Pattern::Ident(id) = p {
-                        if id.name != "_" {
-                            let idx = b.const_val(Const::Int(i as i64), IrType::Int);
-                            let slot = b.alloc(Some(id.name.clone()), IrType::Dyn);
-                            b.emit(Inst::GetIndex {
-                                dest: slot,
-                                obj: src,
-                                index: idx,
-                            });
-                        }
-                    }
-                }
-                let val = lower_expr(b, &arm.body);
-                if !b.sealed() {
-                    b.emit(Inst::Move { dest, src: val });
-                    b.emit(Inst::Jump { target: exit });
-                }
-                b.switch(next);
+                lower_pattern_test(b, f_val, field_pat, fail_block);
             }
         }
     }
-    if !b.sealed() {
-        b.emit(Inst::Jump { target: exit });
-    }
-    b.switch(exit);
-    dest
 }
 
 fn lower_try(b: &mut Builder, expr: &Expr) -> LocalId {

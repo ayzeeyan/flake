@@ -256,6 +256,29 @@ fn lowers_scalar_match_without_assuming_an_enum_tag() {
 }
 
 #[test]
+fn lowers_nested_and_list_patterns() {
+    let dump = ir(r#"
+enum Inner { Leaf(Int) Empty }
+enum Tree { Node(Inner, Inner) Single(Inner) }
+fn describe(t: Tree) -> String {
+    match t {
+        Tree.Node(Inner.Leaf(a), Inner.Leaf(b)) => "{a} and {b}"
+        _ => "other"
+    }
+}
+fn describe_list(xs: [Int]) -> Int {
+    match xs {
+        [a, b] => a + b
+        _ => 0
+    }
+}
+"#);
+    assert!(dump.contains("len"), "{dump}");
+    assert!(dump.contains("br %"), "{dump}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+

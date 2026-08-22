@@ -9,8 +9,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Enums and basic pattern matching (frontend + interpreter) | **done** |
-| 2 | Enums and pattern matching on the bytecode VM | in progress |
-| 3 | Native x86-64 support for enums and pattern matching | planned |
+| 2 | Enums and pattern matching on the bytecode VM | **done** |
+| 3 | Native x86-64 support for enums and pattern matching | in progress |
 | 4 | Stdlib growth and better error-handling ergonomics | planned |
 | 5 | Examples, expanded testing and consistency | planned |
 | 6 | Flake v0.5.5 complete | planned |
@@ -22,6 +22,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - Recursive pattern binding and exhaustiveness validation with diagnostics for missing enum variants and unreachable match arms.
   - Tree-walking interpreter support for nested enum variant destructuring, list pattern matching, wildcard matching, and 0-field unit variant matching.
   - Comprehensive unit tests covering nested patterns, list patterns, and diagnostic messages in `flake-interpreter` and `flake-types`.
+
+## What v0.5.5 milestone 2 delivers
+
+- Custom IR lowering and Bytecode VM compiler support for enums and pattern matching:
+  - Full bytecode VM support for nested variant destructuring, list pattern matching, uppercase 0-arg enum variant matching, and wildcard bindings.
+  - Recursive IR pattern lowering with clean control-flow graphs, type-preserving local variable allocation, and jump chaining.
+  - Parity and unit tests in `flake-vm` and `flake-ir`.
 
 ## v0.5.2 milestones (complete)
 

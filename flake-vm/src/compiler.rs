@@ -630,105 +630,24 @@ impl<'a> FnCompiler<'a> {
 
         let mut end_jumps = Vec::new();
         for arm in arms {
-            match &arm.pattern {
-                Pattern::Wildcard { .. } | Pattern::Ident(_) => {
-                    self.push_scope();
-                    if let Pattern::Ident(id) = &arm.pattern {
-                        self.chunk.emit(Op::GetLocal(src_slot));
-                        let slot = self.add_local(id.name.clone());
-                        self.chunk.emit(Op::SetLocal(slot));
-                        self.chunk.emit(Op::Pop);
-                    }
-                    self.compile_expr(&arm.body)?;
-                    self.pop_scope();
-                    end_jumps.push(self.chunk.emit(Op::Jump(0)));
-                    break;
-                }
-                Pattern::Literal { value, .. } => {
-                    self.chunk.emit(Op::GetLocal(src_slot));
-                    self.emit_literal(value);
-                    self.chunk.emit(Op::Eq);
-                    let miss = self.chunk.emit(Op::JumpIfFalse(0));
-                    self.chunk.emit(Op::Pop);
-                    self.push_scope();
-                    self.compile_expr(&arm.body)?;
-                    self.pop_scope();
-                    end_jumps.push(self.chunk.emit(Op::Jump(0)));
-                    let miss_target = self.chunk.ops.len();
-                    self.chunk.patch_jump(miss, miss_target);
-                    self.chunk.emit(Op::Pop);
-                }
-                Pattern::Variant {
-                    variant, fields, ty, ..
-                } => {
-                    let ename = ty.as_ref().map(|t| t.name.as_str()).unwrap_or("");
-                    let tag_val = self
-                        .names
-                        .enums
-                        .get(ename)
-                        .and_then(|vs| vs.iter().position(|n| n == &variant.name))
-                        .unwrap_or(0) as i64;
-                    self.chunk.emit(Op::GetLocal(src_slot));
-                    let tag_index = self.chunk.add_constant(Value::Int(0));
-                    self.chunk.emit(Op::Constant(tag_index));
-                    self.chunk.emit(Op::GetIndex);
-                    let want = self.chunk.add_constant(Value::Int(tag_val));
-                    self.chunk.emit(Op::Constant(want));
-                    self.chunk.emit(Op::Eq);
-                    let miss = self.chunk.emit(Op::JumpIfFalse(0));
-                    self.chunk.emit(Op::Pop);
-                    self.push_scope();
-                    for (fi, field_pat) in fields.iter().enumerate() {
-                        if let Pattern::Ident(id) = field_pat {
-                            if id.name != "_" {
-                                self.chunk.emit(Op::GetLocal(src_slot));
-                                let idx = self.chunk.add_constant(Value::Int((fi + 1) as i64));
-                                self.chunk.emit(Op::Constant(idx));
-                                self.chunk.emit(Op::GetIndex);
-                                let slot = self.add_local(id.name.clone());
-                                self.chunk.emit(Op::SetLocal(slot));
-                                self.chunk.emit(Op::Pop);
-                            }
-                        }
-                    }
-                    self.compile_expr(&arm.body)?;
-                    self.pop_scope();
-                    end_jumps.push(self.chunk.emit(Op::Jump(0)));
-                    let miss_target = self.chunk.ops.len();
-                    self.chunk.patch_jump(miss, miss_target);
-                    self.chunk.emit(Op::Pop);
-                }
-                Pattern::List { patterns, .. } => {
-                    let len_name = self.chunk.add_constant(Value::from_string("len"));
-                    self.chunk.emit(Op::GetGlobal(len_name));
-                    self.chunk.emit(Op::GetLocal(src_slot));
-                    self.chunk.emit(Op::Call(1));
-                    let want = self.chunk.add_constant(Value::Int(patterns.len() as i64));
-                    self.chunk.emit(Op::Constant(want));
-                    self.chunk.emit(Op::Eq);
-                    let miss = self.chunk.emit(Op::JumpIfFalse(0));
-                    self.chunk.emit(Op::Pop);
-                    self.push_scope();
-                    for (i, p) in patterns.iter().enumerate() {
-                        if let Pattern::Ident(id) = p {
-                            if id.name != "_" {
-                                self.chunk.emit(Op::GetLocal(src_slot));
-                                let idx = self.chunk.add_constant(Value::Int(i as i64));
-                                self.chunk.emit(Op::Constant(idx));
-                                self.chunk.emit(Op::GetIndex);
-                                let slot = self.add_local(id.name.clone());
-                                self.chunk.emit(Op::SetLocal(slot));
-                                self.chunk.emit(Op::Pop);
-                            }
-                        }
-                    }
-                    self.compile_expr(&arm.body)?;
-                    self.pop_scope();
-                    end_jumps.push(self.chunk.emit(Op::Jump(0)));
-                    let miss_target = self.chunk.ops.len();
-                    self.chunk.patch_jump(miss, miss_target);
-                    self.chunk.emit(Op::Pop);
-                }
+            let is_catch_all = matches!(&arm.pattern, Pattern::Wildcard { .. })
+                || matches!(&arm.pattern, Pattern::Ident(id) if id.name == "_" || (!id.name.chars().next().is_some_and(|c| c.is_uppercase()) && !self.names.enums.values().any(|vs| vs.iter().any(|n| n == &id.name))));
+
+            self.push_scope();
+            let mut miss_jumps = Vec::new();
+            self.compile_pattern_test(src_slot, &arm.pattern, &mut miss_jumps)?;
+            self.compile_expr(&arm.body)?;
+            self.pop_scope();
+            end_jumps.push(self.chunk.emit(Op::Jump(0)));
+
+            let miss_target = self.chunk.ops.len();
+            for j in miss_jumps {
+                self.chunk.patch_jump(j, miss_target);
+            }
+            if !is_catch_all {
+                self.chunk.emit(Op::Pop);
+            } else {
+                break;
             }
         }
         self.chunk.emit(Op::Nil);
@@ -738,6 +657,119 @@ impl<'a> FnCompiler<'a> {
         }
         self.pop_scope();
         Ok(())
+    }
+
+    fn compile_pattern_test(
+        &mut self,
+        val_slot: u16,
+        pat: &Pattern,
+        miss_jumps: &mut Vec<usize>,
+    ) -> Result<(), VmError> {
+        match pat {
+            Pattern::Wildcard { .. } => Ok(()),
+            Pattern::Ident(id) => {
+                if id.name == "_" {
+                    Ok(())
+                } else if id.name.chars().next().is_some_and(|c| c.is_uppercase())
+                    && self.names.enums.values().any(|vs| vs.iter().any(|n| n == &id.name))
+                {
+                    let tag_val = self
+                        .names
+                        .enums
+                        .values()
+                        .find_map(|vs| vs.iter().position(|n| n == &id.name))
+                        .unwrap_or(0) as i64;
+                    self.chunk.emit(Op::GetLocal(val_slot));
+                    let tag_index = self.chunk.add_constant(Value::Int(0));
+                    self.chunk.emit(Op::Constant(tag_index));
+                    self.chunk.emit(Op::GetIndex);
+                    let want = self.chunk.add_constant(Value::Int(tag_val));
+                    self.chunk.emit(Op::Constant(want));
+                    self.chunk.emit(Op::Eq);
+                    miss_jumps.push(self.chunk.emit(Op::JumpIfFalse(0)));
+                    self.chunk.emit(Op::Pop);
+                    Ok(())
+                } else {
+                    let slot = self.add_local(id.name.clone());
+                    self.chunk.emit(Op::GetLocal(val_slot));
+                    self.chunk.emit(Op::SetLocal(slot));
+                    self.chunk.emit(Op::Pop);
+                    Ok(())
+                }
+            }
+            Pattern::Literal { value, .. } => {
+                self.chunk.emit(Op::GetLocal(val_slot));
+                self.emit_literal(value);
+                self.chunk.emit(Op::Eq);
+                miss_jumps.push(self.chunk.emit(Op::JumpIfFalse(0)));
+                self.chunk.emit(Op::Pop);
+                Ok(())
+            }
+            Pattern::List { patterns, .. } => {
+                let len_name = self.chunk.add_constant(Value::from_string("len"));
+                self.chunk.emit(Op::GetGlobal(len_name));
+                self.chunk.emit(Op::GetLocal(val_slot));
+                self.chunk.emit(Op::Call(1));
+                let want = self.chunk.add_constant(Value::Int(patterns.len() as i64));
+                self.chunk.emit(Op::Constant(want));
+                self.chunk.emit(Op::Eq);
+                miss_jumps.push(self.chunk.emit(Op::JumpIfFalse(0)));
+                self.chunk.emit(Op::Pop);
+
+                for (i, p) in patterns.iter().enumerate() {
+                    self.chunk.emit(Op::GetLocal(val_slot));
+                    let idx = self.chunk.add_constant(Value::Int(i as i64));
+                    self.chunk.emit(Op::Constant(idx));
+                    self.chunk.emit(Op::GetIndex);
+                    let elem_slot = self.add_local(format!("__elem_{i}"));
+                    self.chunk.emit(Op::SetLocal(elem_slot));
+                    self.chunk.emit(Op::Pop);
+                    self.compile_pattern_test(elem_slot, p, miss_jumps)?;
+                }
+                Ok(())
+            }
+            Pattern::Variant {
+                ty,
+                variant,
+                fields,
+                ..
+            } => {
+                let tag_val = if let Some(t) = ty {
+                    self.names
+                        .enums
+                        .get(&t.name)
+                        .and_then(|vs| vs.iter().position(|n| n == &variant.name))
+                        .unwrap_or(0) as i64
+                } else {
+                    self.names
+                        .enums
+                        .values()
+                        .find_map(|vs| vs.iter().position(|n| n == &variant.name))
+                        .unwrap_or(0) as i64
+                };
+                self.chunk.emit(Op::GetLocal(val_slot));
+                let tag_index = self.chunk.add_constant(Value::Int(0));
+                self.chunk.emit(Op::Constant(tag_index));
+                self.chunk.emit(Op::GetIndex);
+                let want = self.chunk.add_constant(Value::Int(tag_val));
+                self.chunk.emit(Op::Constant(want));
+                self.chunk.emit(Op::Eq);
+                miss_jumps.push(self.chunk.emit(Op::JumpIfFalse(0)));
+                self.chunk.emit(Op::Pop);
+
+                for (fi, field_pat) in fields.iter().enumerate() {
+                    self.chunk.emit(Op::GetLocal(val_slot));
+                    let idx = self.chunk.add_constant(Value::Int((fi + 1) as i64));
+                    self.chunk.emit(Op::Constant(idx));
+                    self.chunk.emit(Op::GetIndex);
+                    let f_slot = self.add_local(format!("__field_{fi}"));
+                    self.chunk.emit(Op::SetLocal(f_slot));
+                    self.chunk.emit(Op::Pop);
+                    self.compile_pattern_test(f_slot, field_pat, miss_jumps)?;
+                }
+                Ok(())
+            }
+        }
     }
 
     fn compile_assign(
