@@ -743,6 +743,25 @@ fn main() {
 }
 
 #[test]
+fn native_string_and_list_concatenation() {
+    let out = run_native(&src(r#"
+fn main() {
+    let s1 = "Hello, "
+    let s2 = "World!"
+    let s3 = s1 + s2
+    print(s3)
+
+    let xs = [1, 2, 3]
+    let ys = [4, 5, 6]
+    let zs = xs + ys
+    print(zs)
+}
+"#))
+    .expect("string and list concatenation native");
+    assert_eq!(out, "Hello, World!\n[1, 2, 3, 4, 5, 6]\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

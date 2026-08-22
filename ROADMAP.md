@@ -1,10 +1,27 @@
 # Flake Roadmap
 
-**Flake v0.5.1 is complete.** All five milestones are done. Theme: **Solid incremental improvements and stability**.
+**Flake v0.5.2 development is in progress.** Theme: **Further stability, richer standard library, and practical usability**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.5.1 milestones
+## v0.5.2 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Native backend expansion and hardening | **done** |
+| 2 | Standard library growth | in progress |
+| 3 | Language and builtin quality-of-life | planned |
+| 4 | Expanded examples and cross-backend testing | planned |
+| 5 | Flake v0.5.2 complete | planned |
+
+## What v0.5.2 milestone 1 delivers
+
+- Native backend expansion and hardening:
+  - String concatenation (`s1 + s2`) and list concatenation (`xs + ys`) via `+` operator on the native x86-64 path using `rt_concat2` and `rt_list_concat`.
+  - Type-aware IR binary lowering preserving `IrType::String` and `IrType::List` for `AstBin::Add`.
+  - Unit tests verifying native string and list concatenation.
+
+## v0.5.1 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |

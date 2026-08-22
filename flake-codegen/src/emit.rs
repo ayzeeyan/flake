@@ -330,6 +330,24 @@ fn emit_inst(
                 frame.store(asm, *dest, Reg::Rax);
                 return Ok(());
             }
+            let lhs_ty = local_ty(func, *lhs);
+            let rhs_ty = local_ty(func, *rhs);
+            if matches!(op, BinOp::Add) {
+                if matches!(lhs_ty, IrType::String) || matches!(rhs_ty, IrType::String) {
+                    asm.mov_rr(Reg::Rcx, Reg::Rax);
+                    asm.mov_rr(Reg::Rdx, Reg::R10);
+                    asm.call_label("rt_concat2");
+                    frame.store(asm, *dest, Reg::Rax);
+                    return Ok(());
+                }
+                if matches!(lhs_ty, IrType::List(_)) && matches!(rhs_ty, IrType::List(_)) {
+                    asm.mov_rr(Reg::Rcx, Reg::Rax);
+                    asm.mov_rr(Reg::Rdx, Reg::R10);
+                    asm.call_label("rt_list_concat");
+                    frame.store(asm, *dest, Reg::Rax);
+                    return Ok(());
+                }
+            }
             match op {
                 BinOp::Add | BinOp::Sub | BinOp::Mul => {
                     match op {

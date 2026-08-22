@@ -1221,25 +1221,27 @@ fn lower_binary(b: &mut Builder, op: AstBin, left: &Expr, right: &Expr) -> Local
     }
     let lhs = lower_expr(b, left);
     let rhs = lower_expr(b, right);
-    let dest = b.alloc(
-        None,
-        match op {
-            AstBin::Eq | AstBin::Ne | AstBin::Lt | AstBin::Le | AstBin::Gt | AstBin::Ge => {
-                IrType::Bool
-            }
-            _ if matches!(
-                b.locals.iter().find(|l| l.id == lhs).map(|l| &l.ty),
-                Some(IrType::Float)
-            ) || matches!(
-                b.locals.iter().find(|l| l.id == rhs).map(|l| &l.ty),
-                Some(IrType::Float)
-            ) =>
-            {
-                IrType::Float
-            }
-            _ => IrType::Int,
-        },
-    );
+    let lhs_ty = b.locals.iter().find(|l| l.id == lhs).map(|l| &l.ty);
+    let rhs_ty = b.locals.iter().find(|l| l.id == rhs).map(|l| &l.ty);
+    let dest_ty = match op {
+        AstBin::Eq | AstBin::Ne | AstBin::Lt | AstBin::Le | AstBin::Gt | AstBin::Ge => {
+            IrType::Bool
+        }
+        AstBin::Add if matches!(lhs_ty, Some(IrType::String)) || matches!(rhs_ty, Some(IrType::String)) => {
+            IrType::String
+        }
+        AstBin::Add if matches!(lhs_ty, Some(IrType::List(_))) => {
+            lhs_ty.cloned().unwrap_or(IrType::List(Box::new(IrType::Dyn)))
+        }
+        AstBin::Add if matches!(rhs_ty, Some(IrType::List(_))) => {
+            rhs_ty.cloned().unwrap_or(IrType::List(Box::new(IrType::Dyn)))
+        }
+        _ if matches!(lhs_ty, Some(IrType::Float)) || matches!(rhs_ty, Some(IrType::Float)) => {
+            IrType::Float
+        }
+        _ => IrType::Int,
+    };
+    let dest = b.alloc(None, dest_ty);
     b.emit(Inst::Binary {
         dest,
         op: ast_bin(op),

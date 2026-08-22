@@ -22,6 +22,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_list_new(asm);
     emit_list_push(asm);
     emit_list_pop(asm);
+    emit_list_concat(asm);
     emit_join(asm);
     emit_display_list(asm);
     emit_display_map(asm);
@@ -674,6 +675,77 @@ fn emit_list_pop(asm: &mut Asm) {
     asm.add_rr(Reg::Rcx, Reg::R9);
     asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
     asm.ret();
+}
+
+fn emit_list_concat(asm: &mut Asm) {
+    // rcx = list1, rdx = list2 → rax = new combined list
+    asm.label("rt_list_concat");
+    prologue(asm, 64);
+    asm.mov_mr_rbp(-8, Reg::Rcx); // list1
+    asm.mov_mr_rbp(-16, Reg::Rdx); // list2
+    asm.mov_rm(Reg::R8, Reg::Rcx, 0); // len1
+    asm.mov_mr_rbp(-24, Reg::R8);
+    asm.mov_rm(Reg::R9, Reg::Rdx, 0); // len2
+    asm.mov_mr_rbp(-32, Reg::R9);
+    asm.mov_rr(Reg::Rcx, Reg::R8);
+    asm.add_rr(Reg::Rcx, Reg::R9); // total len
+    asm.mov_mr_rbp(-40, Reg::Rcx);
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-48, Reg::Rax); // new list
+    asm.mov_rm_rbp(Reg::R10, -40); // total len
+    asm.mov_mr(Reg::Rax, 0, Reg::R10); // list.len = total len
+
+    // Copy list1 elements
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(-56, Reg::R8); // i = 0
+    asm.label(".lc1_loop");
+    asm.mov_rm_rbp(Reg::R8, -56);
+    asm.mov_rm_rbp(Reg::R9, -24); // len1
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".lc1_done");
+    asm.mov_rm_rbp(Reg::Rcx, -8); // list1
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 3);
+    asm.add_rr(Reg::Rcx, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::Rcx, 16); // item
+    asm.mov_rm_rbp(Reg::Rax, -48); // new list
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 3);
+    asm.add_rr(Reg::Rax, Reg::R10);
+    asm.mov_mr(Reg::Rax, 16, Reg::R11);
+    asm.mov_rm_rbp(Reg::R8, -56);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-56, Reg::R8);
+    asm.jmp_label(".lc1_loop");
+    asm.label(".lc1_done");
+
+    // Copy list2 elements
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(-56, Reg::R8); // j = 0
+    asm.label(".lc2_loop");
+    asm.mov_rm_rbp(Reg::R8, -56);
+    asm.mov_rm_rbp(Reg::R9, -32); // len2
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".lc2_done");
+    asm.mov_rm_rbp(Reg::Rdx, -16); // list2
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 3);
+    asm.add_rr(Reg::Rdx, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::Rdx, 16); // item
+    asm.mov_rm_rbp(Reg::Rax, -48); // new list
+    asm.mov_rm_rbp(Reg::R10, -24); // len1
+    asm.add_rr(Reg::R10, Reg::R8); // len1 + j
+    asm.shl_ri(Reg::R10, 3);
+    asm.add_rr(Reg::Rax, Reg::R10);
+    asm.mov_mr(Reg::Rax, 16, Reg::R11);
+    asm.mov_rm_rbp(Reg::R8, -56);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-56, Reg::R8);
+    asm.jmp_label(".lc2_loop");
+    asm.label(".lc2_done");
+
+    asm.mov_rm_rbp(Reg::Rax, -48);
+    epilogue(asm);
 }
 
 fn emit_display_list(asm: &mut Asm) {
