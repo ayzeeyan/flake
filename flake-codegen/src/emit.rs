@@ -251,8 +251,7 @@ fn emit_inst(
         }
         Inst::Binary { dest, op, lhs, rhs } => {
             if matches!(op, BinOp::Eq | BinOp::Ne)
-                && is_string_ty(&local_ty(func, *lhs))
-                && is_string_ty(&local_ty(func, *rhs))
+                && (is_string_ty(&local_ty(func, *lhs)) || is_string_ty(&local_ty(func, *rhs)))
             {
                 frame.load(asm, *lhs, Reg::Rcx);
                 frame.load(asm, *rhs, Reg::Rdx);

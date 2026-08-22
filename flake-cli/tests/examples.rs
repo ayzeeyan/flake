@@ -20,6 +20,7 @@ const EXAMPLES: &[&str] = &[
     "projects/inventory/main.flk",
     "projects/telemetry/main.flk",
     "projects/release/main.flk",
+    "projects/pipeline/main.flk",
 ];
 
 fn flake_bin() -> Command {
@@ -219,6 +220,20 @@ fn release_project_output() {
             "format: ready (92)\n",
             "tests: blocked (tests scored 88)\n",
             "package: ready (81)\n",
+        )
+    );
+}
+
+#[test]
+fn pipeline_project_output() {
+    assert_eq!(
+        run_example("projects/pipeline/main.flk"),
+        concat!(
+            "starting pipeline execution\n",
+            "[TX-101] standard: processed(score: 100)\n",
+            "[TX-102] premium: processed(score: 210)\n",
+            "[TX-103] standard: failed(invalid value)\n",
+            "pipeline batch total score: 310\n",
         )
     );
 }

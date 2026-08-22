@@ -9,8 +9,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Native backend reliability improvements | **done** |
-| 2 | Module system polish | in progress |
-| 3 | Standard library expansion | planned |
+| 2 | Module system polish | **done** |
+| 3 | Standard library expansion | in progress |
 | 4 | Language polish and expanded testing | planned |
 | 5 | Flake v0.5.1 complete | planned |
 
@@ -21,6 +21,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - Bounds-checked list indexing in `emit_get_index` and `emit_set_index`, safely asserting on out-of-bounds access rather than reading/writing arbitrary memory.
   - Bounds validation in `rt_str_index` for string indexing and safe handling of empty strings for `first("")` / `last("")`.
   - Regression coverage in `flake-codegen` unit tests and cross-backend test suite.
+
+## What v0.5.1 milestone 2 delivers
+
+- Module system polish and multi-file ergonomics:
+  - Robust module resolution supporting importer-relative and project-root-relative dotted modules.
+  - Full struct field type propagation in IR lowering across modules and qualified names.
+  - Consistent string equality comparison across dynamic and struct-field values in native code.
+  - Non-trivial multi-file [pipeline project](examples/projects/pipeline/main.flk) combining domain models, transform services, format utilities, and cross-backend execution.
 
 ## v0.5 milestones (complete)
 

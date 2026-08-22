@@ -324,16 +324,16 @@ fn find_module(importer: &str, module: &str, project_root: &Path) -> Option<Reso
     let relative = module_relative_path(module);
     let importer_dir = source_dir(importer);
 
-    if !module.contains('.') {
-        let sibling = importer_dir.join(&relative);
-        if sibling.is_file() {
-            return Some(ResolvedModule {
-                name: logical_module_name(&sibling, project_root, module),
-                path: sibling,
-            });
-        }
+    // 1. Sibling or importer-relative lookup (e.g. `import math` or `import sub.module`)
+    let importer_relative = importer_dir.join(&relative);
+    if importer_relative.is_file() {
+        return Some(ResolvedModule {
+            name: logical_module_name(&importer_relative, project_root, module),
+            path: importer_relative,
+        });
     }
 
+    // 2. Project root lookup (e.g. `import domain.pricing` from deep subdirectories)
     let project = project_root.join(&relative);
     if project.is_file() {
         return Some(ResolvedModule {
@@ -342,6 +342,7 @@ fn find_module(importer: &str, module: &str, project_root: &Path) -> Option<Reso
         });
     }
 
+    // 3. Walk up searching for `std/` directory
     let mut dir = importer_dir;
     loop {
         let candidate = dir.join("std").join(&relative);
@@ -386,6 +387,11 @@ fn source_dir(source_name: &str) -> PathBuf {
 }
 
 fn logical_module_name(path: &Path, project_root: &Path, fallback: &str) -> String {
+    if project_root.as_os_str().is_empty() || project_root == Path::new(".") {
+        if let Some(name) = path_to_module_name(path) {
+            return name;
+        }
+    }
     path.strip_prefix(project_root)
         .ok()
         .and_then(path_to_module_name)

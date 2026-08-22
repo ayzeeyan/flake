@@ -22,6 +22,8 @@ struct LoopCtx {
 
 type EnumVariants = Vec<(String, Vec<IrType>)>;
 type EnumTable = HashMap<String, EnumVariants>;
+type StructFields = Vec<(String, IrType)>;
+type StructTable = HashMap<String, StructFields>;
 
 struct Builder {
     locals: Vec<Local>,
@@ -33,10 +35,16 @@ struct Builder {
     names: Names,
     fn_rets: HashMap<String, IrType>,
     enums: EnumTable,
+    structs: StructTable,
 }
 
 impl Builder {
-    fn new(names: Names, fn_rets: HashMap<String, IrType>, enums: EnumTable) -> Self {
+    fn new(
+        names: Names,
+        fn_rets: HashMap<String, IrType>,
+        enums: EnumTable,
+        structs: StructTable,
+    ) -> Self {
         let entry = BlockId(0);
         Self {
             locals: Vec::new(),
@@ -51,6 +59,7 @@ impl Builder {
             names,
             fn_rets,
             enums,
+            structs,
         }
     }
 
@@ -129,7 +138,14 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
             );
         }
     }
-    lower_program_with(name, program, &names, &fn_rets, &enums_of(program))
+    lower_program_with(
+        name,
+        program,
+        &names,
+        &fn_rets,
+        &enums_of(program),
+        &structs_of(program),
+    )
 }
 
 pub fn lower_graph(graph: &ModuleGraph) -> Module {
@@ -140,7 +156,15 @@ pub fn lower_graph(graph: &ModuleGraph) -> Module {
     for module in &graph.modules {
         let names = names_for(graph, module, module.name == entry);
         let enums = enums_for(graph, module, &names);
-        let part = lower_program_with(&module.name, &module.program, &names, &fn_rets, &enums);
+        let struct_table = structs_for(graph, module, &names);
+        let part = lower_program_with(
+            &module.name,
+            &module.program,
+            &names,
+            &fn_rets,
+            &enums,
+            &struct_table,
+        );
         structs.extend(part.structs);
         functions.extend(part.functions);
     }
@@ -328,13 +352,14 @@ fn lower_program_with(
     names: &Names,
     fn_rets: &HashMap<String, IrType>,
     enums: &EnumTable,
+    structs: &StructTable,
 ) -> Module {
-    let mut structs = Vec::new();
+    let mut module_structs = Vec::new();
     let mut functions = Vec::new();
     for item in &program.items {
         match item {
             Item::Struct(st) => {
-                structs.push(StructDef {
+                module_structs.push(StructDef {
                     name: names.type_global(&st.name.name),
                     fields: st
                         .fields
@@ -348,15 +373,80 @@ fn lower_program_with(
                         .collect(),
                 });
             }
-            Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets, enums)),
+            Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets, enums, structs)),
             Item::Type(_) | Item::Import(_) | Item::Enum(_) => {}
         }
     }
     Module {
         name: name.to_string(),
         functions,
-        structs,
+        structs: module_structs,
     }
+}
+
+fn structs_of(program: &Program) -> StructTable {
+    let mut structs = HashMap::new();
+    for item in &program.items {
+        if let Item::Struct(st) = item {
+            structs.insert(
+                st.name.name.clone(),
+                st.fields
+                    .iter()
+                    .map(|f| (f.name.name.clone(), lower_type(Some(&f.ty))))
+                    .collect(),
+            );
+        }
+    }
+    structs
+}
+
+fn structs_for(
+    graph: &ModuleGraph,
+    module: &flake_parser::LoadedModule,
+    names: &Names,
+) -> StructTable {
+    let mut structs = structs_of(&module.program);
+    for item in &module.program.items {
+        if let Item::Struct(st) = item {
+            if let Some(fields) = structs.get(&st.name.name).cloned() {
+                let resolved: Vec<_> = fields
+                    .into_iter()
+                    .map(|(name, ty)| (name, names.resolve_type(ty)))
+                    .collect();
+                structs.insert(names.type_global(&st.name.name), resolved);
+            }
+        }
+    }
+    for item in &module.program.items {
+        if let Item::Import(import) = item {
+            if let Some(imported) = graph.imported(module, import) {
+                let alias = import_alias(import);
+                for item in &imported.program.items {
+                    if !is_exported(item, &imported.program) {
+                        continue;
+                    }
+                    if let Item::Struct(st) = item {
+                        let fields: Vec<_> = st
+                            .fields
+                            .iter()
+                            .map(|f| {
+                                (
+                                    f.name.name.clone(),
+                                    names.resolve_type(lower_type(Some(&f.ty))),
+                                )
+                            })
+                            .collect();
+                        structs.insert(format!("{alias}.{}", st.name.name), fields.clone());
+                        structs.insert(qualify(&imported.name, &st.name.name), fields.clone());
+                        if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
+                            structs.insert(st.name.name.clone(), fields);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    structs
 }
 
 fn enums_of(program: &Program) -> EnumTable {
@@ -454,8 +544,14 @@ fn lower_fn(
     names: &Names,
     fn_rets: &HashMap<String, IrType>,
     enums: &EnumTable,
+    structs: &StructTable,
 ) -> Function {
-    let mut b = Builder::new(names.clone(), fn_rets.clone(), enums.clone());
+    let mut b = Builder::new(
+        names.clone(),
+        fn_rets.clone(),
+        enums.clone(),
+        structs.clone(),
+    );
     let mut params = Vec::new();
     for p in &func.params {
         let ty = lower_type(p.ty.as_ref());
@@ -858,7 +954,16 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                 }
             }
             let obj = lower_expr(b, target);
-            let dest = b.alloc(None, IrType::Dyn);
+            let dest_ty = match b.locals.iter().find(|l| l.id == obj).map(|l| &l.ty) {
+                Some(IrType::Struct(name)) => b
+                    .structs
+                    .get(name)
+                    .and_then(|fields| fields.iter().find(|(n, _)| n == &field.name))
+                    .map(|(_, ty)| ty.clone())
+                    .unwrap_or(IrType::Dyn),
+                _ => IrType::Dyn,
+            };
+            let dest = b.alloc(None, dest_ty);
             b.emit(Inst::GetField {
                 dest,
                 obj,

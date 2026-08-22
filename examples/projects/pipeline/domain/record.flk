@@ -1,0 +1,23 @@
+// Record domain definitions.
+
+pub enum Status {
+    Pending
+    Processed(Int)
+    Failed(String)
+}
+
+pub struct Record {
+    id: String
+    category: String
+    value: Int
+    status: Status
+}
+
+pub fn create_record(id: String, category: String, value: Int) -> Record {
+    Record {
+        id: id,
+        category: category,
+        value: value,
+        status: Status.Pending,
+    }
+}

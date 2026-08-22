@@ -1,0 +1,24 @@
+import domain.record as rec
+
+pub enum PipelineResult {
+    Ok(rec.Record)
+    Err(String)
+}
+
+pub fn process_record(record: rec.Record) -> PipelineResult {
+    if len(record.id) == 0 {
+        return PipelineResult.Err("empty record id")
+    }
+    if record.value <= 0 {
+        return PipelineResult.Err("invalid value")
+    }
+    let bonus = if record.category == "premium" { 50 } else { 10 }
+    let score = record.value * 2 + bonus
+    let updated = rec.Record {
+        id: record.id,
+        category: record.category,
+        value: record.value,
+        status: rec.Status.Processed(score),
+    }
+    PipelineResult.Ok(updated)
+}

@@ -1,0 +1,44 @@
+import domain.record as rec
+import services.transform as tf
+import utils.format as fmt
+
+fn run_pipeline() {
+    let r1 = rec.create_record("TX-101", "standard", 45)
+    let r2 = rec.create_record("TX-102", "premium", 80)
+    let r3 = rec.create_record("TX-103", "standard", -5)
+
+    let items = [r1, r2, r3]
+    var total_score = 0
+
+    for item in items {
+        match tf.process_record(item) {
+            tf.PipelineResult.Ok(processed) => {
+                print(fmt.summarize_record(processed))
+                match processed.status {
+                    rec.Status.Processed(score) => {
+                        total_score += score
+                        nil
+                    }
+                    _ => nil
+                }
+                nil
+            }
+            tf.PipelineResult.Err(msg) => {
+                let failed = rec.Record {
+                    id: item.id,
+                    category: item.category,
+                    value: item.value,
+                    status: rec.Status.Failed(msg),
+                }
+                print(fmt.summarize_record(failed))
+                nil
+            }
+        }
+    }
+    print("pipeline batch total score: {total_score}")
+}
+
+fn main() {
+    print("starting pipeline execution")
+    run_pipeline()
+}
