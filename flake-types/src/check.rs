@@ -157,8 +157,24 @@ impl Checker {
             "remove_file".into(),
             mk(vec![Type::String], Type::Nil, &["io"]),
         );
+        self.functions.insert(
+            "keys".into(),
+            mk(
+                vec![Type::Map(Box::new(Type::Dyn), Box::new(Type::Dyn))],
+                Type::list(Type::Dyn),
+                &["alloc"],
+            ),
+        );
+        self.functions.insert(
+            "values".into(),
+            mk(
+                vec![Type::Map(Box::new(Type::Dyn), Box::new(Type::Dyn))],
+                Type::list(Type::Dyn),
+                &["alloc"],
+            ),
+        );
         self.overloaded_builtins.extend(
-            ["print", "assert", "abs", "min", "max", "range"]
+            ["print", "assert", "abs", "min", "max", "range", "keys", "values"]
                 .into_iter()
                 .map(str::to_string),
         );
@@ -1461,6 +1477,32 @@ impl Checker {
                     self.unify(&Type::Int, &ty, arg.span())?;
                 }
                 Ok(Type::Range)
+            }
+            "keys" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                let map_ty = self.check_expr(&args[0])?;
+                match self.resolve(&map_ty).without_ownership() {
+                    Type::Map(k, _) => Ok(Type::List(k)),
+                    Type::Dyn | Type::Var(_) => Ok(Type::List(Box::new(Type::Dyn))),
+                    other => Err(TypeError::with_help(
+                        args[0].span(),
+                        format!("keys() expected Map, found {other}"),
+                        "pass a Map[K, V] to keys()",
+                    )),
+                }
+            }
+            "values" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                let map_ty = self.check_expr(&args[0])?;
+                match self.resolve(&map_ty).without_ownership() {
+                    Type::Map(_, v) => Ok(Type::List(v)),
+                    Type::Dyn | Type::Var(_) => Ok(Type::List(Box::new(Type::Dyn))),
+                    other => Err(TypeError::with_help(
+                        args[0].span(),
+                        format!("values() expected Map, found {other}"),
+                        "pass a Map[K, V] to values()",
+                    )),
+                }
             }
             _ => unreachable!("only overloaded builtins reach this method"),
         }

@@ -29,6 +29,15 @@ impl MapKey {
             Self::Bool(value) => value.to_string(),
         }
     }
+
+    #[must_use]
+    pub fn to_value(&self) -> Value {
+        match self {
+            Self::String(value) => Value::String(value.clone()),
+            Self::Int(value) => Value::Int(*value),
+            Self::Bool(value) => Value::Bool(*value),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -122,6 +131,8 @@ pub enum NativeFn {
     Env,
     Cwd,
     RemoveFile,
+    Keys,
+    Values,
 }
 
 impl NativeFn {
@@ -157,6 +168,8 @@ impl NativeFn {
             Self::Env => "env",
             Self::Cwd => "cwd",
             Self::RemoveFile => "remove_file",
+            Self::Keys => "keys",
+            Self::Values => "values",
         }
     }
 }

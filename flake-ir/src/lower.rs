@@ -1472,6 +1472,8 @@ fn is_native_name(name: &str) -> bool {
             | "env"
             | "cwd"
             | "remove_file"
+            | "keys"
+            | "values"
     )
 }
 
@@ -1485,6 +1487,7 @@ fn native_result_ty(name: &str) -> IrType {
         "contains" | "starts_with" | "ends_with" | "file_exists" => IrType::Bool,
         "range" => IrType::Range,
         "split" => IrType::List(Box::new(IrType::String)),
+        "keys" | "values" => IrType::List(Box::new(IrType::Dyn)),
         "float" => IrType::Float,
         _ => IrType::Dyn,
     }
@@ -1497,6 +1500,26 @@ fn native_call_result_ty(b: &Builder, name: &str, args: &[LocalId]) -> IrType {
             .and_then(|id| b.locals.iter().find(|local| local.id == *id))
             .map(|local| local.ty.clone())
             .unwrap_or(IrType::Dyn);
+    }
+    if name == "keys" {
+        return args
+            .first()
+            .and_then(|id| b.locals.iter().find(|local| local.id == *id))
+            .and_then(|local| match &local.ty {
+                IrType::Map(k, _) => Some(IrType::List(k.clone())),
+                _ => None,
+            })
+            .unwrap_or_else(|| IrType::List(Box::new(IrType::Dyn)));
+    }
+    if name == "values" {
+        return args
+            .first()
+            .and_then(|id| b.locals.iter().find(|local| local.id == *id))
+            .and_then(|local| match &local.ty {
+                IrType::Map(_, v) => Some(IrType::List(v.clone())),
+                _ => None,
+            })
+            .unwrap_or_else(|| IrType::List(Box::new(IrType::Dyn)));
     }
     native_result_ty(name)
 }

@@ -568,3 +568,33 @@ fn main() {
     assert_all_backends("stdlib-expansion", source, expected);
 }
 
+#[test]
+fn map_keys_values_and_range_contains_agree_across_all_backends() {
+    let source = r#"
+fn main() {
+    let m = { "gamma": 300, "alpha": 100, "beta": 200 }
+    print(keys(m))
+    print(values(m))
+
+    let int_map = { 2: "two", 1: "one", 3: "three" }
+    print(keys(int_map))
+    print(values(int_map))
+
+    let r = range(10, 20)
+    print(contains(r, 10), contains(r, 15), contains(r, 19), contains(r, 20), contains(r, 9))
+    let rev = range(20, 10)
+    print(contains(rev, 20), contains(rev, 15), contains(rev, 11), contains(rev, 10), contains(rev, 21))
+}
+"#;
+    let expected = concat!(
+        "[\"alpha\", \"beta\", \"gamma\"]\n",
+        "[100, 200, 300]\n",
+        "[1, 2, 3]\n",
+        "[\"one\", \"two\", \"three\"]\n",
+        "true true true false false\n",
+        "true true true false false\n",
+    );
+    assert_all_backends("keys-values-range", source, expected);
+}
+
+

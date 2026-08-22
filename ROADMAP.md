@@ -11,8 +11,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Native backend reliability improvements | **done** |
 | 2 | Module system polish | **done** |
 | 3 | Standard library expansion | **done** |
-| 4 | Language polish and expanded testing | in progress |
-| 5 | Flake v0.5.1 complete | planned |
+| 4 | Language polish and expanded testing | **done** |
+| 5 | Flake v0.5.1 complete | in progress |
 
 ## What v0.5.1 milestone 1 delivers
 
@@ -39,6 +39,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - `std/option.flk`: `is_none`, `map_option`.
   - `std/result.flk`: `map_result`, `map_err`, `and_then`.
   - 100% agreement and cross-backend test coverage across Interpreter, VM, and Native x86-64.
+
+## What v0.5.1 milestone 4 delivers
+
+- Map reflection and Range containment builtins:
+  - `keys(map)` and `values(map)` builtins returning sorted keys and corresponding values across AST type checking, Interpreter, VM, and native x86-64 backend (`rt_map_keys` and `rt_map_values`).
+  - Extended `contains(range, n)` to support forward and reverse ranges consistently across all execution backends (`rt_range_contains`).
+  - Broadly expanded cross-backend regression test matrix in `flake-cli/tests/backend_consistency.rs` and `flake-codegen/src/tests.rs`.
 
 ## v0.5 milestones (complete)
 

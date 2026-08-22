@@ -29,6 +29,8 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_map_get(asm);
     emit_map_has(asm);
     emit_map_set(asm);
+    emit_map_keys(asm);
+    emit_map_values(asm);
     emit_split(asm);
     emit_str_index(asm);
     emit_atoi(asm);
@@ -37,6 +39,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_ends_with(asm);
     emit_contains(asm);
     emit_list_contains(asm);
+    emit_range_contains(asm);
     emit_list_first_last(asm);
     emit_write_file(asm, iat);
     emit_trim(asm);
@@ -1013,6 +1016,80 @@ fn emit_map_has(asm: &mut Asm) {
     epilogue(asm);
 }
 
+fn emit_map_keys(asm: &mut Asm) {
+    // rcx = map → rax = List of keys
+    asm.label("rt_map_keys");
+    prologue(asm, 64);
+    asm.mov_mr_rbp(-8, Reg::Rcx); // map
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 0); // len
+    asm.mov_mr_rbp(-16, Reg::Rcx); // len
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-24, Reg::Rax); // list
+    asm.mov_rm_rbp(Reg::Rdx, -16); // len
+    asm.mov_mr(Reg::Rax, 0, Reg::Rdx); // list.len = len
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(-32, Reg::R8); // i = 0
+    asm.label(".mk_loop");
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.mov_rm_rbp(Reg::R9, -16);
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".mk_done");
+    asm.mov_rm_rbp(Reg::Rcx, -8); // map
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 4); // i * 16
+    asm.add_rr(Reg::Rcx, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::Rcx, 16); // key = map[16 + i*16]
+    asm.mov_rm_rbp(Reg::Rax, -24); // list
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 3); // i * 8
+    asm.add_rr(Reg::Rax, Reg::R10);
+    asm.mov_mr(Reg::Rax, 16, Reg::R11); // list[16 + i*8] = key
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-32, Reg::R8);
+    asm.jmp_label(".mk_loop");
+    asm.label(".mk_done");
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    epilogue(asm);
+}
+
+fn emit_map_values(asm: &mut Asm) {
+    // rcx = map → rax = List of values
+    asm.label("rt_map_values");
+    prologue(asm, 64);
+    asm.mov_mr_rbp(-8, Reg::Rcx); // map
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 0); // len
+    asm.mov_mr_rbp(-16, Reg::Rcx); // len
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-24, Reg::Rax); // list
+    asm.mov_rm_rbp(Reg::Rdx, -16); // len
+    asm.mov_mr(Reg::Rax, 0, Reg::Rdx); // list.len = len
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(-32, Reg::R8); // i = 0
+    asm.label(".mv_loop");
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.mov_rm_rbp(Reg::R9, -16);
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".mv_done");
+    asm.mov_rm_rbp(Reg::Rcx, -8); // map
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 4); // i * 16
+    asm.add_rr(Reg::Rcx, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::Rcx, 24); // val = map[24 + i*16]
+    asm.mov_rm_rbp(Reg::Rax, -24); // list
+    asm.mov_rr(Reg::R10, Reg::R8);
+    asm.shl_ri(Reg::R10, 3); // i * 8
+    asm.add_rr(Reg::Rax, Reg::R10);
+    asm.mov_mr(Reg::Rax, 16, Reg::R11); // list[16 + i*8] = val
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-32, Reg::R8);
+    asm.jmp_label(".mv_loop");
+    asm.label(".mv_done");
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    epilogue(asm);
+}
+
 fn emit_map_set(asm: &mut Asm) {
     // rcx = map, rdx = key, r8 = val, r9 = string-key flag → rax = map.
     asm.label("rt_map_set");
@@ -1464,6 +1541,34 @@ fn emit_list_contains(asm: &mut Asm) {
     asm.mov_ri(Reg::Rax, 1);
     epilogue(asm);
     asm.label(".lc_no");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+}
+
+fn emit_range_contains(asm: &mut Asm) {
+    // rcx = range [start: i64, end: i64], rdx = target i64 → rax = Bool (1 or 0)
+    asm.label("rt_range_contains");
+    prologue(asm, 32);
+    asm.mov_rm(Reg::R8, Reg::Rcx, 0); // start
+    asm.mov_rm(Reg::R9, Reg::Rcx, 8); // end
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::G, ".rc_rev");
+    // Forward: start <= n && n < end
+    asm.cmp_rr(Reg::Rdx, Reg::R8);
+    asm.jcc_label(Cc::L, ".rc_false");
+    asm.cmp_rr(Reg::Rdx, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".rc_false");
+    asm.mov_ri(Reg::Rax, 1);
+    epilogue(asm);
+    asm.label(".rc_rev");
+    // Reverse: n <= start && n > end
+    asm.cmp_rr(Reg::Rdx, Reg::R8);
+    asm.jcc_label(Cc::G, ".rc_false");
+    asm.cmp_rr(Reg::Rdx, Reg::R9);
+    asm.jcc_label(Cc::Le, ".rc_false");
+    asm.mov_ri(Reg::Rax, 1);
+    epilogue(asm);
+    asm.label(".rc_false");
     asm.xor_rr(Reg::Rax, Reg::Rax);
     epilogue(asm);
 }

@@ -191,6 +191,8 @@ fn install_builtins(env: &Env) {
         NativeFn::Env,
         NativeFn::Cwd,
         NativeFn::RemoveFile,
+        NativeFn::Keys,
+        NativeFn::Values,
     ] {
         env.define(native.name(), Value::Native(native), false);
     }
@@ -1186,10 +1188,18 @@ impl<'io> Interpreter<'io> {
                         let key = map_key(&args[1], span)?;
                         Ok(Value::Bool(map.borrow().contains_key(&key)))
                     }
+                    Value::Range { start, end } => {
+                        let n = expect_int(&args[1], span)?;
+                        if *start <= *end {
+                            Ok(Value::Bool(n >= *start && n < *end))
+                        } else {
+                            Ok(Value::Bool(n <= *start && n > *end))
+                        }
+                    }
                     other => Err(RuntimeError::new(
                         span,
                         format!(
-                            "contains() expected String, List, or Map, found {}",
+                            "contains() expected String, List, Map, or Range, found {}",
                             other.type_name()
                         ),
                     )
@@ -1333,6 +1343,42 @@ impl<'io> Interpreter<'io> {
                 };
                 let _ = std::fs::remove_file(&path);
                 Ok(Value::Nil)
+            }
+            NativeFn::Keys => {
+                expect_arity("keys", args, 1, span)?;
+                match &args[0] {
+                    Value::Map(map) => {
+                        let mut sorted_keys: Vec<_> = map.borrow().keys().cloned().collect();
+                        sorted_keys.sort();
+                        let keys: Vec<_> = sorted_keys.into_iter().map(|k| k.to_value()).collect();
+                        Ok(Value::List(Rc::new(RefCell::new(keys))))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("keys() expected Map, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Values => {
+                expect_arity("values", args, 1, span)?;
+                match &args[0] {
+                    Value::Map(map) => {
+                        let mut entries: Vec<_> = map
+                            .borrow()
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        entries.sort_by(|a, b| a.0.cmp(&b.0));
+                        let values: Vec<_> = entries.into_iter().map(|(_, v)| v).collect();
+                        Ok(Value::List(Rc::new(RefCell::new(values))))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("values() expected Map, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
             }
         }
     }

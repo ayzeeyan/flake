@@ -910,6 +910,14 @@ fn emit_call(
             emit_unary_rt(frame, "rt_remove_file", dest, args, asm);
             Ok(())
         }
+        Callee::Static(name) if name == "keys" => {
+            emit_unary_rt(frame, "rt_map_keys", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "values" => {
+            emit_unary_rt(frame, "rt_map_values", dest, args, asm);
+            Ok(())
+        }
         Callee::Static(name) => emit_user_call(frame, name, dest, args, asm),
         Callee::Local(id) => {
             let space = prepare_call_args(frame, args, asm);
@@ -1305,6 +1313,11 @@ fn emit_native_contains(
             frame.load(asm, args[1], Reg::Rdx);
             asm.mov_ri(Reg::R8, i64::from(map_key_mode(&key) == 1));
             asm.call_label("rt_map_has");
+        }
+        IrType::Range => {
+            frame.load(asm, args[0], Reg::Rcx);
+            frame.load(asm, args[1], Reg::Rdx);
+            asm.call_label("rt_range_contains");
         }
         _ => {
             frame.load(asm, args[0], Reg::Rcx);

@@ -239,10 +239,26 @@ pub fn call_native(
                     })?;
                     Ok(Value::Bool(map.borrow().contains_key(&key)))
                 }
+                Value::Range { start, end } => {
+                    let n = match &args[1] {
+                        Value::Int(n) => *n,
+                        other => {
+                            return Err(VmError::new(
+                                span,
+                                format!("contains() on Range expected Int, found {}", other.type_name()),
+                            ));
+                        }
+                    };
+                    if *start <= *end {
+                        Ok(Value::Bool(n >= *start && n < *end))
+                    } else {
+                        Ok(Value::Bool(n <= *start && n > *end))
+                    }
+                }
                 other => Err(VmError::new(
                     span,
                     format!(
-                        "contains() expected String, List, or Map, found {}",
+                        "contains() expected String, List, Map, or Range, found {}",
                         other.type_name()
                     ),
                 )),
@@ -373,6 +389,40 @@ pub fn call_native(
             };
             let _ = std::fs::remove_file(&path);
             Ok(Value::Nil)
+        }
+        Native::Keys => {
+            expect_arity("keys", args, 1)?;
+            match &args[0] {
+                Value::Map(map) => {
+                    let mut sorted_keys: Vec<_> = map.borrow().keys().cloned().collect();
+                    sorted_keys.sort();
+                    let keys: Vec<_> = sorted_keys.into_iter().map(|k| k.to_value()).collect();
+                    Ok(Value::List(Rc::new(RefCell::new(keys))))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("keys() expected Map, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::Values => {
+            expect_arity("values", args, 1)?;
+            match &args[0] {
+                Value::Map(map) => {
+                    let mut entries: Vec<_> = map
+                        .borrow()
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    let values: Vec<_> = entries.into_iter().map(|(_, v)| v).collect();
+                    Ok(Value::List(Rc::new(RefCell::new(values))))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("values() expected Map, found {}", other.type_name()),
+                )),
+            }
         }
     }
 }

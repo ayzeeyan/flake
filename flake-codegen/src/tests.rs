@@ -710,6 +710,39 @@ fn main() {
 }
 
 #[test]
+fn native_map_keys_and_values() {
+    let out = run_native(&src(r#"
+fn main() {
+    let m = { "b": 2, "a": 1, "c": 3 }
+    print(keys(m))
+    print(values(m))
+    let counts = { 30: "thirty", 10: "ten", 20: "twenty" }
+    print(keys(counts))
+    print(values(counts))
+}
+"#))
+    .expect("map keys and values native");
+    assert_eq!(
+        out,
+        "[\"a\", \"b\", \"c\"]\n[1, 2, 3]\n[10, 20, 30]\n[\"ten\", \"twenty\", \"thirty\"]\n"
+    );
+}
+
+#[test]
+fn native_range_contains() {
+    let out = run_native(&src(r#"
+fn main() {
+    let r1 = range(5, 10)
+    print(contains(r1, 4), contains(r1, 5), contains(r1, 9), contains(r1, 10))
+    let r2 = range(10, 5)
+    print(contains(r2, 10), contains(r2, 6), contains(r2, 5), contains(r2, 11))
+}
+"#))
+    .expect("range contains native");
+    assert_eq!(out, "false true true false\ntrue true false false\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
