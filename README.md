@@ -58,18 +58,19 @@ between:
 
 ## Status
 
-**Flake v0.5.1 is complete.** Building on v0.5's structured concurrency,
-Result-style errors, and pure-Rust x86-64 code generator, v0.5.1 adds solid
-incremental improvements and stability:
-- **Native backend reliability**: resilient struct field initialization order,
-  safe bounds checking for list and string indexing, and robust string comparisons.
-- **Module system polish**: importer-relative and project-root-relative module
-  resolution, full IR struct field type propagation, and a new multi-file
-  [pipeline project](examples/projects/pipeline/main.flk).
-- **Expanded standard library**: practical helpers across `std/list.flk`,
-  `std/string.flk`, `std/math.flk`, `std/option.flk`, and `std/result.flk`.
-- **Language additions**: built-in `keys(map)` and `values(map)` reflection,
-  along with `contains(range, n)` for forward and reverse integer ranges.
+**Flake v0.5.2 is complete.** Building on v0.5.1's stability and native backend,
+v0.5.2 delivers further stability, richer standard library growth, and practical usability:
+- **Native backend expansion & hardening**: native string (`+`) and list (`+`)
+  concatenation, nested collection display, and resilient runtime key detection.
+- **Richer standard library**: new `std/map.flk` module, plus functional helpers
+  across `std/list.flk` (`zip`, `unzip`, `take_while`, `drop_while`, `find_index`, `unique`, `count_where`, `repeat_item`, `chunk`),
+  `std/string.flk` (`starts_with_str`, `ends_with_str`, `capitalize`, `reverse_str`, `is_digit`, `is_alpha`),
+  `std/math.flk` (`abs_val`, `min_val`, `max_val`, `is_prime`, `sum_range`, `product`, `mean`),
+  `std/option.flk`, and `std/result.flk`.
+- **Quality-of-life builtins**: `entries(map)` (sorted key-value pairs), `is_empty(coll)`
+  (lists, strings, maps), `has_key(map, key)`, and empty map literal `{}` syntax.
+- **New multi-file analytics project**: complete [analytics example](examples/projects/analytics/main.flk)
+  demonstrating domain metrics, aggregation services, report utilities, and cross-backend execution.
 - **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
@@ -77,7 +78,7 @@ for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.5.1 release notes](docs/release-notes-v0.5.1.md) for the complete
+See the [v0.5.2 release notes](docs/release-notes-v0.5.2.md) for the complete
 feature and compatibility summary.
 
 ## Build and run
@@ -94,6 +95,8 @@ flake run examples/modules.flk
 flake run examples/stdlib.flk
 flake run examples/enum.flk
 flake run examples/data.flk
+flake run examples/projects/analytics/main.flk
+flake run --native examples/projects/analytics/main.flk
 flake run examples/projects/pipeline/main.flk
 flake run --native examples/projects/pipeline/main.flk
 flake run examples/projects/inventory/main.flk

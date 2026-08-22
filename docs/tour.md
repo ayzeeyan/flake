@@ -298,6 +298,9 @@ Prelude natives (no `import`):
 | `abs`, `min`, `max` | Int/Float helpers; `min`/`max` require one homogeneous numeric type | pure |
 | `range(n)` / `range(a, b)` | integer range | pure |
 | `keys(map)` / `values(map)` | map key/value extraction in sorted order | `alloc` |
+| `entries(map)` | sorted key-value pairs `[[k, v], ...]` | `alloc` |
+| `is_empty(x)` | emptiness check for list, string, or map | pure |
+| `has_key(map, key)` | map key membership check | pure |
 | `join(list, sep)` | concatenate | `alloc` |
 | `split(s, sep)` | split a string | `alloc` |
 
@@ -305,11 +308,12 @@ Flake modules under `std/` (walk up from the importer):
 
 | Module | Contents |
 | --- | --- |
-| `list` | `is_empty`, `rest`, `reverse`, `concat`, `take`, `drop`, `sum`, `index_of`, `contains_item`, `map`, `filter`, `fold`, `any`, `all`, `flatten`, `min_item`, `max_item` |
-| `string` | `is_blank`, `surround`, `replace`, `repeat`, `lines`, `words`, `pad_left`, `pad_right`, `slice`, `char_at`, `to_upper`, `to_lower`, `trim_str` |
-| `math` | `clamp`, `pow`, `sign`, `gcd`, `lcm`, `factorial`, `is_even`, `is_odd` |
-| `option` | `enum Option { Some(dyn) None }`, `is_some`, `is_none`, `unwrap_or`, `map_option` |
-| `result` | `Result`, `is_ok`, `is_err`, `unwrap_or`, `error_or`, `unwrap`, `map_result`, `map_err`, `and_then` |
+| `list` | `is_empty`, `rest`, `reverse`, `concat`, `take`, `drop`, `sum`, `index_of`, `contains_item`, `map`, `filter`, `fold`, `any`, `all`, `flatten`, `min_item`, `max_item`, `zip`, `unzip`, `take_while`, `drop_while`, `find_index`, `unique`, `count_where`, `repeat_item`, `chunk` |
+| `string` | `is_blank`, `surround`, `replace`, `repeat`, `lines`, `words`, `pad_left`, `pad_right`, `slice`, `char_at`, `to_upper`, `to_lower`, `trim_str`, `starts_with_str`, `ends_with_str`, `capitalize`, `reverse_str`, `is_digit`, `is_alpha` |
+| `math` | `clamp`, `pow`, `sign`, `gcd`, `lcm`, `factorial`, `is_even`, `is_odd`, `abs_val`, `min_val`, `max_val`, `is_prime`, `sum_range`, `product`, `mean` |
+| `map` | `get_or`, `merge`, `count_by`, `filter_map`, `map_values_with` |
+| `option` | `enum Option { Some(dyn) None }`, `is_some`, `is_none`, `unwrap_or`, `map_option`, `filter_option`, `zip_option`, `expect_some` |
+| `result` | `Result`, `is_ok`, `is_err`, `unwrap_or`, `error_or`, `unwrap`, `map_result`, `map_err`, `and_then`, `is_ok_and`, `is_err_and`, `expect_ok` |
 
 ## Back ends
 

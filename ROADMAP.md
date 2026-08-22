@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**Flake v0.5.2 development is in progress.** Theme: **Further stability, richer standard library, and practical usability**.
+**Flake v0.5.2 is complete.** All five milestones are done. Theme: **Further stability, richer standard library, and practical usability**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Standard library growth | **done** |
 | 3 | Language and builtin quality-of-life | **done** |
 | 4 | Expanded examples and cross-backend testing | **done** |
-| 5 | Flake v0.5.2 complete | in progress |
+| 5 | Flake v0.5.2 complete | **done** |
 
 ## What v0.5.2 milestone 1 delivers
 
@@ -47,6 +47,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - Multi-file analytics project in `examples/projects/analytics/` (`domain/metric.flk`, `services/aggregator.flk`, `utils/report.flk`, `main.flk`).
   - Added `analytics_project_output` test verifying CLI execution.
   - Verified 100% backend consistency and compatibility across all 25 examples for Interpreter, VM, and Native x86-64.
+
+## What v0.5.2 milestone 5 delivers
+
+- Documentation and release finalization:
+  - Version bump to `0.5.2`.
+  - Comprehensive documentation updates in `README.md`, `ROADMAP.md`, `docs/tour.md`, and `docs/examples.md`.
+  - Release notes in `docs/release-notes-v0.5.2.md`.
+  - 100% test pass rate across all 9 crates and backend consistency tests.
 
 ## v0.5.1 milestones (complete)
 

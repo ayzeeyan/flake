@@ -99,6 +99,26 @@ pipeline/
 - `utils.format` formats record summaries with pattern matching.
 - Runs with identical results across Interpreter, Bytecode VM, and Native x86-64.
 
+### Analytics project (`examples/projects/analytics/`)
+
+A multi-module project demonstrating domain metrics, aggregation services, report utilities, and cross-backend execution:
+
+```
+examples/projects/analytics/
+├── main.flk
+├── domain/
+│   └── metric.flk
+├── services/
+│   └── aggregator.flk
+└── utils/
+    └── report.flk
+```
+
+- `domain.metric` declares `MetricSample` and constructor functions.
+- `services.aggregator` aggregates samples into `AggregateResult` with counts, totals, min, max, and averages.
+- `utils.report` generates formatted sample lines and table summaries.
+- Verified across Interpreter, Bytecode VM, and Native x86-64.
+
 ## Adding an example
 
 Keep an example deterministic, give it a short comment explaining its teaching
