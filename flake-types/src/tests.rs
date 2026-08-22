@@ -700,6 +700,71 @@ fn remainder_requires_homogeneous_numeric_operands() {
 }
 
 #[test]
+fn nested_and_list_patterns_check() {
+    ok(r#"
+enum Option {
+    Some(Int)
+    None
+}
+
+enum Result {
+    Ok(Option)
+    Err(String)
+}
+
+fn handle(res: Result) -> Int {
+    match res {
+        Result.Ok(Option.Some(n)) => n
+        Result.Ok(Option.None) => 0
+        Result.Err(_) => -1
+    }
+}
+
+fn handle_list(xs: [Int]) -> Int {
+    match xs {
+        [a, b] => a + b
+        _ => 0
+    }
+}
+
+fn main() {
+    let r = Result.Ok(Option.Some(42))
+    print(handle(r))
+    print(handle_list([10, 20]))
+}
+"#);
+}
+
+#[test]
+fn pattern_exhaustiveness_and_mismatch_diagnostics() {
+    let message = err(r#"
+enum Color { Red Green Blue }
+fn check(c: Color) -> String {
+    match c {
+        Color.Red => "red"
+        Color.Green => "green"
+    }
+}
+fn main() {}
+"#);
+    assert!(message.contains("non-exhaustive match on `Color`: missing Blue"), "{message}");
+
+    let message = err(r#"
+enum Color { Red Green Blue }
+fn check(c: Color) -> String {
+    match c {
+        Color.Red => "red"
+        _ => "other"
+        Color.Blue => "blue"
+    }
+}
+fn main() {}
+"#);
+    assert!(message.contains("unreachable match arm"), "{message}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+

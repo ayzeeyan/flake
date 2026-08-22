@@ -344,30 +344,7 @@ fn print_expr(expr: &Expr, indent: usize, out: &mut String) {
                 for _ in 0..(indent + 1) {
                     out.push_str("    ");
                 }
-                match &arm.pattern {
-                    crate::ast::Pattern::Wildcard { .. } => out.push('_'),
-                    crate::ast::Pattern::Literal { value, .. } => print_literal(value, out),
-                    crate::ast::Pattern::Ident(id) => out.push_str(&id.name),
-                    crate::ast::Pattern::Variant {
-                        ty, variant, binds, ..
-                    } => {
-                        if let Some(t) = ty {
-                            out.push_str(&t.name);
-                            out.push('.');
-                        }
-                        out.push_str(&variant.name);
-                        if !binds.is_empty() {
-                            out.push('(');
-                            for (i, b) in binds.iter().enumerate() {
-                                if i > 0 {
-                                    out.push_str(", ");
-                                }
-                                out.push_str(&b.name);
-                            }
-                            out.push(')');
-                        }
-                    }
-                }
+                print_pattern(&arm.pattern, out);
                 out.push_str(" => ");
                 print_expr(&arm.body, indent + 1, out);
                 out.push('\n');
@@ -541,3 +518,44 @@ impl std::fmt::Display for AssignOp {
         f.write_str(self.as_str())
     }
 }
+
+pub fn print_pattern(pattern: &crate::ast::Pattern, out: &mut String) {
+    match pattern {
+        crate::ast::Pattern::Wildcard { .. } => out.push('_'),
+        crate::ast::Pattern::Literal { value, .. } => print_literal(value, out),
+        crate::ast::Pattern::Ident(id) => out.push_str(&id.name),
+        crate::ast::Pattern::List { patterns, .. } => {
+            out.push('[');
+            for (i, p) in patterns.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                print_pattern(p, out);
+            }
+            out.push(']');
+        }
+        crate::ast::Pattern::Variant {
+            ty,
+            variant,
+            fields,
+            ..
+        } => {
+            if let Some(t) = ty {
+                out.push_str(&t.name);
+                out.push('.');
+            }
+            out.push_str(&variant.name);
+            if !fields.is_empty() {
+                out.push('(');
+                for (i, f) in fields.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    print_pattern(f, out);
+                }
+                out.push(')');
+            }
+        }
+    }
+}
+

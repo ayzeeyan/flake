@@ -769,6 +769,28 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_pattern(&mut self) -> Result<flake_ast::Pattern, ParseError> {
+        self.skip_nl();
+        if self.eat(&TokenKind::LBracket) {
+            let start = self.prev().span;
+            let mut patterns = Vec::new();
+            loop {
+                self.skip_nl();
+                if self.eat(&TokenKind::RBracket) {
+                    break;
+                }
+                let p = self.parse_pattern()?;
+                patterns.push(p);
+                self.skip_nl();
+                if self.eat(&TokenKind::Comma) {
+                    continue;
+                }
+                self.skip_nl();
+                self.expect(&TokenKind::RBracket, "`]`")?;
+                break;
+            }
+            let span = start.merge(self.prev().span);
+            return Ok(flake_ast::Pattern::List { patterns, span });
+        }
         let tok = self.current().clone();
         let literal = match tok.kind {
             TokenKind::Int(value) => Some(Literal::Int(value)),
@@ -832,7 +854,7 @@ impl<'src> Parser<'src> {
                 self.skip_nl();
                 variant = self.parse_ident()?;
             }
-            let mut binds = Vec::new();
+            let mut fields = Vec::new();
             let mut span = ident.span.merge(variant.span);
             self.skip_nl();
             if self.eat(&TokenKind::LParen) {
@@ -841,9 +863,9 @@ impl<'src> Parser<'src> {
                     if self.eat(&TokenKind::RParen) {
                         break;
                     }
-                    let b = self.parse_ident()?;
-                    span = span.merge(b.span);
-                    binds.push(b);
+                    let p = self.parse_pattern()?;
+                    span = span.merge(p.span());
+                    fields.push(p);
                     self.skip_nl();
                     if self.eat(&TokenKind::Comma) {
                         continue;
@@ -856,7 +878,33 @@ impl<'src> Parser<'src> {
             return Ok(flake_ast::Pattern::Variant {
                 ty: Some(ident),
                 variant,
-                binds,
+                fields,
+                span,
+            });
+        }
+        if self.eat(&TokenKind::LParen) {
+            let mut fields = Vec::new();
+            let mut span = ident.span;
+            loop {
+                self.skip_nl();
+                if self.eat(&TokenKind::RParen) {
+                    break;
+                }
+                let p = self.parse_pattern()?;
+                span = span.merge(p.span());
+                fields.push(p);
+                self.skip_nl();
+                if self.eat(&TokenKind::Comma) {
+                    continue;
+                }
+                self.skip_nl();
+                self.expect(&TokenKind::RParen, "`)`")?;
+                break;
+            }
+            return Ok(flake_ast::Pattern::Variant {
+                ty: None,
+                variant: ident,
+                fields,
                 span,
             });
         }
@@ -1363,12 +1411,7 @@ fn infix_binding(kind: &TokenKind) -> Option<(u8, u8, Infix)> {
 }
 
 fn pattern_span(pat: &Pattern) -> Span {
-    match pat {
-        Pattern::Wildcard { span }
-        | Pattern::Literal { span, .. }
-        | Pattern::Variant { span, .. } => *span,
-        Pattern::Ident(id) => id.span,
-    }
+    pat.span()
 }
 
 fn is_assign_target(expr: &Expr) -> bool {

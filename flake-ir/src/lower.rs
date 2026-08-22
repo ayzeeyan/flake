@@ -1031,7 +1031,7 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
                 b.switch(next);
             }
             flake_ast::Pattern::Variant {
-                variant, binds, ty, ..
+                variant, fields, ty, ..
             } => {
                 let zero = b.const_val(Const::Int(0), IrType::Int);
                 let tag = b.alloc(None, IrType::Int);
@@ -1067,18 +1067,62 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
                     else_block: next,
                 });
                 b.switch(body_b);
-                for (fi, bind) in binds.iter().enumerate() {
-                    if bind.name == "_" {
-                        continue;
-                    }
-                    let idx = b.const_val(Const::Int((fi + 1) as i64), IrType::Int);
+                for (fi, field_pat) in fields.iter().enumerate() {
                     let field_ty = field_types.get(fi).cloned().unwrap_or(IrType::Dyn);
-                    let slot = b.alloc(Some(bind.name.clone()), field_ty);
-                    b.emit(Inst::GetIndex {
-                        dest: slot,
-                        obj: src,
-                        index: idx,
-                    });
+                    if let flake_ast::Pattern::Ident(id) = field_pat {
+                        if id.name != "_" {
+                            let idx = b.const_val(Const::Int((fi + 1) as i64), IrType::Int);
+                            let slot = b.alloc(Some(id.name.clone()), field_ty);
+                            b.emit(Inst::GetIndex {
+                                dest: slot,
+                                obj: src,
+                                index: idx,
+                            });
+                        }
+                    }
+                }
+                let val = lower_expr(b, &arm.body);
+                if !b.sealed() {
+                    b.emit(Inst::Move { dest, src: val });
+                    b.emit(Inst::Jump { target: exit });
+                }
+                b.switch(next);
+            }
+            flake_ast::Pattern::List { patterns, .. } => {
+                let len_fn = Callee::Static("len".to_string());
+                let len_res = b.alloc(None, IrType::Int);
+                b.emit(Inst::Call {
+                    dest: Some(len_res),
+                    callee: len_fn,
+                    args: vec![src],
+                });
+                let want_len = b.const_val(Const::Int(patterns.len() as i64), IrType::Int);
+                let cmp = b.alloc(None, IrType::Bool);
+                b.emit(Inst::Binary {
+                    dest: cmp,
+                    op: BinOp::Eq,
+                    lhs: len_res,
+                    rhs: want_len,
+                });
+                let next = b.new_block();
+                b.emit(Inst::Branch {
+                    cond: cmp,
+                    then_block: body_b,
+                    else_block: next,
+                });
+                b.switch(body_b);
+                for (i, p) in patterns.iter().enumerate() {
+                    if let flake_ast::Pattern::Ident(id) = p {
+                        if id.name != "_" {
+                            let idx = b.const_val(Const::Int(i as i64), IrType::Int);
+                            let slot = b.alloc(Some(id.name.clone()), IrType::Dyn);
+                            b.emit(Inst::GetIndex {
+                                dest: slot,
+                                obj: src,
+                                index: idx,
+                            });
+                        }
+                    }
                 }
                 let val = lower_expr(b, &arm.body);
                 if !b.sealed() {

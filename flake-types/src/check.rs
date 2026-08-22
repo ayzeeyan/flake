@@ -609,13 +609,39 @@ impl Checker {
                 Ok(())
             }
             flake_ast::Pattern::Ident(id) => {
+                let resolved = self.resolve(ty).without_ownership();
+                if let Type::Enum { variants, .. } = &resolved {
+                    if id.name.chars().next().is_some_and(|c| c.is_uppercase())
+                        && variants.iter().any(|(v, f)| v == &id.name && f.is_empty())
+                    {
+                        return Ok(());
+                    }
+                }
                 self.define(id.name.clone(), ty.clone());
+                Ok(())
+            }
+            flake_ast::Pattern::List { patterns, span } => {
+                let resolved = self.resolve(ty).without_ownership();
+                let elem_ty = match resolved {
+                    Type::List(elem) => *elem,
+                    Type::Dyn | Type::Var(_) => Type::Dyn,
+                    other => {
+                        return Err(TypeError::with_help(
+                            *span,
+                            format!("cannot match list pattern on `{other}`"),
+                            "list patterns `[...]` can only match on List values",
+                        ));
+                    }
+                };
+                for p in patterns {
+                    self.bind_pattern(p, &elem_ty)?;
+                }
                 Ok(())
             }
             flake_ast::Pattern::Variant {
                 ty: enum_name,
                 variant,
-                binds,
+                fields: sub_pats,
                 span,
             } => {
                 let enum_ty = if let Some(n) = enum_name {
@@ -623,7 +649,28 @@ impl Checker {
                         TypeError::new(*span, format!("unknown enum `{}`", n.name))
                     })?
                 } else {
-                    self.resolve(ty)
+                    let resolved = self.resolve(ty);
+                    match resolved.without_ownership() {
+                        Type::Enum { .. } => resolved,
+                        _ => {
+                            let candidates: Vec<_> = self
+                                .enums
+                                .values()
+                                .filter(|t| match t.without_ownership() {
+                                    Type::Enum { variants, .. } => {
+                                        variants.iter().any(|(v, _)| v == &variant.name)
+                                    }
+                                    _ => false,
+                                })
+                                .cloned()
+                                .collect();
+                            if candidates.len() == 1 {
+                                candidates[0].clone()
+                            } else {
+                                resolved
+                            }
+                        }
+                    }
                 };
                 self.unify(ty, &enum_ty, *span)?;
                 let Type::Enum { name, variants } = enum_ty.without_ownership() else {
@@ -633,7 +680,7 @@ impl Checker {
                         "use `Enum.Variant` patterns only when matching an enum",
                     ));
                 };
-                let Some((_, fields)) = variants.iter().find(|(n, _)| n == &variant.name) else {
+                let Some((_, field_types)) = variants.iter().find(|(n, _)| n == &variant.name) else {
                     let listed: Vec<_> = variants.iter().map(|(n, _)| n.as_str()).collect();
                     return Err(TypeError::with_help(
                         variant.span,
@@ -641,22 +688,20 @@ impl Checker {
                         format!("available variants: {}", listed.join(", ")),
                     ));
                 };
-                if binds.len() != fields.len() {
+                if sub_pats.len() != field_types.len() {
                     return Err(TypeError::with_help(
                         *span,
                         format!(
                             "variant `{}` expects {} field(s), got {}",
                             variant.name,
-                            fields.len(),
-                            binds.len()
+                            field_types.len(),
+                            sub_pats.len()
                         ),
-                        "bind each tuple field, or use `_` for a field you do not need",
+                        "match each tuple field, or use `_` for a field you do not need",
                     ));
                 }
-                for (b, ft) in binds.iter().zip(fields.iter()) {
-                    if b.name != "_" {
-                        self.define(b.name.clone(), ft.clone());
-                    }
+                for (sub_pat, ft) in sub_pats.iter().zip(field_types.iter()) {
+                    self.bind_pattern(sub_pat, ft)?;
                 }
                 Ok(())
             }
@@ -669,6 +714,7 @@ impl Checker {
         arms: &[flake_ast::MatchArm],
         span: Span,
     ) -> Result<(), TypeError> {
+        let resolved_scrut = self.resolve(scrut_ty).without_ownership();
         let mut catch_all = false;
         let mut seen = HashSet::new();
         for arm in arms {
@@ -680,7 +726,27 @@ impl Checker {
                 ));
             }
             match &arm.pattern {
-                flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_) => {
+                flake_ast::Pattern::Wildcard { .. } => {
+                    catch_all = true;
+                }
+                flake_ast::Pattern::Ident(id) => {
+                    if let Type::Enum { variants, .. } = &resolved_scrut {
+                        if id.name.chars().next().is_some_and(|c| c.is_uppercase())
+                            && variants.iter().any(|(v, f)| v == &id.name && f.is_empty())
+                        {
+                            // It's a 0-field variant match
+                            if let Some(key) = pattern_key(&arm.pattern) {
+                                if !seen.insert(key) {
+                                    return Err(TypeError::with_help(
+                                        arm.span,
+                                        "unreachable duplicate match arm",
+                                        "remove the duplicate pattern",
+                                    ));
+                                }
+                            }
+                            continue;
+                        }
+                    }
                     catch_all = true;
                 }
                 pattern => {
@@ -699,15 +765,22 @@ impl Checker {
         if catch_all {
             return Ok(());
         }
-        match self.resolve(scrut_ty).without_ownership() {
+        match resolved_scrut {
             Type::Enum { name, variants } => {
-                let covered: HashSet<&str> = arms
-                    .iter()
-                    .filter_map(|arm| match &arm.pattern {
-                        flake_ast::Pattern::Variant { variant, .. } => Some(variant.name.as_str()),
-                        _ => None,
-                    })
-                    .collect();
+                let mut covered = HashSet::new();
+                for arm in arms {
+                    match &arm.pattern {
+                        flake_ast::Pattern::Variant { variant, .. } => {
+                            covered.insert(variant.name.as_str());
+                        }
+                        flake_ast::Pattern::Ident(id) => {
+                            if variants.iter().any(|(v, f)| v == &id.name && f.is_empty()) {
+                                covered.insert(id.name.as_str());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 let missing: Vec<&str> = variants
                     .iter()
                     .map(|(n, _)| n.as_str())
@@ -1990,12 +2063,56 @@ fn pattern_key(pattern: &flake_ast::Pattern) -> Option<String> {
             Literal::Float(value) => format!("literal:float:{}", value.to_bits()),
             Literal::String(value) => format!("literal:string:{value:?}"),
         }),
-        flake_ast::Pattern::Variant { ty, variant, .. } => Some(format!(
-            "variant:{}:{}",
-            ty.as_ref().map_or("", |name| name.name.as_str()),
-            variant.name
-        )),
-        flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_) => None,
+        flake_ast::Pattern::Variant {
+            ty,
+            variant,
+            fields,
+            ..
+        } => {
+            let mut key = format!(
+                "variant:{}:{}",
+                ty.as_ref().map_or("", |name| name.name.as_str()),
+                variant.name
+            );
+            if !fields.is_empty() {
+                key.push('(');
+                for (i, f) in fields.iter().enumerate() {
+                    if i > 0 {
+                        key.push(',');
+                    }
+                    if let Some(sk) = pattern_key(f) {
+                        key.push_str(&sk);
+                    } else {
+                        key.push('_');
+                    }
+                }
+                key.push(')');
+            }
+            Some(key)
+        }
+        flake_ast::Pattern::List { patterns, .. } => {
+            let mut key = "list:[".to_string();
+            for (i, p) in patterns.iter().enumerate() {
+                if i > 0 {
+                    key.push(',');
+                }
+                if let Some(sk) = pattern_key(p) {
+                    key.push_str(&sk);
+                } else {
+                    key.push('_');
+                }
+            }
+            key.push(']');
+            Some(key)
+        }
+        flake_ast::Pattern::Wildcard { .. } => None,
+        flake_ast::Pattern::Ident(id) => {
+            if id.name.chars().next().is_some_and(|c| c.is_uppercase()) {
+                Some(format!("variant::_:{}", id.name))
+            } else {
+                None
+            }
+        }
     }
 }
 

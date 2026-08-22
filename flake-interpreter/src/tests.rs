@@ -456,6 +456,68 @@ print(len(map))
 }
 
 #[test]
+fn nested_and_list_pattern_matching() {
+    let (_, out) = run(r#"
+enum Inner {
+    Leaf(Int)
+    Empty
+}
+
+enum Tree {
+    Node(Inner, Inner)
+    Single(Inner)
+}
+
+fn describe_tree(t: Tree) -> String {
+    match t {
+        Tree.Node(Inner.Leaf(a), Inner.Leaf(b)) => "leaves: {a}, {b}"
+        Tree.Node(Inner.Leaf(a), Inner.Empty) => "left only: {a}"
+        Tree.Node(_, _) => "other node"
+        Tree.Single(Inner.Leaf(x)) => "single leaf: {x}"
+        Tree.Single(Inner.Empty) => "single empty"
+    }
+}
+
+fn describe_list(xs: [Int]) -> String {
+    match xs {
+        [0, y] => "zero and {y}"
+        [a, b] => "pair: {a}, {b}"
+        _ => "other list"
+    }
+}
+
+fn main() {
+    let t1 = Tree.Node(Inner.Leaf(10), Inner.Leaf(20))
+    let t2 = Tree.Node(Inner.Leaf(5), Inner.Empty)
+    let t3 = Tree.Single(Inner.Leaf(99))
+    let t4 = Tree.Single(Inner.Empty)
+
+    print(describe_tree(t1))
+    print(describe_tree(t2))
+    print(describe_tree(t3))
+    print(describe_tree(t4))
+
+    print(describe_list([0, 42]))
+    print(describe_list([7, 8]))
+    print(describe_list([1, 2, 3]))
+}
+"#);
+    assert_eq!(
+        out,
+        concat!(
+            "leaves: 10, 20\n",
+            "left only: 5\n",
+            "single leaf: 99\n",
+            "single empty\n",
+            "zero and 42\n",
+            "pair: 7, 8\n",
+            "other list\n",
+        )
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+

@@ -1664,9 +1664,40 @@ fn match_pattern(
         flake_ast::Pattern::Literal { value: literal, .. } => {
             literal_value(literal).equals(value).then(Vec::new)
         }
-        flake_ast::Pattern::Ident(id) => Some(vec![(id.name.clone(), value.clone())]),
+        flake_ast::Pattern::Ident(id) => {
+            if let Value::Enum {
+                variant, fields, ..
+            } = value
+            {
+                if id.name.chars().next().is_some_and(|c| c.is_uppercase())
+                    && variant.as_ref() == id.name
+                    && fields.is_empty()
+                {
+                    return Some(Vec::new());
+                }
+            }
+            Some(vec![(id.name.clone(), value.clone())])
+        }
+        flake_ast::Pattern::List { patterns, .. } => match value {
+            Value::List(items) => {
+                let items = items.borrow();
+                if items.len() != patterns.len() {
+                    return None;
+                }
+                let mut all_binds = Vec::new();
+                for (sub_pat, item) in patterns.iter().zip(items.iter()) {
+                    let binds = match_pattern(sub_pat, item, env)?;
+                    all_binds.extend(binds);
+                }
+                Some(all_binds)
+            }
+            _ => None,
+        },
         flake_ast::Pattern::Variant {
-            ty, variant, binds, ..
+            ty,
+            variant,
+            fields: sub_pats,
+            ..
         } => match value {
             Value::Enum {
                 type_name,
@@ -1695,17 +1726,15 @@ fn match_pattern(
                 if vname.as_ref() != variant.name {
                     return None;
                 }
-                if binds.len() != fields.len() {
+                if sub_pats.len() != fields.len() {
                     return None;
                 }
-                Some(
-                    binds
-                        .iter()
-                        .zip(fields.iter())
-                        .filter(|(bind, _)| bind.name != "_")
-                        .map(|(b, f)| (b.name.clone(), f.clone()))
-                        .collect(),
-                )
+                let mut all_binds = Vec::new();
+                for (sub_pat, field_val) in sub_pats.iter().zip(fields.iter()) {
+                    let binds = match_pattern(sub_pat, field_val, env)?;
+                    all_binds.extend(binds);
+                }
+                Some(all_binds)
             }
             _ => None,
         },

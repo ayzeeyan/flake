@@ -333,9 +333,26 @@ pub enum Pattern {
     Variant {
         ty: Option<Ident>,
         variant: Ident,
-        binds: Vec<Ident>,
+        fields: Vec<Pattern>,
         span: Span,
     },
+    List {
+        patterns: Vec<Pattern>,
+        span: Span,
+    },
+}
+
+impl Pattern {
+    #[must_use]
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Wildcard { span }
+            | Self::Literal { span, .. }
+            | Self::Variant { span, .. }
+            | Self::List { span, .. } => *span,
+            Self::Ident(id) => id.span,
+        }
+    }
 }
 
 impl Expr {

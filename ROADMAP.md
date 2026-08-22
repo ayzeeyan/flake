@@ -1,10 +1,29 @@
 # Flake Roadmap
 
-**Flake v0.5.2 is complete.** All five milestones are done. Theme: **Further stability, richer standard library, and practical usability**.
+**Flake v0.5.5 development is in progress.** Theme: **Meaningful language expansion + deeper reliability**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.5.2 milestones
+## v0.5.5 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Enums and basic pattern matching (frontend + interpreter) | **done** |
+| 2 | Enums and pattern matching on the bytecode VM | in progress |
+| 3 | Native x86-64 support for enums and pattern matching | planned |
+| 4 | Stdlib growth and better error-handling ergonomics | planned |
+| 5 | Examples, expanded testing and consistency | planned |
+| 6 | Flake v0.5.5 complete | planned |
+
+## What v0.5.5 milestone 1 delivers
+
+- Algebraic data types and rich pattern matching across frontend and interpreter:
+  - Extended `Pattern` AST with recursive subpatterns in `Pattern::Variant { ty, variant, fields: Vec<Pattern> }` and `Pattern::List { patterns: Vec<Pattern> }`.
+  - Recursive pattern binding and exhaustiveness validation with diagnostics for missing enum variants and unreachable match arms.
+  - Tree-walking interpreter support for nested enum variant destructuring, list pattern matching, wildcard matching, and 0-field unit variant matching.
+  - Comprehensive unit tests covering nested patterns, list patterns, and diagnostic messages in `flake-interpreter` and `flake-types`.
+
+## v0.5.2 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
