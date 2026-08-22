@@ -9,8 +9,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Strengthened concurrency (conc effect improvements) | **done** |
-| 2 | Package manager foundations (local packages + manifests) | in progress |
-| 3 | IR and native backend optimizations | planned |
+| 2 | Package manager foundations (local packages + manifests) | **done** |
+| 3 | IR and native backend optimizations | in progress |
 | 4 | Integration, examples and expanded testing | planned |
 | 5 | Flake v0.5.6 complete | planned |
 
@@ -22,6 +22,17 @@ There is no LLVM, Cranelift, or C transpilation.
   - Strict single-join runtime verification on Native x86-64: attempting to await an already-joined task raises a runtime error (`"task was already awaited"`), achieving 100% parity across Interpreter, VM, and Native backends.
   - Updated `backend_consistency.rs` and `flake-codegen` test suites verifying task errors on all three backends.
   - Updated `docs/concurrency.md` to reflect the strengthened native task runtime contract.
+
+## What v0.5.6 milestone 2 delivers
+
+- Package manager foundations and manifest-driven multi-package project support:
+  - Package manifest format (`flake.toml`) declaring `[package]` metadata (`name`, `version`, `entry`, `authors`, `description`) and `[dependencies]` (`dep = { path = "..." }`).
+  - Integrated local package dependency resolution in `flake-parser::resolve`: packages can import dependencies and nested submodules (`import dep.sub`) cleanly.
+  - Extended CLI with package-aware commands:
+    - `flake init [--name <name>]`: initializes a new `flake.toml` and entry file in current directory.
+    - `flake new <path>`: creates a new package project structure with `flake.toml` and entry file.
+    - `flake run`, `flake check`, `flake build`, `flake ir`: automatic discovery and execution of `flake.toml` root packages or targeted package directories.
+  - Integration tests in `flake-parser` and `flake-cli` verifying multi-package resolution.
 
 ## v0.5.5 milestones (complete)
 

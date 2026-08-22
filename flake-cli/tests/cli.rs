@@ -305,3 +305,35 @@ fn build_rejects_type_errors_before_writing_artifacts() {
 
     let _ = std::fs::remove_file(source);
 }
+
+#[test]
+fn package_new_and_run() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let pkg_dir = std::env::temp_dir().join(format!("flake-pkg-test-{nonce}"));
+
+    // 1. flake new <dir>
+    let output = flake_bin()
+        .arg("new")
+        .arg(&pkg_dir)
+        .output()
+        .expect("flake new");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(pkg_dir.join("flake.toml").is_file());
+    assert!(pkg_dir.join("main.flk").is_file());
+
+    // 2. flake run <dir>
+    let run_out = flake_bin()
+        .arg("run")
+        .arg(&pkg_dir)
+        .output()
+        .expect("flake run package dir");
+    assert!(run_out.status.success(), "stderr: {}", String::from_utf8_lossy(&run_out.stderr));
+    let stdout = String::from_utf8_lossy(&run_out.stdout);
+    assert!(stdout.contains("Hello from"), "stdout: {stdout}");
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&pkg_dir);
+}

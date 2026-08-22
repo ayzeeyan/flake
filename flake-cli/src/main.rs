@@ -32,10 +32,10 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Run a Flake program
+    /// Run a Flake program or local package
     Run {
-        /// Path to a `.flk` source file
-        file: PathBuf,
+        /// Path to a `.flk` source file or package directory (default: current package)
+        file: Option<PathBuf>,
         /// Skip the type checker and run anyway
         #[arg(long)]
         skip_check: bool,
@@ -46,10 +46,10 @@ enum Commands {
         #[arg(long, conflicts_with = "vm")]
         native: bool,
     },
-    /// Compile a Flake program to a native x86-64 executable
+    /// Compile a Flake program or local package to a native x86-64 executable
     Build {
-        /// Path to a `.flk` source file
-        file: PathBuf,
+        /// Path to a `.flk` source file or package directory (default: current package)
+        file: Option<PathBuf>,
         /// Output path (default: `<stem>.exe`)
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -57,15 +57,26 @@ enum Commands {
         #[arg(long)]
         emit_asm: bool,
     },
-    /// Type-check a Flake program without running it
+    /// Type-check a Flake program or local package without running it
     Check {
-        /// Path to a `.flk` source file
-        file: PathBuf,
+        /// Path to a `.flk` source file or package directory (default: current package)
+        file: Option<PathBuf>,
     },
-    /// Dump Flake IR for a program
+    /// Dump Flake IR for a program or local package
     Ir {
-        /// Path to a `.flk` source file
-        file: PathBuf,
+        /// Path to a `.flk` source file or package directory (default: current package)
+        file: Option<PathBuf>,
+    },
+    /// Initialize a new Flake package in the current directory
+    Init {
+        /// Package name (default: current directory name)
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Create a new Flake package directory
+    New {
+        /// Path for the new package directory
+        path: PathBuf,
     },
     /// Start an interactive Flake REPL
     Repl,
@@ -79,19 +90,162 @@ fn main() -> ExitCode {
             skip_check,
             vm,
             native,
-        } => run_file(&file, skip_check, vm, native),
+        } => match resolve_target_path(file.as_ref()) {
+            Ok(target) => run_file(&target, skip_check, vm, native),
+            Err(code) => code,
+        },
         Commands::Build {
             file,
             output,
             emit_asm,
-        } => build_file(&file, output, emit_asm),
-        Commands::Check { file } => check_file(&file),
-        Commands::Ir { file } => dump_ir(&file),
+        } => match resolve_target_path(file.as_ref()) {
+            Ok(target) => build_file(&target, output, emit_asm),
+            Err(code) => code,
+        },
+        Commands::Check { file } => match resolve_target_path(file.as_ref()) {
+            Ok(target) => check_file(&target),
+            Err(code) => code,
+        },
+        Commands::Ir { file } => match resolve_target_path(file.as_ref()) {
+            Ok(target) => dump_ir(&target),
+            Err(code) => code,
+        },
+        Commands::Init { name } => init_package(name),
+        Commands::New { path } => new_package(&path),
         Commands::Repl => {
             let code = repl::run();
             ExitCode::from(code as u8)
         }
     }
+}
+
+fn resolve_target_path(path: Option<&PathBuf>) -> Result<PathBuf, ExitCode> {
+    if let Some(path) = path {
+        if path.is_dir() {
+            if let Some((dir, manifest)) = flake_parser::Manifest::find_in_ancestors(path) {
+                return Ok(dir.join(&manifest.package.entry));
+            }
+            let default_main = path.join("main.flk");
+            if default_main.is_file() {
+                return Ok(default_main);
+            }
+            report::emit_message(&format!(
+                "no flake.toml or main.flk found in {}",
+                path.display()
+            ));
+            return Err(ExitCode::from(1));
+        }
+        if path.file_name().and_then(|n| n.to_str()) == Some("flake.toml") {
+            if let Some((dir, manifest)) = flake_parser::Manifest::find_in_ancestors(path) {
+                return Ok(dir.join(&manifest.package.entry));
+            }
+        }
+        Ok(path.clone())
+    } else {
+        let cur = PathBuf::from(".");
+        if let Some((dir, manifest)) = flake_parser::Manifest::find_in_ancestors(&cur) {
+            return Ok(dir.join(&manifest.package.entry));
+        }
+        let default_main = PathBuf::from("main.flk");
+        if default_main.is_file() {
+            return Ok(default_main);
+        }
+        report::emit_message("no input file specified and no flake.toml found in current directory");
+        Err(ExitCode::from(1))
+    }
+}
+
+fn init_package(name_override: Option<String>) -> ExitCode {
+    let cur_dir = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            report::emit_message(&format!("failed to get current directory: {e}"));
+            return ExitCode::from(1);
+        }
+    };
+    let name = name_override.unwrap_or_else(|| {
+        cur_dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("app")
+            .to_string()
+    });
+    let manifest_path = cur_dir.join("flake.toml");
+    if manifest_path.exists() {
+        report::emit_message(&format!(
+            "package manifest already exists at {}",
+            manifest_path.display()
+        ));
+        return ExitCode::from(1);
+    }
+    let manifest_content = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+entry = "main.flk"
+
+[dependencies]
+"#
+    );
+    if let Err(e) = fs::write(&manifest_path, manifest_content) {
+        report::emit_message(&format!("failed to write {}: {e}", manifest_path.display()));
+        return ExitCode::from(1);
+    }
+    let main_path = cur_dir.join("main.flk");
+    if !main_path.exists() {
+        let main_content = format!(
+            "fn main() / io {{\n    print(\"Hello from {name}!\")\n}}\n"
+        );
+        if let Err(e) = fs::write(&main_path, main_content) {
+            report::emit_message(&format!("failed to write {}: {e}", main_path.display()));
+            return ExitCode::from(1);
+        }
+    }
+    println!("Initialized package `{name}` in {}", cur_dir.display());
+    ExitCode::SUCCESS
+}
+
+fn new_package(path: &PathBuf) -> ExitCode {
+    if path.exists() && fs::read_dir(path).map(|mut d| d.next().is_some()).unwrap_or(false) {
+        report::emit_message(&format!(
+            "destination `{}` already exists and is not empty",
+            path.display()
+        ));
+        return ExitCode::from(1);
+    }
+    if let Err(e) = fs::create_dir_all(path) {
+        report::emit_message(&format!("failed to create directory `{}`: {e}", path.display()));
+        return ExitCode::from(1);
+    }
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("app")
+        .to_string();
+    let manifest_path = path.join("flake.toml");
+    let manifest_content = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+entry = "main.flk"
+
+[dependencies]
+"#
+    );
+    if let Err(e) = fs::write(&manifest_path, manifest_content) {
+        report::emit_message(&format!("failed to write {}: {e}", manifest_path.display()));
+        return ExitCode::from(1);
+    }
+    let main_path = path.join("main.flk");
+    let main_content = format!(
+        "fn main() / io {{\n    print(\"Hello from {name}!\")\n}}\n"
+    );
+    if let Err(e) = fs::write(&main_path, main_content) {
+        report::emit_message(&format!("failed to write {}: {e}", main_path.display()));
+        return ExitCode::from(1);
+    }
+    println!("Created package `{name}` at {}", path.display());
+    ExitCode::SUCCESS
 }
 
 fn emit_check_error(entry: &Source, err: &flake_types::CheckError) {

@@ -265,7 +265,12 @@ fn load_one(
                 .with_source(source.clone())
             })?;
             let child = Source::new(resolved.path.display().to_string(), text);
-            load_one(child, resolved.name, project_root, modules, imports, stack)?;
+            let next_root = if resolved.path.starts_with(project_root) {
+                project_root
+            } else {
+                resolved.path.parent().unwrap_or(project_root)
+            };
+            load_one(child, resolved.name, next_root, modules, imports, stack)?;
         }
     }
     stack.pop();
@@ -323,6 +328,76 @@ struct ResolvedModule {
 fn find_module(importer: &str, module: &str, project_root: &Path) -> Option<ResolvedModule> {
     let relative = module_relative_path(module);
     let importer_dir = source_dir(importer);
+
+    // 0. Package Manifest Dependency Lookup (flake.toml)
+    if let Some((manifest_dir, manifest)) = crate::manifest::Manifest::find_in_ancestors(&importer_dir) {
+        let (root_pkg, rest) = match module.split_once('.') {
+            Some((first, rest)) => (first, Some(rest)),
+            None => (module, None),
+        };
+
+        if let Some(dep_path) = manifest.resolve_dependency_path(&manifest_dir, root_pkg) {
+            if let Some((dep_manifest_dir, dep_manifest)) = crate::manifest::Manifest::find_in_ancestors(&dep_path) {
+                if let Some(sub) = rest {
+                    let sub_rel = module_relative_path(sub);
+                    let candidate = dep_manifest_dir.join(&sub_rel);
+                    if candidate.is_file() {
+                        return Some(ResolvedModule {
+                            name: format!("{root_pkg}.{sub}"),
+                            path: candidate,
+                        });
+                    }
+                    let candidate_src = dep_manifest_dir.join("src").join(&sub_rel);
+                    if candidate_src.is_file() {
+                        return Some(ResolvedModule {
+                            name: format!("{root_pkg}.{sub}"),
+                            path: candidate_src,
+                        });
+                    }
+                } else {
+                    let entry = dep_manifest_dir.join(&dep_manifest.package.entry);
+                    if entry.is_file() {
+                        return Some(ResolvedModule {
+                            name: root_pkg.to_string(),
+                            path: entry,
+                        });
+                    }
+                }
+            } else if let Some(sub) = rest {
+                let sub_rel = module_relative_path(sub);
+                let candidate = dep_path.join(&sub_rel);
+                if candidate.is_file() {
+                    return Some(ResolvedModule {
+                        name: format!("{root_pkg}.{sub}"),
+                        path: candidate,
+                    });
+                }
+            } else {
+                if dep_path.is_file() {
+                    return Some(ResolvedModule {
+                        name: root_pkg.to_string(),
+                        path: dep_path,
+                    });
+                }
+                for name in ["main.flk", "lib.flk", "index.flk"] {
+                    let candidate = dep_path.join(name);
+                    if candidate.is_file() {
+                        return Some(ResolvedModule {
+                            name: root_pkg.to_string(),
+                            path: candidate,
+                        });
+                    }
+                }
+                let flk_candidate = dep_path.with_extension("flk");
+                if flk_candidate.is_file() {
+                    return Some(ResolvedModule {
+                        name: root_pkg.to_string(),
+                        path: flk_candidate,
+                    });
+                }
+            }
+        }
+    }
 
     // 1. Sibling or importer-relative lookup (e.g. `import math` or `import sub.module`)
     let importer_relative = importer_dir.join(&relative);
@@ -577,5 +652,56 @@ mod tests {
                 .as_ref()
                 .is_some_and(|source| source.name().ends_with("b.flk"))
         );
+    }
+
+    #[test]
+    fn package_manifest_resolves_local_dependencies() {
+        let root = TempProject::new("pkg-deps");
+        // Create math library package
+        root.write(
+            "libs/math_pkg/flake.toml",
+            r#"
+[package]
+name = "math_pkg"
+version = "0.1.0"
+entry = "src/lib.flk"
+"#,
+        );
+        root.write(
+            "libs/math_pkg/src/lib.flk",
+            "pub fn add(a: Int, b: Int) -> Int { a + b }\npub fn mul(a: Int, b: Int) -> Int { a * b }",
+        );
+
+        // Create main app package
+        root.write(
+            "app/flake.toml",
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+entry = "main.flk"
+
+[dependencies]
+math = { path = "../libs/math_pkg" }
+"#,
+        );
+        let main_path = root.write(
+            "app/main.flk",
+            r#"
+import math
+
+fn main() {
+    let sum = math.add(10, 20)
+    let prod = math.mul(3, 4)
+    print(sum)
+    print(prod)
+}
+"#,
+        );
+
+        let text = fs::read_to_string(&main_path).expect("read main");
+        let graph = load_graph(&Source::new(main_path.display().to_string(), text)).expect("load");
+        assert!(graph.get("math").is_some(), "expected module `math` in graph");
+        assert_eq!(graph.modules.len(), 2);
     }
 }
