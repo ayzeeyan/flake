@@ -313,6 +313,100 @@ fn native_enums_and_match() {
 }
 
 #[test]
+fn native_result_try_and_literal_patterns() {
+    let out = run_native(&src(r#"
+enum Result { Ok(Int) Err(String) }
+fn source(ok: Bool) -> Result {
+    if ok { Result.Ok(40) } else { Result.Err("missing") }
+}
+fn add_two(ok: Bool) -> Result {
+    let value = source(ok)?
+    Result.Ok(value + 2)
+}
+fn show(result: Result) -> String {
+    match result {
+        Result.Ok(value) => "ok {value}"
+        Result.Err(message) => "err {message}"
+    }
+}
+fn classify(value: Int) -> String {
+    match value { 0 => "zero" 42 => "answer" _ => "other" }
+}
+fn main() {
+    print(show(add_two(true)))
+    print(show(add_two(false)))
+    print(classify(42))
+}
+"#))
+    .expect("result and literal patterns native");
+    assert_eq!(out, "ok 42\nerr missing\nanswer\n");
+}
+
+#[test]
+fn native_result_payload_types_survive_try_and_match() {
+    let out = run_native(&src(r#"
+enum TextResult { Ok(String) Err(String) }
+enum FlagResult { Ok(Bool) Err(String) }
+
+fn text_source(ok: Bool) -> TextResult {
+    if ok { TextResult.Ok("flake") } else { TextResult.Err("missing text") }
+}
+fn classify_text(ok: Bool) -> TextResult {
+    let text = text_source(ok)?
+    TextResult.Ok(match text { "flake" => "snow" _ => "other" })
+}
+fn show_text(result: TextResult) -> String {
+    match result {
+        TextResult.Ok(value) => value
+        TextResult.Err(message) => message
+    }
+}
+
+fn flag_source() -> FlagResult { FlagResult.Ok(true) }
+fn flip_flag() -> FlagResult {
+    let flag = flag_source()?
+    FlagResult.Ok(match flag { true => false false => true })
+}
+fn show_flag(result: FlagResult) -> String {
+    match result {
+        FlagResult.Ok(value) => "flag {value}"
+        FlagResult.Err(message) => message
+    }
+}
+
+fn main() {
+    print(show_text(classify_text(true)))
+    print(show_text(classify_text(false)))
+    print(show_flag(flip_flag()))
+}
+"#))
+    .expect("typed result payloads native");
+    assert_eq!(out, "snow\nmissing text\nflag false\n");
+}
+
+#[test]
+fn native_int_maps_and_membership() {
+    let out = run_native(&src(r#"
+fn main() {
+    let values = { 1: "one", 2: "two" }
+    print(values[1])
+    values[2] = "second"
+    print(values[2])
+    print(contains(values, 1))
+    print(contains(values, 3))
+    print(values)
+    let flags = { false: "off", true: "on" }
+    print(flags)
+}
+"#))
+    .expect("integer map native");
+    assert_eq!(
+        out,
+        "one\nsecond\ntrue\nfalse\n{1: \"one\", 2: \"second\"}\n{false: \"off\", true: \"on\"}\n"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

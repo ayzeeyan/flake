@@ -9,6 +9,35 @@ use crate::opcode::Chunk;
 
 pub type TaskRef = Rc<RefCell<TaskState>>;
 
+/// A map key with preserved runtime identity.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    String(Rc<str>),
+    Int(i64),
+    Bool(bool),
+}
+
+impl MapKey {
+    #[must_use]
+    pub fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::String(value) => Some(Self::String(value.clone())),
+            Value::Int(value) => Some(Self::Int(*value)),
+            Value::Bool(value) => Some(Self::Bool(*value)),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn repr(&self) -> String {
+        match self {
+            Self::String(value) => format!("{value:?}"),
+            Self::Int(value) => value.to_string(),
+            Self::Bool(value) => value.to_string(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum Value {
     Nil,
@@ -17,7 +46,7 @@ pub enum Value {
     Float(f64),
     String(Rc<str>),
     List(Rc<RefCell<Vec<Value>>>),
-    Map(Rc<RefCell<HashMap<String, Value>>>),
+    Map(Rc<RefCell<HashMap<MapKey, Value>>>),
     Struct {
         name: Rc<str>,
         fields: Rc<RefCell<HashMap<String, Value>>>,
@@ -211,10 +240,11 @@ impl Value {
             }
             Self::Map(map) => {
                 let map = map.borrow();
-                let inner: Vec<_> = map
+                let mut inner: Vec<_> = map
                     .iter()
-                    .map(|(k, v)| format!("{k:?}: {}", v.repr()))
+                    .map(|(k, v)| format!("{}: {}", k.repr(), v.repr()))
                     .collect();
+                inner.sort();
                 format!("{{{}}}", inner.join(", "))
             }
             Self::Struct { name, fields } => {

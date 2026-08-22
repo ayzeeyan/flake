@@ -294,29 +294,7 @@ impl<'a> FnCompiler<'a> {
     fn compile_expr(&mut self, expr: &Expr) -> Result<(), VmError> {
         match expr {
             Expr::Literal { value, .. } => {
-                match value {
-                    Literal::Nil => {
-                        self.chunk.emit(Op::Nil);
-                    }
-                    Literal::Bool(true) => {
-                        self.chunk.emit(Op::True);
-                    }
-                    Literal::Bool(false) => {
-                        self.chunk.emit(Op::False);
-                    }
-                    Literal::Int(n) => {
-                        let c = self.chunk.add_constant(Value::Int(*n));
-                        self.chunk.emit(Op::Constant(c));
-                    }
-                    Literal::Float(n) => {
-                        let c = self.chunk.add_constant(Value::Float(*n));
-                        self.chunk.emit(Op::Constant(c));
-                    }
-                    Literal::String(s) => {
-                        let c = self.chunk.add_constant(Value::from_string(s.clone()));
-                        self.chunk.emit(Op::Constant(c));
-                    }
-                }
+                self.emit_literal(value);
                 Ok(())
             }
             Expr::Ident(id) => {
@@ -484,6 +462,7 @@ impl<'a> FnCompiler<'a> {
                 self.chunk.emit(Op::Await);
                 Ok(())
             }
+            Expr::Try { expr, .. } => self.compile_try(expr),
             Expr::Index { target, index, .. } => {
                 self.compile_expr(target)?;
                 self.compile_expr(index)?;
@@ -543,6 +522,67 @@ impl<'a> FnCompiler<'a> {
         }
     }
 
+    fn emit_literal(&mut self, value: &Literal) {
+        match value {
+            Literal::Nil => {
+                self.chunk.emit(Op::Nil);
+            }
+            Literal::Bool(true) => {
+                self.chunk.emit(Op::True);
+            }
+            Literal::Bool(false) => {
+                self.chunk.emit(Op::False);
+            }
+            Literal::Int(value) => {
+                let constant = self.chunk.add_constant(Value::Int(*value));
+                self.chunk.emit(Op::Constant(constant));
+            }
+            Literal::Float(value) => {
+                let constant = self.chunk.add_constant(Value::Float(*value));
+                self.chunk.emit(Op::Constant(constant));
+            }
+            Literal::String(value) => {
+                let constant = self.chunk.add_constant(Value::from_string(value.clone()));
+                self.chunk.emit(Op::Constant(constant));
+            }
+        }
+    }
+
+    fn compile_try(&mut self, expr: &Expr) -> Result<(), VmError> {
+        self.compile_expr(expr)?;
+        self.push_scope();
+        let src_slot = self.add_local("__try_result".into());
+        self.chunk.emit(Op::SetLocal(src_slot));
+        self.chunk.emit(Op::Pop);
+
+        self.chunk.emit(Op::GetLocal(src_slot));
+        let tag_index = self.chunk.add_constant(Value::Int(0));
+        self.chunk.emit(Op::Constant(tag_index));
+        self.chunk.emit(Op::GetIndex);
+        let ok_tag = self.chunk.add_constant(Value::Int(0));
+        self.chunk.emit(Op::Constant(ok_tag));
+        self.chunk.emit(Op::Eq);
+        let propagate = self.chunk.emit(Op::JumpIfFalse(0));
+        self.chunk.emit(Op::Pop);
+
+        self.chunk.emit(Op::GetLocal(src_slot));
+        let value_index = self.chunk.add_constant(Value::Int(1));
+        self.chunk.emit(Op::Constant(value_index));
+        self.chunk.emit(Op::GetIndex);
+        let done = self.chunk.emit(Op::Jump(0));
+
+        let propagate_target = self.chunk.ops.len();
+        self.chunk.patch_jump(propagate, propagate_target);
+        self.chunk.emit(Op::Pop);
+        self.chunk.emit(Op::GetLocal(src_slot));
+        self.chunk.emit(Op::Return);
+
+        let done_target = self.chunk.ops.len();
+        self.chunk.patch_jump(done, done_target);
+        self.pop_scope();
+        Ok(())
+    }
+
     fn compile_match(&mut self, scrutinee: &Expr, arms: &[MatchArm]) -> Result<(), VmError> {
         if arms.is_empty() {
             self.chunk.emit(Op::Nil);
@@ -554,19 +594,8 @@ impl<'a> FnCompiler<'a> {
         self.chunk.emit(Op::SetLocal(src_slot));
         self.chunk.emit(Op::Pop);
 
-        self.chunk.emit(Op::GetLocal(src_slot));
-        let zero = self.chunk.add_constant(Value::Int(0));
-        self.chunk.emit(Op::Constant(zero));
-        self.chunk.emit(Op::GetIndex);
-        let tag_slot = self.add_local("__match_tag".into());
-        self.chunk.emit(Op::SetLocal(tag_slot));
-        self.chunk.emit(Op::Pop);
-
         let mut end_jumps = Vec::new();
-        let mut last_was_variant = false;
-        for (i, arm) in arms.iter().enumerate() {
-            let last = i + 1 == arms.len();
-            last_was_variant = false;
+        for arm in arms {
             match &arm.pattern {
                 Pattern::Wildcard { .. } | Pattern::Ident(_) => {
                     self.push_scope();
@@ -578,14 +607,26 @@ impl<'a> FnCompiler<'a> {
                     }
                     self.compile_expr(&arm.body)?;
                     self.pop_scope();
-                    if !last {
-                        end_jumps.push(self.chunk.emit(Op::Jump(0)));
-                    }
+                    end_jumps.push(self.chunk.emit(Op::Jump(0)));
+                    break;
+                }
+                Pattern::Literal { value, .. } => {
+                    self.chunk.emit(Op::GetLocal(src_slot));
+                    self.emit_literal(value);
+                    self.chunk.emit(Op::Eq);
+                    let miss = self.chunk.emit(Op::JumpIfFalse(0));
+                    self.chunk.emit(Op::Pop);
+                    self.push_scope();
+                    self.compile_expr(&arm.body)?;
+                    self.pop_scope();
+                    end_jumps.push(self.chunk.emit(Op::Jump(0)));
+                    let miss_target = self.chunk.ops.len();
+                    self.chunk.patch_jump(miss, miss_target);
+                    self.chunk.emit(Op::Pop);
                 }
                 Pattern::Variant {
                     variant, binds, ty, ..
                 } => {
-                    last_was_variant = true;
                     let ename = ty.as_ref().map(|t| t.name.as_str()).unwrap_or("");
                     let tag_val = self
                         .names
@@ -593,7 +634,10 @@ impl<'a> FnCompiler<'a> {
                         .get(ename)
                         .and_then(|vs| vs.iter().position(|n| n == &variant.name))
                         .unwrap_or(0) as i64;
-                    self.chunk.emit(Op::GetLocal(tag_slot));
+                    self.chunk.emit(Op::GetLocal(src_slot));
+                    let tag_index = self.chunk.add_constant(Value::Int(0));
+                    self.chunk.emit(Op::Constant(tag_index));
+                    self.chunk.emit(Op::GetIndex);
                     let want = self.chunk.add_constant(Value::Int(tag_val));
                     self.chunk.emit(Op::Constant(want));
                     self.chunk.emit(Op::Eq);
@@ -601,6 +645,9 @@ impl<'a> FnCompiler<'a> {
                     self.chunk.emit(Op::Pop);
                     self.push_scope();
                     for (fi, bind) in binds.iter().enumerate() {
+                        if bind.name == "_" {
+                            continue;
+                        }
                         self.chunk.emit(Op::GetLocal(src_slot));
                         let idx = self.chunk.add_constant(Value::Int((fi + 1) as i64));
                         self.chunk.emit(Op::Constant(idx));
@@ -618,9 +665,7 @@ impl<'a> FnCompiler<'a> {
                 }
             }
         }
-        if last_was_variant {
-            self.chunk.emit(Op::Nil);
-        }
+        self.chunk.emit(Op::Nil);
         let end = self.chunk.ops.len();
         for jump in end_jumps {
             self.chunk.patch_jump(jump, end);

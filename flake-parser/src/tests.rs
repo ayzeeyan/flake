@@ -304,6 +304,51 @@ fn spawn_requires_a_call() {
 }
 
 #[test]
+fn result_try_and_literal_patterns_parse() {
+    let program = parse_ok(
+        r#"
+enum Result { Ok(Int) Err(String) }
+fn parse() -> Result { Result.Ok(42) }
+fn use_it() -> Result {
+    let value = parse()?
+    match value {
+        -1 => Result.Err("negative")
+        42 => Result.Ok(value)
+        _ => Result.Err("other")
+    }
+}
+"#,
+    );
+    let Item::Fn(use_it) = &program.items[2] else {
+        panic!("expected use_it function");
+    };
+    assert!(matches!(
+        use_it.body.stmts.as_slice(),
+        [Stmt::Let(s)] if matches!(s.value, Expr::Try { .. })
+    ));
+    let Some(Expr::Match { arms, .. }) = use_it.body.tail.as_deref() else {
+        panic!("expected match tail");
+    };
+    assert!(matches!(
+        arms[0].pattern,
+        flake_ast::Pattern::Literal {
+            value: Literal::Int(-1),
+            ..
+        }
+    ));
+    let pretty = print_program(&program);
+    assert!(pretty.contains("parse()?"), "{pretty}");
+    assert!(pretty.contains("-1 =>"), "{pretty}");
+    parse_str(&pretty).expect("pretty-printed result flow should parse");
+}
+
+#[test]
+fn repl_recognizes_enum_items() {
+    let src = flake_ast::Source::new("<repl>", "enum Flag { On Off }");
+    assert!(matches!(parse_repl(&src).unwrap(), ReplInput::Program(_)));
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

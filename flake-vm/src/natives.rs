@@ -8,7 +8,7 @@ use std::rc::Rc;
 use flake_ast::Span;
 
 use crate::error::VmError;
-use crate::value::{Native, Value};
+use crate::value::{MapKey, Native, Value};
 
 pub fn call_native(
     native: Native,
@@ -230,10 +230,19 @@ pub fn call_native(
                 Value::List(items) => Ok(Value::Bool(
                     items.borrow().iter().any(|v| v.equals(&args[1])),
                 )),
+                Value::Map(map) => {
+                    let key = MapKey::from_value(&args[1]).ok_or_else(|| {
+                        VmError::new(
+                            span,
+                            format!("cannot use {} as a map key", args[1].type_name()),
+                        )
+                    })?;
+                    Ok(Value::Bool(map.borrow().contains_key(&key)))
+                }
                 other => Err(VmError::new(
                     span,
                     format!(
-                        "contains() expected String or List, found {}",
+                        "contains() expected String, List, or Map, found {}",
                         other.type_name()
                     ),
                 )),

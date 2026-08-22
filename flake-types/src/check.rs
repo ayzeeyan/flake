@@ -19,6 +19,7 @@ struct Checker {
     aliases: HashMap<String, Type>,
     functions: HashMap<String, Type>,
     enums: HashMap<String, Type>,
+    current_returns: Vec<Type>,
 }
 
 impl Checker {
@@ -30,6 +31,7 @@ impl Checker {
             aliases: HashMap::new(),
             functions: HashMap::new(),
             enums: HashMap::new(),
+            current_returns: Vec::new(),
         };
         this.install_builtins();
         this
@@ -404,8 +406,26 @@ impl Checker {
                     self.structs.insert(st.name.name.clone(), ty);
                 }
                 Item::Enum(en) => {
+                    if en.variants.is_empty() {
+                        return Err(TypeError::with_help(
+                            en.span,
+                            format!("enum `{}` has no variants", en.name.name),
+                            "declare at least one variant",
+                        ));
+                    }
                     let mut variants = Vec::new();
+                    let mut seen = HashSet::new();
                     for v in &en.variants {
+                        if !seen.insert(v.name.name.as_str()) {
+                            return Err(TypeError::with_help(
+                                v.name.span,
+                                format!(
+                                    "duplicate variant `{}` in enum `{}`",
+                                    v.name.name, en.name.name
+                                ),
+                                "variant names must be unique within an enum",
+                            ));
+                        }
                         let fields = v
                             .fields
                             .iter()
@@ -444,6 +464,10 @@ impl Checker {
     fn bind_pattern(&mut self, pat: &flake_ast::Pattern, ty: &Type) -> Result<(), TypeError> {
         match pat {
             flake_ast::Pattern::Wildcard { .. } => Ok(()),
+            flake_ast::Pattern::Literal { value, span } => {
+                self.unify(ty, &literal_type(value), *span)?;
+                Ok(())
+            }
             flake_ast::Pattern::Ident(id) => {
                 self.define(id.name.clone(), ty.clone());
                 Ok(())
@@ -461,6 +485,7 @@ impl Checker {
                 } else {
                     self.resolve(ty)
                 };
+                self.unify(ty, &enum_ty, *span)?;
                 let Type::Enum { name, variants } = enum_ty.without_ownership() else {
                     return Err(TypeError::with_help(
                         *span,
@@ -489,7 +514,9 @@ impl Checker {
                     ));
                 }
                 for (b, ft) in binds.iter().zip(fields.iter()) {
-                    self.define(b.name.clone(), ft.clone());
+                    if b.name != "_" {
+                        self.define(b.name.clone(), ft.clone());
+                    }
                 }
                 Ok(())
             }
@@ -502,12 +529,33 @@ impl Checker {
         arms: &[flake_ast::MatchArm],
         span: Span,
     ) -> Result<(), TypeError> {
-        let catch_all = arms.iter().any(|arm| {
-            matches!(
-                arm.pattern,
-                flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_)
-            )
-        });
+        let mut catch_all = false;
+        let mut seen = HashSet::new();
+        for arm in arms {
+            if catch_all {
+                return Err(TypeError::with_help(
+                    arm.span,
+                    "unreachable match arm",
+                    "a previous `_` or identifier pattern already matches every value",
+                ));
+            }
+            match &arm.pattern {
+                flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_) => {
+                    catch_all = true;
+                }
+                pattern => {
+                    if let Some(key) = pattern_key(pattern) {
+                        if !seen.insert(key) {
+                            return Err(TypeError::with_help(
+                                arm.span,
+                                "unreachable duplicate match arm",
+                                "remove the duplicate pattern",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         if catch_all {
             return Ok(());
         }
@@ -537,6 +585,54 @@ impl Checker {
                         "add a `_` arm or cover the remaining variants",
                     ))
                 }
+            }
+            Type::Bool => {
+                let true_covered = arms.iter().any(|arm| {
+                    matches!(
+                        arm.pattern,
+                        flake_ast::Pattern::Literal {
+                            value: Literal::Bool(true),
+                            ..
+                        }
+                    )
+                });
+                let false_covered = arms.iter().any(|arm| {
+                    matches!(
+                        arm.pattern,
+                        flake_ast::Pattern::Literal {
+                            value: Literal::Bool(false),
+                            ..
+                        }
+                    )
+                });
+                if true_covered && false_covered {
+                    Ok(())
+                } else {
+                    let missing = match (true_covered, false_covered) {
+                        (false, false) => "`true` and `false`",
+                        (false, true) => "`true`",
+                        (true, false) => "`false`",
+                        (true, true) => unreachable!(),
+                    };
+                    Err(TypeError::with_help(
+                        span,
+                        format!("non-exhaustive match on Bool: missing {missing}"),
+                        "cover both `true` and `false`, or add a `_` arm",
+                    ))
+                }
+            }
+            Type::Nil
+                if arms.iter().any(|arm| {
+                    matches!(
+                        arm.pattern,
+                        flake_ast::Pattern::Literal {
+                            value: Literal::Nil,
+                            ..
+                        }
+                    )
+                }) =>
+            {
+                Ok(())
             }
             Type::Dyn | Type::Var(_) => Ok(()),
             other => Err(TypeError::with_help(
@@ -666,6 +762,7 @@ impl Checker {
         for (param, ty) in func.params.iter().zip(params.iter()) {
             self.define(param.name.name.clone(), ty.clone());
         }
+        self.current_returns.push((*ret).clone());
         let body_ty = self.check_block(&func.body)?;
         if contains_task(&self.resolve(&body_ty).without_ownership()) {
             return Err(TypeError::with_help(
@@ -674,7 +771,10 @@ impl Checker {
                 "await the task inside this function and return its result instead",
             ));
         }
-        self.unify(&body_ty, &ret, func.body.span)?;
+        if !block_definitely_returns(&func.body) {
+            self.unify(&body_ty, &ret, func.body.span)?;
+        }
+        self.current_returns.pop();
         self.pop_scope();
         Ok(())
     }
@@ -704,7 +804,7 @@ impl Checker {
                 self.define(s.name.name.clone(), ty);
             }
             Stmt::Return { value, span } => {
-                if let Some(v) = value {
+                let ty = if let Some(v) = value {
                     let ty = self.check_expr(v)?;
                     if contains_task(&self.resolve(&ty).without_ownership()) {
                         return Err(TypeError::with_help(
@@ -713,8 +813,12 @@ impl Checker {
                             "await the task before returning",
                         ));
                     }
+                    ty
                 } else {
-                    let _ = span;
+                    Type::Nil
+                };
+                if let Some(expected) = self.current_returns.last().cloned() {
+                    self.unify(&expected, &ty, *span)?;
                 }
             }
             Stmt::Break { .. } | Stmt::Continue { .. } => {}
@@ -765,6 +869,14 @@ impl Checker {
                 }
                 Ok(Type::list((**elem).clone()))
             }
+            (Expr::Map { entries, .. }, Some(Type::Map(key, value))) => {
+                self.ensure_map_key(key, expr.span())?;
+                for (entry_key, entry_value) in entries {
+                    self.check_expr_expected(entry_key, Some(key))?;
+                    self.check_expr_expected(entry_value, Some(value))?;
+                }
+                Ok(Type::Map(key.clone(), value.clone()))
+            }
             (other, Some(exp)) => {
                 let t = self.check_expr(other)?;
                 self.unify(&t, exp, other.span())
@@ -780,6 +892,17 @@ impl Checker {
             Type::String => Ok(Type::String),
             Type::Dyn | Type::Var(_) => Ok(Type::Dyn),
             other => Err(TypeError::new(span, format!("cannot iterate over {other}"))),
+        }
+    }
+
+    fn ensure_map_key(&self, ty: &Type, span: Span) -> Result<(), TypeError> {
+        match self.resolve(ty).without_ownership() {
+            Type::String | Type::Int | Type::Bool | Type::Dyn | Type::Var(_) => Ok(()),
+            other => Err(TypeError::with_help(
+                span,
+                format!("{other} cannot be used as a map key"),
+                "map keys must be String, Int, or Bool",
+            )),
         }
     }
 
@@ -829,6 +952,7 @@ impl Checker {
                 let mut saw = false;
                 for (k, v) in entries {
                     let kt = self.check_expr(k)?;
+                    self.ensure_map_key(&kt, k.span())?;
                     let vt = self.check_expr(v)?;
                     if !saw {
                         key = kt;
@@ -944,6 +1068,52 @@ impl Checker {
                         "`await` accepts a Task[T] returned by `spawn`",
                     )),
                 }
+            }
+            Expr::Try { expr, span } => {
+                let result_ty = self.check_expr(expr)?;
+                let resolved = self.resolve(&result_ty).without_ownership();
+                let Type::Enum { name, variants } = &resolved else {
+                    return Err(TypeError::with_help(
+                        *span,
+                        format!("`?` expects a Result-like enum, found {resolved}"),
+                        "use an enum with `Ok(value)` and `Err(error)` variants",
+                    ));
+                };
+                let (Some((ok_name, ok_fields)), Some((err_name, err_fields))) =
+                    (variants.first(), variants.get(1))
+                else {
+                    return Err(TypeError::with_help(
+                        *span,
+                        format!("enum `{name}` is not Result-like"),
+                        "`?` requires exactly `Ok(value)` followed by `Err(error)`",
+                    ));
+                };
+                if variants.len() != 2
+                    || ok_name != "Ok"
+                    || err_name != "Err"
+                    || ok_fields.len() != 1
+                    || err_fields.len() != 1
+                {
+                    return Err(TypeError::with_help(
+                        *span,
+                        format!("enum `{name}` is not Result-like"),
+                        "declare exactly `Ok(value)` followed by `Err(error)`",
+                    ));
+                }
+                let Some(return_ty) = self.current_returns.last().cloned() else {
+                    return Err(TypeError::new(
+                        *span,
+                        "`?` can only be used inside a function",
+                    ));
+                };
+                self.unify(&return_ty, &resolved, *span).map_err(|_| {
+                    TypeError::with_help(
+                        *span,
+                        format!("cannot propagate `{name}.Err` from this function"),
+                        format!("change the function return type to `{name}` or handle the error with `match`"),
+                    )
+                })?;
+                Ok(ok_fields[0].clone())
             }
             Expr::Index {
                 target,
@@ -1349,6 +1519,7 @@ impl Checker {
                 used.insert(Effect::Conc);
                 self.collect_expr_effects(task, fns, visiting, done, used)
             }
+            Expr::Try { expr, .. } => self.collect_expr_effects(expr, fns, visiting, done, used),
             Expr::Interpolated { parts, .. } => {
                 for part in parts {
                     if let InterpPart::Expr(e) = part {
@@ -1422,6 +1593,34 @@ impl Checker {
             }
             Expr::Literal { .. } | Expr::Ident(_) => Ok(()),
         }
+    }
+}
+
+fn literal_type(literal: &Literal) -> Type {
+    match literal {
+        Literal::Nil => Type::Nil,
+        Literal::Bool(_) => Type::Bool,
+        Literal::Int(_) => Type::Int,
+        Literal::Float(_) => Type::Float,
+        Literal::String(_) => Type::String,
+    }
+}
+
+fn pattern_key(pattern: &flake_ast::Pattern) -> Option<String> {
+    match pattern {
+        flake_ast::Pattern::Literal { value, .. } => Some(match value {
+            Literal::Nil => "literal:nil".into(),
+            Literal::Bool(value) => format!("literal:bool:{value}"),
+            Literal::Int(value) => format!("literal:int:{value}"),
+            Literal::Float(value) => format!("literal:float:{}", value.to_bits()),
+            Literal::String(value) => format!("literal:string:{value:?}"),
+        }),
+        flake_ast::Pattern::Variant { ty, variant, .. } => Some(format!(
+            "variant:{}:{}",
+            ty.as_ref().map_or("", |name| name.name.as_str()),
+            variant.name
+        )),
+        flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_) => None,
     }
 }
 
@@ -1540,6 +1739,39 @@ fn contains_task(ty: &Type) -> bool {
         | Type::Dyn
         | Type::Var(_)
         | Type::Module { .. } => false,
+    }
+}
+
+fn block_definitely_returns(block: &Block) -> bool {
+    block.stmts.iter().any(stmt_definitely_returns)
+}
+
+fn stmt_definitely_returns(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { .. } => true,
+        Stmt::Expr(expr) => expr_definitely_returns(expr),
+        Stmt::Let(_)
+        | Stmt::Var(_)
+        | Stmt::Break { .. }
+        | Stmt::Continue { .. }
+        | Stmt::While { .. }
+        | Stmt::For { .. }
+        | Stmt::Loop { .. } => false,
+    }
+}
+
+fn expr_definitely_returns(expr: &Expr) -> bool {
+    match expr {
+        Expr::Block(block) => block_definitely_returns(block),
+        Expr::If {
+            then_block,
+            else_block: Some(else_expr),
+            ..
+        } => block_definitely_returns(then_block) && expr_definitely_returns(else_expr),
+        Expr::Match { arms, .. } => {
+            !arms.is_empty() && arms.iter().all(|arm| expr_definitely_returns(&arm.body))
+        }
+        _ => false,
     }
 }
 

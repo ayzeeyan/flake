@@ -76,6 +76,7 @@ impl<'src> Parser<'src> {
             self.kind(),
             TokenKind::Fn
                 | TokenKind::Struct
+                | TokenKind::Enum
                 | TokenKind::Type
                 | TokenKind::Import
                 | TokenKind::Pub
@@ -497,6 +498,14 @@ impl<'src> Parser<'src> {
                     lhs = self.finish_field(lhs)?;
                     continue;
                 }
+                if self.eat(&TokenKind::Question) {
+                    let span = lhs.span().merge(self.prev().span);
+                    lhs = Expr::Try {
+                        expr: Box::new(lhs),
+                        span,
+                    };
+                    continue;
+                }
             }
 
             let Some(op_idx) = self.peek_infix_index() else {
@@ -754,6 +763,54 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_pattern(&mut self) -> Result<flake_ast::Pattern, ParseError> {
+        let tok = self.current().clone();
+        let literal = match tok.kind {
+            TokenKind::Int(value) => Some(Literal::Int(value)),
+            TokenKind::Float(value) => Some(Literal::Float(value)),
+            TokenKind::True => Some(Literal::Bool(true)),
+            TokenKind::False => Some(Literal::Bool(false)),
+            TokenKind::Nil => Some(Literal::Nil),
+            _ => None,
+        };
+        if let Some(value) = literal {
+            self.bump();
+            return Ok(flake_ast::Pattern::Literal {
+                value,
+                span: tok.span,
+            });
+        }
+        if matches!(tok.kind, TokenKind::Minus) {
+            let start = self.bump().span;
+            let number = self.current().clone();
+            let value = match number.kind {
+                TokenKind::Int(value) => Literal::Int(value.checked_neg().ok_or_else(|| {
+                    ParseError::new(start.merge(number.span), "integer pattern is out of range")
+                })?),
+                TokenKind::Float(value) => Literal::Float(-value),
+                _ => return Err(self.unexpected("number after `-` in pattern")),
+            };
+            self.bump();
+            return Ok(flake_ast::Pattern::Literal {
+                value,
+                span: start.merge(number.span),
+            });
+        }
+        if matches!(tok.kind, TokenKind::StringStart) {
+            let expr = self.parse_string()?;
+            return match expr {
+                Expr::Literal {
+                    value: Literal::String(value),
+                    span,
+                } => Ok(flake_ast::Pattern::Literal {
+                    value: Literal::String(value),
+                    span,
+                }),
+                other => Err(ParseError::new(
+                    other.span(),
+                    "string patterns cannot contain interpolation",
+                )),
+            };
+        }
         let ident = self.parse_ident()?;
         if ident.name == "_" {
             return Ok(flake_ast::Pattern::Wildcard { span: ident.span });
@@ -1280,7 +1337,9 @@ fn infix_binding(kind: &TokenKind) -> Option<(u8, u8, Infix)> {
 
 fn pattern_span(pat: &Pattern) -> Span {
     match pat {
-        Pattern::Wildcard { span } | Pattern::Variant { span, .. } => *span,
+        Pattern::Wildcard { span }
+        | Pattern::Literal { span, .. }
+        | Pattern::Variant { span, .. } => *span,
         Pattern::Ident(id) => id.span,
     }
 }

@@ -446,21 +446,26 @@ fn emit_inst(
             emit_iter_next(frame, value, more, iter, asm, uniq);
         }
         Inst::MakeMap { dest, keys, values } => {
-            let n = keys.len() as i64;
-            let cap = n.max(8);
+            let cap = (keys.len() as i64).max(8);
             asm.mov_ri(Reg::Rcx, 16 + 16 * cap);
             asm.call_label("rt_alloc");
-            asm.mov_ri(Reg::R10, n);
+            asm.xor_rr(Reg::R10, Reg::R10);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
             asm.mov_ri(Reg::R10, cap);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
-            for (i, (k, v)) in keys.iter().zip(values.iter()).enumerate() {
-                frame.load(asm, *k, Reg::R10);
-                asm.mov_mr(Reg::Rax, 16 + 16 * i as i32, Reg::R10);
-                frame.load(asm, *v, Reg::R10);
-                asm.mov_mr(Reg::Rax, 24 + 16 * i as i32, Reg::R10);
-            }
             frame.store(asm, *dest, Reg::Rax);
+            let string_keys = match local_ty(func, *dest) {
+                IrType::Map(key, _) => map_key_mode(&key) == 1,
+                _ => false,
+            };
+            for (key, value) in keys.iter().zip(values.iter()) {
+                frame.load(asm, *dest, Reg::Rcx);
+                frame.load(asm, *key, Reg::Rdx);
+                frame.load(asm, *value, Reg::R8);
+                asm.mov_ri(Reg::R9, i64::from(string_keys));
+                asm.call_label("rt_map_set");
+                frame.store(asm, *dest, Reg::Rax);
+            }
         }
     }
     let _ = gas;
@@ -527,7 +532,10 @@ fn load_as_cstr(
             strs.push((at, intern_cstring(strings, "nil")));
         }
         IrType::List(_) => asm.call_label("rt_display_list"),
-        IrType::Map(_, _) => asm.call_label("rt_display_map"),
+        IrType::Map(key, _) => {
+            asm.mov_ri(Reg::Rdx, map_key_mode(&key));
+            asm.call_label("rt_display_map");
+        }
         IrType::Range => asm.call_label("rt_display_range"),
         IrType::Struct(_) => {
             let at = asm.lea_rip(Reg::Rax);
@@ -887,7 +895,8 @@ fn emit_native_print(
                 asm.mov_rr(Reg::Rcx, Reg::Rax);
                 asm.call_label("rt_print_cstr");
             }
-            IrType::Map(_, _) => {
+            IrType::Map(key, _) => {
+                asm.mov_ri(Reg::Rdx, map_key_mode(&key));
                 asm.call_label("rt_display_map");
                 asm.mov_rr(Reg::Rcx, Reg::Rax);
                 asm.call_label("rt_print_cstr");
@@ -1138,6 +1147,12 @@ fn emit_native_contains(
             frame.load(asm, args[1], Reg::Rdx);
             asm.call_label("rt_list_contains");
         }
+        IrType::Map(key, _) => {
+            frame.load(asm, args[0], Reg::Rcx);
+            frame.load(asm, args[1], Reg::Rdx);
+            asm.mov_ri(Reg::R8, i64::from(map_key_mode(&key) == 1));
+            asm.call_label("rt_map_has");
+        }
         _ => {
             frame.load(asm, args[0], Reg::Rcx);
             frame.load(asm, args[1], Reg::Rdx);
@@ -1248,9 +1263,10 @@ fn emit_get_index(
     let obj_ty = local_ty(func, *obj);
     let idx_ty = local_ty(func, *index);
     match obj_ty {
-        IrType::Map(_, _) => {
+        IrType::Map(key, _) => {
             frame.load(asm, *obj, Reg::Rcx);
             frame.load(asm, *index, Reg::Rdx);
+            asm.mov_ri(Reg::R8, i64::from(map_key_mode(&key) == 1));
             asm.call_label("rt_map_get");
             frame.store(asm, *dest, Reg::Rax);
         }
@@ -1263,6 +1279,7 @@ fn emit_get_index(
         IrType::Dyn | IrType::Unknown if is_string_ty(&idx_ty) => {
             frame.load(asm, *obj, Reg::Rcx);
             frame.load(asm, *index, Reg::Rdx);
+            asm.mov_ri(Reg::R8, 1);
             asm.call_label("rt_map_get");
             frame.store(asm, *dest, Reg::Rax);
         }
@@ -1295,10 +1312,11 @@ fn emit_set_index(
     let obj_ty = local_ty(func, *obj);
     let idx_ty = local_ty(func, *index);
     match obj_ty {
-        IrType::Map(_, _) => {
+        IrType::Map(key, _) => {
             frame.load(asm, *obj, Reg::Rcx);
             frame.load(asm, *index, Reg::Rdx);
             frame.load(asm, *value, Reg::R8);
+            asm.mov_ri(Reg::R9, i64::from(map_key_mode(&key) == 1));
             asm.call_label("rt_map_set");
             frame.store(asm, *obj, Reg::Rax);
         }
@@ -1306,6 +1324,7 @@ fn emit_set_index(
             frame.load(asm, *obj, Reg::Rcx);
             frame.load(asm, *index, Reg::Rdx);
             frame.load(asm, *value, Reg::R8);
+            asm.mov_ri(Reg::R9, 1);
             asm.call_label("rt_map_set");
             frame.store(asm, *obj, Reg::Rax);
         }
@@ -1332,6 +1351,14 @@ fn local_ty(func: &Function, id: LocalId) -> IrType {
 
 fn is_string_ty(ty: &IrType) -> bool {
     matches!(ty, IrType::String)
+}
+
+fn map_key_mode(ty: &IrType) -> i64 {
+    match ty {
+        IrType::String => 1,
+        IrType::Bool => 2,
+        _ => 0,
+    }
 }
 
 fn ir_type_name(ty: &IrType) -> &'static str {

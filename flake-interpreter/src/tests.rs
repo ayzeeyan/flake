@@ -368,6 +368,62 @@ fn main() / conc { spawn fail() }
 }
 
 #[test]
+fn result_try_returns_ok_and_propagates_err() {
+    let (_, out) = run(r#"
+enum Result { Ok(Int) Err(String) }
+fn source(ok: Bool) -> Result {
+    if ok { Result.Ok(40) } else { Result.Err("missing") }
+}
+fn add_two(ok: Bool) -> Result {
+    let value = source(ok)?
+    Result.Ok(value + 2)
+}
+fn show(result: Result) -> String {
+    match result {
+        Result.Ok(value) => "ok {value}"
+        Result.Err(message) => "err {message}"
+    }
+}
+fn main() {
+    print(show(add_two(true)))
+    print(show(add_two(false)))
+}
+"#);
+    assert_eq!(out, "ok 42\nerr missing\n");
+}
+
+#[test]
+fn literal_patterns_match_scalars() {
+    let (_, out) = run(&main(
+        r#"
+print(match 42 { 0 => "zero" 42 => "answer" _ => "other" })
+print(match "flake" { "snow" => 0 "flake" => 1 _ => 2 })
+print(match true { true => "yes" false => "no" })
+"#,
+    ));
+    assert_eq!(out, "answer\n1\nyes\n");
+}
+
+#[test]
+fn maps_keep_key_types_distinct_and_support_membership() {
+    let (_, out) = run(&main(
+        r#"
+let int_key: dyn = 1
+let string_key: dyn = "1"
+let bool_key: dyn = true
+let map = { int_key: "int", string_key: "string", bool_key: "bool" }
+print(map[1])
+print(map["1"])
+print(map[true])
+print(contains(map, 1))
+print(contains(map, "missing"))
+print(len(map))
+"#,
+    ));
+    assert_eq!(out, "int\nstring\nbool\ntrue\nfalse\n3\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

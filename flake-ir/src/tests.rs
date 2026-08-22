@@ -1,6 +1,6 @@
 use flake_ast::Source;
 
-use crate::{Inst, lower, print_module};
+use crate::{Inst, IrType, lower, print_module};
 
 fn ir(src: &str) -> String {
     let source = Source::new("t.flk", src);
@@ -95,6 +95,61 @@ fn main() / conc + io {
     assert!(dump.contains("call work"), "{dump}");
     assert!(!dump.contains("spawn"), "{dump}");
     assert!(!dump.contains("await"), "{dump}");
+}
+
+#[test]
+fn lowers_result_try_to_early_return_cfg() {
+    let source = Source::new(
+        "result.flk",
+        r#"
+enum Result { Ok(Int) Err(String) }
+fn source() -> Result { Result.Ok(42) }
+fn use_it() -> Result {
+    let value = source()?
+    Result.Ok(value)
+}
+fn main() { use_it() }
+"#,
+    );
+    let module = lower(&source).expect("lower result try");
+    let function = module
+        .functions
+        .iter()
+        .find(|function| function.name == "use_it")
+        .expect("use_it function");
+    let returns = function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.insts)
+        .filter(|inst| matches!(inst, Inst::Return { .. }))
+        .count();
+    assert_eq!(returns, 2, "{:#?}", function.blocks);
+}
+
+#[test]
+fn infers_concrete_map_key_and_value_ir_types() {
+    let source = Source::new(
+        "map.flk",
+        "fn main() { let values = { 1: \"one\", 2: \"two\" } print(values[1]) }",
+    );
+    let module = lower(&source).expect("lower map");
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    assert!(
+        main.locals.iter().any(|local| {
+            local.ty == IrType::Map(Box::new(IrType::Int), Box::new(IrType::String))
+        })
+    );
+}
+
+#[test]
+fn lowers_scalar_match_without_assuming_an_enum_tag() {
+    let dump = ir("fn classify(n: Int) -> Int { match n { 0 => 10 1 => 20 _ => 30 } }");
+    assert!(dump.contains("eq"), "{dump}");
+    assert!(dump.contains("br %"), "{dump}");
 }
 
 #[test]

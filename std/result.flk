@@ -12,9 +12,33 @@ pub fn is_ok(r: Result) -> Bool {
     }
 }
 
+pub fn is_err(r: Result) -> Bool {
+    match r {
+        Result.Ok(v) => false
+        Result.Err(m) => true
+    }
+}
+
 pub fn unwrap_or(r: Result, fallback: dyn) -> dyn {
     match r {
         Result.Ok(v) => v
         Result.Err(m) => fallback
+    }
+}
+
+pub fn error_or(r: Result, fallback: String) -> String {
+    match r {
+        Result.Ok(v) => fallback
+        Result.Err(m) => m
+    }
+}
+
+pub fn unwrap(r: Result) -> dyn / panic {
+    match r {
+        Result.Ok(v) => v
+        Result.Err(m) => {
+            assert(false, m)
+            nil
+        }
     }
 }

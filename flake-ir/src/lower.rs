@@ -20,6 +20,9 @@ struct LoopCtx {
     break_block: BlockId,
 }
 
+type EnumVariants = Vec<(String, Vec<IrType>)>;
+type EnumTable = HashMap<String, EnumVariants>;
+
 struct Builder {
     locals: Vec<Local>,
     blocks: Vec<BasicBlock>,
@@ -29,15 +32,11 @@ struct Builder {
     next_block: u32,
     names: Names,
     fn_rets: HashMap<String, IrType>,
-    enums: HashMap<String, Vec<(String, usize)>>,
+    enums: EnumTable,
 }
 
 impl Builder {
-    fn new(
-        names: Names,
-        fn_rets: HashMap<String, IrType>,
-        enums: HashMap<String, Vec<(String, usize)>>,
-    ) -> Self {
+    fn new(names: Names, fn_rets: HashMap<String, IrType>, enums: EnumTable) -> Self {
         let entry = BlockId(0);
         Self {
             locals: Vec::new(),
@@ -258,7 +257,7 @@ fn lower_program_with(
     program: &Program,
     names: &Names,
     fn_rets: &HashMap<String, IrType>,
-    enums: &HashMap<String, Vec<(String, usize)>>,
+    enums: &EnumTable,
 ) -> Module {
     let mut structs = Vec::new();
     let mut functions = Vec::new();
@@ -285,7 +284,7 @@ fn lower_program_with(
     }
 }
 
-fn enums_of(program: &Program) -> HashMap<String, Vec<(String, usize)>> {
+fn enums_of(program: &Program) -> EnumTable {
     let mut enums = HashMap::new();
     for item in &program.items {
         if let Item::Enum(en) = item {
@@ -293,7 +292,15 @@ fn enums_of(program: &Program) -> HashMap<String, Vec<(String, usize)>> {
                 en.name.name.clone(),
                 en.variants
                     .iter()
-                    .map(|v| (v.name.name.clone(), v.fields.len()))
+                    .map(|v| {
+                        (
+                            v.name.name.clone(),
+                            v.fields
+                                .iter()
+                                .map(|field| lower_type(Some(field)))
+                                .collect(),
+                        )
+                    })
                     .collect(),
             );
         }
@@ -301,10 +308,7 @@ fn enums_of(program: &Program) -> HashMap<String, Vec<(String, usize)>> {
     enums
 }
 
-fn enums_for(
-    graph: &ModuleGraph,
-    module: &flake_parser::LoadedModule,
-) -> HashMap<String, Vec<(String, usize)>> {
+fn enums_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule) -> EnumTable {
     let mut enums = enums_of(&module.program);
     for item in &module.program.items {
         if let Item::Import(import) = item {
@@ -317,7 +321,15 @@ fn enums_for(
                         enums.entry(en.name.name.clone()).or_insert_with(|| {
                             en.variants
                                 .iter()
-                                .map(|v| (v.name.name.clone(), v.fields.len()))
+                                .map(|v| {
+                                    (
+                                        v.name.name.clone(),
+                                        v.fields
+                                            .iter()
+                                            .map(|field| lower_type(Some(field)))
+                                            .collect(),
+                                    )
+                                })
                                 .collect()
                         });
                     }
@@ -328,7 +340,7 @@ fn enums_for(
     enums
 }
 
-fn enum_variants<'a>(b: &'a Builder, target: &Expr) -> Option<(String, &'a Vec<(String, usize)>)> {
+fn enum_variants<'a>(b: &'a Builder, target: &Expr) -> Option<(String, &'a EnumVariants)> {
     match target {
         Expr::Ident(id) => b.enums.get(&id.name).map(|v| (id.name.clone(), v)),
         Expr::Field { target, field, .. } => {
@@ -347,7 +359,7 @@ fn lower_fn(
     func: &FnDecl,
     names: &Names,
     fn_rets: &HashMap<String, IrType>,
-    enums: &HashMap<String, Vec<(String, usize)>>,
+    enums: &EnumTable,
 ) -> Function {
     let mut b = Builder::new(names.clone(), fn_rets.clone(), enums.clone());
     let mut params = Vec::new();
@@ -563,10 +575,9 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                 keys.push(lower_expr(b, k));
                 values.push(lower_expr(b, v));
             }
-            let dest = b.alloc(
-                None,
-                IrType::Map(Box::new(IrType::Dyn), Box::new(IrType::Dyn)),
-            );
+            let key_ty = common_local_type(b, &keys);
+            let value_ty = common_local_type(b, &values);
+            let dest = b.alloc(None, IrType::Map(Box::new(key_ty), Box::new(value_ty)));
             b.emit(Inst::MakeMap { dest, keys, values });
             dest
         }
@@ -684,6 +695,7 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
         // underlying call/value. The interpreter and VM retain real handles.
         Expr::Spawn { call, .. } => lower_expr(b, call),
         Expr::Await { task, .. } => lower_expr(b, task),
+        Expr::Try { expr, .. } => lower_try(b, expr),
         Expr::Index { target, index, .. } => {
             let obj = lower_expr(b, target);
             let idx = lower_expr(b, index);
@@ -743,34 +755,69 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
     let dest = b.alloc(None, IrType::Dyn);
     let n = b.nil();
     b.emit(Inst::Move { dest, src: n });
-    let zero = b.const_val(Const::Int(0), IrType::Int);
-    let tag = b.alloc(None, IrType::Int);
-    b.emit(Inst::GetIndex {
-        dest: tag,
-        obj: src,
-        index: zero,
-    });
     let exit = b.new_block();
-    for (i, arm) in arms.iter().enumerate() {
+    for arm in arms {
         let body_b = b.new_block();
-        let next = if i + 1 == arms.len() {
-            exit
-        } else {
-            b.new_block()
-        };
         match &arm.pattern {
             flake_ast::Pattern::Wildcard { .. } | flake_ast::Pattern::Ident(_) => {
                 b.emit(Inst::Jump { target: body_b });
+                b.switch(body_b);
+                if let flake_ast::Pattern::Ident(id) = &arm.pattern {
+                    let slot = b.alloc(Some(id.name.clone()), IrType::Dyn);
+                    b.emit(Inst::Move { dest: slot, src });
+                }
+                let val = lower_expr(b, &arm.body);
+                if !b.sealed() {
+                    b.emit(Inst::Move { dest, src: val });
+                    b.emit(Inst::Jump { target: exit });
+                }
+                break;
+            }
+            flake_ast::Pattern::Literal { value, .. } => {
+                let want = lower_literal(b, value);
+                let cmp = b.alloc(None, IrType::Bool);
+                b.emit(Inst::Binary {
+                    dest: cmp,
+                    op: BinOp::Eq,
+                    lhs: src,
+                    rhs: want,
+                });
+                let next = b.new_block();
+                b.emit(Inst::Branch {
+                    cond: cmp,
+                    then_block: body_b,
+                    else_block: next,
+                });
+                b.switch(body_b);
+                let val = lower_expr(b, &arm.body);
+                if !b.sealed() {
+                    b.emit(Inst::Move { dest, src: val });
+                    b.emit(Inst::Jump { target: exit });
+                }
+                b.switch(next);
             }
             flake_ast::Pattern::Variant {
                 variant, binds, ty, ..
             } => {
+                let zero = b.const_val(Const::Int(0), IrType::Int);
+                let tag = b.alloc(None, IrType::Int);
+                b.emit(Inst::GetIndex {
+                    dest: tag,
+                    obj: src,
+                    index: zero,
+                });
                 let ename = ty.as_ref().map(|t| t.name.as_str()).unwrap_or("");
-                let tag_val = b
+                let (tag_val, field_types) = b
                     .enums
                     .get(ename)
-                    .and_then(|vs| vs.iter().position(|(n, _)| n == &variant.name))
-                    .unwrap_or(0) as i64;
+                    .and_then(|variants| {
+                        variants
+                            .iter()
+                            .enumerate()
+                            .find(|(_, (name, _))| name == &variant.name)
+                    })
+                    .map(|(tag, (_, fields))| (tag as i64, fields.clone()))
+                    .unwrap_or((0, Vec::new()));
                 let want = b.const_val(Const::Int(tag_val), IrType::Int);
                 let cmp = b.alloc(None, IrType::Bool);
                 b.emit(Inst::Binary {
@@ -779,6 +826,7 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
                     lhs: tag,
                     rhs: want,
                 });
+                let next = b.new_block();
                 b.emit(Inst::Branch {
                     cond: cmp,
                     then_block: body_b,
@@ -786,8 +834,12 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
                 });
                 b.switch(body_b);
                 for (fi, bind) in binds.iter().enumerate() {
+                    if bind.name == "_" {
+                        continue;
+                    }
                     let idx = b.const_val(Const::Int((fi + 1) as i64), IrType::Int);
-                    let slot = b.alloc(Some(bind.name.clone()), IrType::Dyn);
+                    let field_ty = field_types.get(fi).cloned().unwrap_or(IrType::Dyn);
+                    let slot = b.alloc(Some(bind.name.clone()), field_ty);
                     b.emit(Inst::GetIndex {
                         dest: slot,
                         obj: src,
@@ -800,23 +852,98 @@ fn lower_match(b: &mut Builder, scrutinee: &Expr, arms: &[flake_ast::MatchArm]) 
                     b.emit(Inst::Jump { target: exit });
                 }
                 b.switch(next);
-                continue;
             }
         }
-        b.switch(body_b);
-        if let flake_ast::Pattern::Ident(id) = &arm.pattern {
-            let slot = b.alloc(Some(id.name.clone()), IrType::Dyn);
-            b.emit(Inst::Move { dest: slot, src });
-        }
-        let val = lower_expr(b, &arm.body);
-        if !b.sealed() {
-            b.emit(Inst::Move { dest, src: val });
-            b.emit(Inst::Jump { target: exit });
-        }
-        b.switch(next);
+    }
+    if !b.sealed() {
+        b.emit(Inst::Jump { target: exit });
     }
     b.switch(exit);
     dest
+}
+
+fn lower_try(b: &mut Builder, expr: &Expr) -> LocalId {
+    let src = lower_expr(b, expr);
+    let dest_ty = b
+        .locals
+        .iter()
+        .find(|local| local.id == src)
+        .and_then(|local| match &local.ty {
+            IrType::Struct(name) => b.enums.get(name),
+            _ => None,
+        })
+        .and_then(|variants| variants.iter().find(|(name, _)| name == "Ok"))
+        .and_then(|(_, fields)| fields.first())
+        .cloned()
+        .unwrap_or(IrType::Dyn);
+    let dest = b.alloc(None, dest_ty);
+    let tag_index = b.const_val(Const::Int(0), IrType::Int);
+    let tag = b.alloc(None, IrType::Int);
+    b.emit(Inst::GetIndex {
+        dest: tag,
+        obj: src,
+        index: tag_index,
+    });
+    let ok_tag = b.const_val(Const::Int(0), IrType::Int);
+    let is_ok = b.alloc(None, IrType::Bool);
+    b.emit(Inst::Binary {
+        dest: is_ok,
+        op: BinOp::Eq,
+        lhs: tag,
+        rhs: ok_tag,
+    });
+    let ok_block = b.new_block();
+    let err_block = b.new_block();
+    let exit = b.new_block();
+    b.emit(Inst::Branch {
+        cond: is_ok,
+        then_block: ok_block,
+        else_block: err_block,
+    });
+
+    b.switch(ok_block);
+    let value_index = b.const_val(Const::Int(1), IrType::Int);
+    b.emit(Inst::GetIndex {
+        dest,
+        obj: src,
+        index: value_index,
+    });
+    b.emit(Inst::Jump { target: exit });
+
+    b.switch(err_block);
+    b.emit(Inst::Return { value: Some(src) });
+
+    b.switch(exit);
+    dest
+}
+
+fn lower_literal(b: &mut Builder, value: &Literal) -> LocalId {
+    match value {
+        Literal::Nil => b.const_val(Const::Nil, IrType::Nil),
+        Literal::Bool(value) => b.const_val(Const::Bool(*value), IrType::Bool),
+        Literal::Int(value) => b.const_val(Const::Int(*value), IrType::Int),
+        Literal::Float(value) => b.const_val(Const::Float(*value), IrType::Float),
+        Literal::String(value) => b.const_val(Const::String(value.clone()), IrType::String),
+    }
+}
+
+fn common_local_type(b: &Builder, locals: &[LocalId]) -> IrType {
+    let Some(first) = locals
+        .first()
+        .and_then(|id| b.locals.iter().find(|local| local.id == *id))
+    else {
+        return IrType::Dyn;
+    };
+    if locals.iter().all(|id| {
+        b.locals
+            .iter()
+            .find(|local| local.id == *id)
+            .is_some_and(|local| local.ty == first.ty)
+    }) {
+        first.ty.clone()
+    } else {
+        IrType::Dyn
+    }
 }
 
 fn lower_if(
@@ -1045,6 +1172,21 @@ fn lower_type(ty: Option<&TypeExpr>) -> IrType {
             "String" => IrType::String,
             "Nil" | "Unit" => IrType::Nil,
             "Range" => IrType::Range,
+            "List" => args
+                .first()
+                .map(|element| IrType::List(Box::new(lower_type(Some(element)))))
+                .unwrap_or_else(|| IrType::List(Box::new(IrType::Dyn))),
+            "Map" => {
+                let key = args
+                    .first()
+                    .map(|key| lower_type(Some(key)))
+                    .unwrap_or(IrType::Dyn);
+                let value = args
+                    .get(1)
+                    .map(|value| lower_type(Some(value)))
+                    .unwrap_or(IrType::Dyn);
+                IrType::Map(Box::new(key), Box::new(value))
+            }
             "Task" => args
                 .first()
                 .map(|result| lower_type(Some(result)))

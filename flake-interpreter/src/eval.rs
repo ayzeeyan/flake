@@ -13,7 +13,7 @@ use flake_parser::{ModuleGraph, ReplInput, import_alias, load_graph, parse_repl}
 
 use crate::env::Env;
 use crate::error::{RunError, RuntimeError};
-use crate::value::{Function, NativeFn, TaskRef, TaskState, Value};
+use crate::value::{Function, MapKey, NativeFn, TaskRef, TaskState, Value};
 
 const MAX_CALL_DEPTH: usize = 10_000;
 
@@ -613,6 +613,27 @@ impl<'io> Interpreter<'io> {
                 };
                 self.join_task(&task, *span)
             }
+            Expr::Try { expr, span } => {
+                let value = self.eval_expr(expr)?;
+                match &value {
+                    Value::Enum {
+                        variant, fields, ..
+                    } if variant.as_ref() == "Ok" && fields.len() == 1 => Ok(fields[0].clone()),
+                    Value::Enum {
+                        variant, fields, ..
+                    } if variant.as_ref() == "Err" && fields.len() == 1 => {
+                        Err(Fail::Control(Control::Return(value)))
+                    }
+                    other => Err(RuntimeError::new(
+                        *span,
+                        format!(
+                            "`?` expected Result.Ok(value) or Result.Err(error), found {}",
+                            other.display_value()
+                        ),
+                    )
+                    .into()),
+                }
+            }
             Expr::Index {
                 target,
                 index,
@@ -1098,10 +1119,14 @@ impl<'io> Interpreter<'io> {
                     Value::List(items) => Ok(Value::Bool(
                         items.borrow().iter().any(|v| v.equals(&args[1])),
                     )),
+                    Value::Map(map) => {
+                        let key = map_key(&args[1], span)?;
+                        Ok(Value::Bool(map.borrow().contains_key(&key)))
+                    }
                     other => Err(RuntimeError::new(
                         span,
                         format!(
-                            "contains() expected String or List, found {}",
+                            "contains() expected String, List, or Map, found {}",
                             other.type_name()
                         ),
                     )
@@ -1439,10 +1464,9 @@ fn index_get(target: &Value, index: &Value, span: Span) -> EvalResult<Value> {
         }
         Value::Map(map) => {
             let key = map_key(index, span)?;
-            map.borrow()
-                .get(&key)
-                .cloned()
-                .ok_or_else(|| RuntimeError::new(span, format!("map has no key {key:?}")).into())
+            map.borrow().get(&key).cloned().ok_or_else(|| {
+                RuntimeError::new(span, format!("map has no key {}", key.repr())).into()
+            })
         }
         other => Err(RuntimeError::new(span, format!("cannot index {}", other.type_name())).into()),
     }
@@ -1471,6 +1495,9 @@ fn index_set(target: &Value, index: &Value, value: Value, span: Span) -> EvalRes
 fn match_pattern(pat: &flake_ast::Pattern, value: &Value) -> Option<Vec<(String, Value)>> {
     match pat {
         flake_ast::Pattern::Wildcard { .. } => Some(Vec::new()),
+        flake_ast::Pattern::Literal { value: literal, .. } => {
+            literal_value(literal).equals(value).then(Vec::new)
+        }
         flake_ast::Pattern::Ident(id) => Some(vec![(id.name.clone(), value.clone())]),
         flake_ast::Pattern::Variant {
             ty, variant, binds, ..
@@ -1496,6 +1523,7 @@ fn match_pattern(pat: &flake_ast::Pattern, value: &Value) -> Option<Vec<(String,
                     binds
                         .iter()
                         .zip(fields.iter())
+                        .filter(|(bind, _)| bind.name != "_")
                         .map(|(b, f)| (b.name.clone(), f.clone()))
                         .collect(),
                 )
@@ -1540,11 +1568,11 @@ fn field_set(target: &Value, name: &str, value: Value, span: Span) -> EvalResult
     }
 }
 
-fn map_key(value: &Value, span: Span) -> EvalResult<String> {
+fn map_key(value: &Value, span: Span) -> EvalResult<MapKey> {
     match value {
-        Value::String(s) => Ok(s.to_string()),
-        Value::Int(n) => Ok(n.to_string()),
-        Value::Bool(b) => Ok(b.to_string()),
+        Value::String(s) => Ok(MapKey::String(s.clone())),
+        Value::Int(n) => Ok(MapKey::Int(*n)),
+        Value::Bool(b) => Ok(MapKey::Bool(*b)),
         other => Err(RuntimeError::new(
             span,
             format!("cannot use {} as a map key", other.type_name()),

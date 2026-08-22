@@ -374,6 +374,99 @@ fn main() { f(Color.Rgb(1, 2, 3)) }
 }
 
 #[test]
+fn result_try_propagates_the_ok_type() {
+    ok(r#"
+enum Result { Ok(Int) Err(String) }
+fn source(ok: Bool) -> Result {
+    if ok { Result.Ok(40) } else { Result.Err("no value") }
+}
+fn add_two(ok: Bool) -> Result {
+    let value: Int = source(ok)?
+    Result.Ok(value + 2)
+}
+fn main() { add_two(true) }
+"#);
+}
+
+#[test]
+fn result_try_requires_a_result_return_type() {
+    let msg = err(r#"
+enum Result { Ok(Int) Err(String) }
+fn source() -> Result { Result.Ok(1) }
+fn bad() -> Int { source()? }
+fn main() { bad() }
+"#);
+    assert!(msg.contains("propagate"), "{msg}");
+}
+
+#[test]
+fn literal_patterns_check_and_bool_match_is_exhaustive() {
+    ok(r#"
+fn choose(flag: Bool) -> Int {
+    match flag {
+        true => 1
+        false => 0
+    }
+}
+fn main() { choose(true) }
+"#);
+}
+
+#[test]
+fn duplicate_and_unreachable_match_arms_are_rejected() {
+    let duplicate = err(r#"
+fn f(n: Int) -> Int {
+    match n { 1 => 1 1 => 2 _ => 0 }
+}
+fn main() { f(1) }
+"#);
+    assert!(duplicate.contains("duplicate"), "{duplicate}");
+
+    let unreachable = err(r#"
+fn f(n: Int) -> Int {
+    match n { _ => 0 1 => 1 }
+}
+fn main() { f(1) }
+"#);
+    assert!(unreachable.contains("unreachable"), "{unreachable}");
+}
+
+#[test]
+fn enum_patterns_must_match_the_scrutinee_enum() {
+    let msg = err(r#"
+enum Color { Red }
+enum Shape { Circle }
+fn f(color: Color) -> Int {
+    match color { Shape.Circle => 1 }
+}
+fn main() { f(Color.Red) }
+"#);
+    assert!(msg.contains("type mismatch"), "{msg}");
+}
+
+#[test]
+fn map_keys_are_limited_to_stable_scalar_types() {
+    let msg = err(&main(
+        "let bad: Map[[Int], String] = { \"key\": \"value\" }",
+    ));
+    assert!(msg.contains("map key"), "{msg}");
+    assert!(msg.contains("String, Int, or Bool"), "{msg}");
+}
+
+#[test]
+fn duplicate_enum_variants_are_rejected() {
+    let msg = err("enum Flag { On On }\nfn main() {}");
+    assert!(msg.contains("duplicate variant"), "{msg}");
+}
+
+#[test]
+fn explicit_returns_are_checked_against_the_function_type() {
+    ok("fn answer() -> Int { return 42 }\nfn main() { answer() }");
+    let msg = err("fn bad() -> Int { return \"no\" }\nfn main() { bad() }");
+    assert!(msg.contains("type mismatch"), "{msg}");
+}
+
+#[test]
 fn private_fn_is_not_imported() {
     let dir = std::env::temp_dir().join(format!("flake-vis-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");

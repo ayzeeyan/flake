@@ -1,5 +1,9 @@
 # Flake
 
+<p align="center">
+  <img src="flakelogo.png" alt="Flake programming language logo" width="320">
+</p>
+
 **Clarity, crystallized.**
 
 Flake is a safe, modern systems language with gradual ownership and a first-class
@@ -30,6 +34,8 @@ between:
   in the signature: `fn read_file(path: String) -> String / io + alloc`.
 - **Structured tasks as a visible effect.** `spawn work()` and `await task`
   produce typed, scope-bound `Task[T]` values under the `conc` effect.
+- **Data and errors stay explicit.** Algebraic enums, exhaustive `match`,
+  typed maps, and Result-style `?` propagation keep failure paths visible.
 - **Progressive complexity.** Write a script. Drop down to fine-grained control
   when you need it.
 
@@ -45,11 +51,11 @@ between:
 
 ## Status
 
-**v0.5 is in development.** Milestone 1 adds structured concurrency foundations:
-typed `spawn` / `await`, the operational `conc` effect, and scope-bound tasks in
-the interpreter and VM. The native backend has a documented synchronous
-fallback. The v0.4 native, ownership, enum, module, and standard-library base
-remains intact. No LLVM or Cranelift.
+**v0.5 is in development.** Milestones 1–2 are complete: typed structured
+tasks, Result-style `?` propagation, scalar and enum patterns, stronger match
+diagnostics, and typed maps work across the interpreter, VM, and native
+x86-64 path. Native concurrency retains its documented synchronous fallback.
+No LLVM or Cranelift.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
 for a language tour.
@@ -66,6 +72,7 @@ flake run --native examples/hello.flk
 flake run examples/modules.flk
 flake run examples/stdlib.flk
 flake run examples/enum.flk
+flake run examples/data.flk
 flake run --vm examples/concurrency.flk
 flake run --native examples/app.flk
 flake build examples/hello.flk -o hello.exe
@@ -96,6 +103,13 @@ fn parallel_shape() -> Int / conc {
     let task: Task[Int] = spawn add(20, 22)
     await task
 }
+
+enum Result { Ok(Int) Err(String) }
+
+fn add_two(result: Result) -> Result {
+    let value = result?
+    Result.Ok(value + 2)
+}
 ```
 
 - File extension: `.flk`
@@ -122,6 +136,7 @@ fn parallel_shape() -> Int / conc {
 | [examples/borrow.flk](examples/borrow.flk) | Borrows |
 | [examples/app.flk](examples/app.flk) | Native-ready mini program |
 | [examples/concurrency.flk](examples/concurrency.flk) | Scope-bound `spawn` / `await` tasks |
+| [examples/data.flk](examples/data.flk) | Result `?`, scalar patterns, and typed maps |
 
 ## Workspace
 
@@ -142,6 +157,7 @@ fn parallel_shape() -> Int / conc {
 - [Language tour](docs/tour.md)
 - [Ownership](docs/ownership.md)
 - [Structured concurrency](docs/concurrency.md)
+- [Errors and Result propagation](docs/errors.md)
 - [IR](docs/ir.md)
 - [Native codegen](docs/codegen.md)
 - [Grammar sketch](docs/grammar.md)

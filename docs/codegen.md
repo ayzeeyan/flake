@@ -44,7 +44,7 @@ A small hand-written runtime is linked into every image:
 | `rt_alloc` | `HeapAlloc` |
 | `rt_join` | join a list of strings |
 | `rt_streq` / `rt_split` | string equality and split |
-| `rt_list_*` / `rt_map_*` | growable lists and linear maps |
+| `rt_list_*` / `rt_map_*` | growable lists and typed-key linear maps |
 | `rt_display_*` | list / map / range interpolation |
 | `rt_read_file` | `CreateFileA` + `ReadFile` |
 | `rt_write_file` | `CreateFileA` + `WriteFile` |
@@ -59,6 +59,12 @@ Integers, bools, floats (SSE2), strings, `if`/`while`/`for`/`match`, enums
 (as tagged lists), functions (including more than four arguments and indirect
 `call r64`), structs, lists, maps, interpolation, `print`, modules, and the
 built-in helpers listed above.
+
+Result `?` lowers to a tag comparison and an early native return. Scalar
+literal patterns lower to ordinary comparisons, without assuming an enum
+layout. Native maps select string equality for String keys and direct scalar
+equality for Int/Bool keys; construction, duplicate replacement, lookup,
+assignment, membership, and display share that representation.
 
 Register allocation keeps hot locals in callee-saved registers.
 

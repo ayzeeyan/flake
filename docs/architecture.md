@@ -28,8 +28,15 @@ source → lexer → parser → AST
 directories for `std/name.flk`. If a module contains any `pub` item, only those
 items are exported; otherwise everything is exported.
 
-`enum` / `match` are lowered to tagged lists (`[tag, fields…]`) on the IR, VM,
-and native paths. The interpreter keeps a dedicated enum value for display.
+Enums lower to tagged lists (`[tag, fields…]`) on the IR, VM, and native
+paths. The interpreter keeps a dedicated enum value for display. Enum and
+scalar `match` patterns become explicit comparisons and CFG branches; Result
+`?` adds a success block plus an early-return error block.
+
+Maps retain concrete key/value types in IR. Interpreter and VM use typed hash
+keys, while native code selects string or scalar comparison in the in-tree
+linear-map runtime. `contains(map, key)` uses a dedicated presence test so
+stored falsey values remain distinguishable from missing keys.
 
 `spawn` captures a callable and its evaluated arguments in a task registered
 to the current function invocation. Interpreter and VM task scopes drive a

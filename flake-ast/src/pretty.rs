@@ -289,6 +289,16 @@ fn print_expr(expr: &Expr, indent: usize, out: &mut String) {
             out.push_str("await ");
             print_expr(task, indent, out);
         }
+        Expr::Try { expr, .. } => {
+            if needs_paren_postfix(expr) {
+                out.push('(');
+                print_expr(expr, indent, out);
+                out.push(')');
+            } else {
+                print_expr(expr, indent, out);
+            }
+            out.push('?');
+        }
         Expr::Index { target, index, .. } => {
             print_expr(target, indent, out);
             out.push('[');
@@ -336,6 +346,7 @@ fn print_expr(expr: &Expr, indent: usize, out: &mut String) {
                 }
                 match &arm.pattern {
                     crate::ast::Pattern::Wildcard { .. } => out.push('_'),
+                    crate::ast::Pattern::Literal { value, .. } => print_literal(value, out),
                     crate::ast::Pattern::Ident(id) => out.push_str(&id.name),
                     crate::ast::Pattern::Variant {
                         ty, variant, binds, ..
@@ -488,6 +499,22 @@ fn needs_paren_unary(expr: &Expr) -> bool {
     matches!(
         expr,
         Expr::Binary { .. } | Expr::Assign { .. } | Expr::Range { .. }
+    )
+}
+
+fn needs_paren_postfix(expr: &Expr) -> bool {
+    !matches!(
+        expr,
+        Expr::Literal { .. }
+            | Expr::Ident(_)
+            | Expr::Interpolated { .. }
+            | Expr::List { .. }
+            | Expr::Map { .. }
+            | Expr::Call { .. }
+            | Expr::Try { .. }
+            | Expr::Index { .. }
+            | Expr::Field { .. }
+            | Expr::StructInit { .. }
     )
 }
 

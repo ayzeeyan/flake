@@ -1,0 +1,39 @@
+// Result propagation, scalar patterns, and typed maps.
+
+import result
+
+fn lookup(ports: Map[String, Int], service: String) -> Result {
+    if contains(ports, service) {
+        Result.Ok(ports[service])
+    } else {
+        Result.Err("unknown service: {service}")
+    }
+}
+
+fn incremented_port(ports: Map[String, Int], service: String) -> Result {
+    let port = lookup(ports, service)?
+    Result.Ok(port + 1)
+}
+
+fn describe(result: Result) -> String {
+    match result {
+        Result.Ok(port) => "port {port}"
+        Result.Err(message) => "error: {message}"
+    }
+}
+
+fn protocol(service: String) -> String {
+    match service {
+        "http" => "plain"
+        "https" => "secure"
+        _ => "custom"
+    }
+}
+
+fn main() {
+    let ports = { "http": 80, "https": 443 }
+    print(describe(incremented_port(ports, "http")))
+    print(describe(incremented_port(ports, "smtp")))
+    print(protocol("https"))
+    print(is_err(lookup(ports, "smtp")))
+}

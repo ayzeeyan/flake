@@ -1,9 +1,9 @@
 # Flake Roadmap
 
-**v0.5 is in development.** Milestone 1 is complete: typed, scope-bound tasks
-make `conc` operational through `spawn` / `await` in the interpreter and VM,
-with a coherent synchronous native fallback. The v0.4 production native,
-ownership, enum, module, and standard-library base remains intact.
+**v0.5 is in development.** Milestones 1–2 are complete. Typed, scope-bound
+tasks make `conc` operational, while Result-style `?`, scalar patterns,
+stronger enum checking, and typed maps expand the core language coherently
+across the interpreter, VM, IR, and native x86-64 backend.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Structured concurrency foundations (`conc` effect) | **done** |
-| 2 | Core language expansion (enums, pattern matching, errors, maps) | planned |
+| 2 | Core language expansion (enums, pattern matching, errors, maps) | **done** |
 | 3 | Native backend maturation | planned |
 | 4 | Strengthened module system | planned |
 | 5 | Cross-backend consistency and expanded testing | planned |
@@ -35,6 +35,24 @@ There is no LLVM, Cranelift, or C transpilation.
 
 The milestone deliberately does not add a parallel scheduler, event loop,
 timers, cancellation API, or native task runtime.
+
+## What v0.5 milestone 2 delivers
+
+- Result-like enums gain postfix `?`: `Ok(value)` unwraps and `Err(error)`
+  returns immediately from a function with the same Result-like return type
+- Literal patterns for `nil`, bools, integers, floats, and strings, including
+  exhaustive Bool matching
+- Stronger match diagnostics for duplicate/unreachable arms, wrong enum
+  patterns, missing variants, and invalid variant arity
+- Enum declaration validation and checked explicit `return` values
+- Maps with String, Int, or Bool keys; runtime key types no longer collide in
+  the interpreter or VM
+- Map membership through `contains(map, key)`, deterministic interpreter/VM
+  display, and native lookup/update/membership/display for all concrete key types
+- Native/IR coverage for Result propagation, scalar matching, and concrete map
+  key/value types
+- Expanded `std/result.flk`, dedicated [error documentation](docs/errors.md),
+  and the cross-backend [data example](examples/data.flk)
 
 ## v0.4 milestones (complete)
 

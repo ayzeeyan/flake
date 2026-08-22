@@ -274,6 +274,12 @@ pub enum Expr {
         task: Box<Expr>,
         span: Span,
     },
+    /// Unwrap `Result.Ok(value)` or return `Result.Err(error)` from the
+    /// enclosing function.
+    Try {
+        expr: Box<Expr>,
+        span: Span,
+    },
     Index {
         target: Box<Expr>,
         index: Box<Expr>,
@@ -320,6 +326,10 @@ pub enum Pattern {
     Wildcard {
         span: Span,
     },
+    Literal {
+        value: Literal,
+        span: Span,
+    },
     Ident(Ident),
     Variant {
         ty: Option<Ident>,
@@ -343,6 +353,7 @@ impl Expr {
             | Self::Call { span, .. }
             | Self::Spawn { span, .. }
             | Self::Await { span, .. }
+            | Self::Try { span, .. }
             | Self::Index { span, .. }
             | Self::Field { span, .. }
             | Self::Range { span, .. }

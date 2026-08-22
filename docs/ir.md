@@ -30,6 +30,9 @@ ordinary locals (the x86-64 backend maps them to stack slots).
 
 A **module** is a list of struct definitions and functions. Enums lower to
 tagged lists (`[tag, field…]`) plus `match` as tag compares and branches.
+Scalar patterns use direct comparisons. Result `?` reads the tag, extracts the
+success payload on tag zero, and emits an early `Return` for the error branch.
+Map constructors retain concrete key/value types when they can be inferred.
 
 A **function** has:
 

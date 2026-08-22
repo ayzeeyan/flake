@@ -6,7 +6,8 @@ This is the v0.5 development tour. Flake is a braced, immutable-by-default langu
 local type inference, an explicit `dyn` escape hatch, effect annotations,
 opt-in ownership, enums and `match`, multi-file `import`, and a standard
 library that runs on the interpreter, VM, and native x86-64 backend. v0.5 adds
-typed, structured tasks under the `conc` effect.
+typed structured tasks under `conc`, Result propagation, stronger patterns,
+and typed-key maps.
 
 ## Hello
 
@@ -79,13 +80,25 @@ let name = match c {
 
 `match` is an expression. Variant patterns must be qualified (`Color.Red`). A
 `_` or identifier arm is a catch-all. Matches on enums must cover every variant
-(or include `_`). Enums work on the interpreter, VM, and native paths.
+(or include `_`). Literal patterns support `nil`, bools, integers, floats, and
+strings; matching a Bool with both `true` and `false` is exhaustive. Duplicate
+patterns and arms after a catch-all are rejected as unreachable. Enums and
+scalar patterns work on the interpreter, VM, and native paths.
 
 User-defined enums cover Result-style error handling:
 
 ```flake
 enum Result { Ok(Int) Err(String) }
+
+fn add_two(result: Result) -> Result {
+    let value = result?
+    Result.Ok(value + 2)
+}
 ```
+
+`?` unwraps `Ok(value)` and immediately returns `Err(error)` from a function
+returning the same Result-like enum. Result-like enums have exactly
+`Ok(value)` followed by `Err(error)`. See [errors.md](errors.md).
 
 ## Effects
 
@@ -225,9 +238,16 @@ len(xs)
 
 let m = { "a": 1, "b": 2 }
 m["a"]
+contains(m, "a")
+m["c"] = 3
 
 print("Hello, {name}!")   // interpolation
 ```
+
+Map keys are typed and must be `String`, `Int`, or `Bool`. Key identity keeps
+types distinct at runtime, and `contains(map, key)` probes without raising a
+missing-key error. Lookup, assignment, membership, and concrete key types work
+on all three execution paths.
 
 ## Standard library (v0.4)
 
@@ -247,7 +267,7 @@ Prelude natives (no `import`):
 | `file_exists`, `remove_file` | path checks / delete | `io` |
 | `env(name)`, `cwd()` | environment | `io` |
 | `trim`, `upper`, `lower` | ASCII/Unicode string case and trim | `alloc` |
-| `contains`, `starts_with`, `ends_with` | search | pure |
+| `contains`, `starts_with`, `ends_with` | list/string/map search | pure |
 | `abs`, `min`, `max` | numeric helpers | pure |
 | `range(n)` / `range(a, b)` | integer range | pure |
 | `join(list, sep)` | concatenate | `alloc` |
@@ -261,7 +281,7 @@ Flake modules under `std/` (walk up from the importer):
 | `string` | `is_blank`, `surround`, `replace`, `repeat` |
 | `math` | `clamp`, `pow`, `sign` (sibling `math.flk` wins if present) |
 | `option` | `enum Option { Some(dyn) None }`, `is_some`, `unwrap_or` |
-| `result` | `enum Result { Ok(dyn) Err(String) }`, `is_ok`, `unwrap_or` |
+| `result` | `Result`, `is_ok`, `is_err`, `unwrap_or`, `error_or`, `unwrap` |
 
 ## Back ends
 

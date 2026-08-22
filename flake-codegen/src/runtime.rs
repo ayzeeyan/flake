@@ -15,6 +15,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_starts_with(asm);
     emit_strndup(asm);
     emit_quote(asm);
+    emit_bool_repr(asm);
     emit_repr(asm);
     emit_list_new(asm);
     emit_list_push(asm);
@@ -24,6 +25,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_display_map(asm);
     emit_display_range(asm);
     emit_map_get(asm);
+    emit_map_has(asm);
     emit_map_set(asm);
     emit_split(asm);
     emit_str_index(asm);
@@ -442,6 +444,32 @@ fn emit_repr(asm: &mut Asm) {
     asm.jmp_label("rt_itoa");
 }
 
+fn emit_bool_repr(asm: &mut Asm) {
+    // rcx = Bool → rax = freshly allocated "true" / "false".
+    asm.label("rt_bool_repr");
+    prologue(asm, 32);
+    asm.test_rr(Reg::Rcx, Reg::Rcx);
+    asm.jcc_label(Cc::Z, ".br_false");
+    asm.mov_ri(Reg::Rcx, 5);
+    asm.call_label("rt_alloc");
+    asm.bytes.extend_from_slice(&[0xC6, 0x00, b't']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x01, b'r']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x02, b'u']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x03, b'e']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x04, 0x00]);
+    epilogue(asm);
+    asm.label(".br_false");
+    asm.mov_ri(Reg::Rcx, 6);
+    asm.call_label("rt_alloc");
+    asm.bytes.extend_from_slice(&[0xC6, 0x00, b'f']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x01, b'a']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x02, b'l']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x03, b's']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x04, b'e']);
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x05, 0x00]);
+    epilogue(asm);
+}
+
 fn emit_list_new(asm: &mut Asm) {
     // rcx = cap → rax = [len=0, cap, items...]
     asm.label("rt_list_new");
@@ -594,10 +622,11 @@ fn emit_display_list(asm: &mut Asm) {
 }
 
 fn emit_display_map(asm: &mut Asm) {
-    // rcx = map → rax = "{\"k\": v, ...}"
+    // rcx = map, rdx = key mode (0 Int, 1 String, 2 Bool) → display string.
     asm.label("rt_display_map");
     prologue(asm, 80);
     asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-48, Reg::Rdx);
     asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
     asm.test_rr(Reg::Rax, Reg::Rax);
     asm.jcc_label(Cc::NZ, ".dm_go");
@@ -636,7 +665,21 @@ fn emit_display_map(asm: &mut Asm) {
     asm.shl_ri(Reg::R8, 4);
     asm.add_rr(Reg::Rcx, Reg::R8);
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16); // key
+    asm.mov_rm_rbp(Reg::Rax, -48);
+    asm.mov_ri(Reg::R10, 1);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dm_key_string");
+    asm.mov_ri(Reg::R10, 2);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".dm_key_bool");
+    asm.call_label("rt_itoa");
+    asm.jmp_label(".dm_key_done");
+    asm.label(".dm_key_string");
     asm.call_label("rt_quote");
+    asm.jmp_label(".dm_key_done");
+    asm.label(".dm_key_bool");
+    asm.call_label("rt_bool_repr");
+    asm.label(".dm_key_done");
     asm.mov_rr(Reg::Rdx, Reg::Rax);
     asm.mov_rm_rbp(Reg::Rcx, -16);
     asm.call_label("rt_concat2");
@@ -696,11 +739,12 @@ fn emit_display_range(asm: &mut Asm) {
 }
 
 fn emit_map_get(asm: &mut Asm) {
-    // rcx = map, rdx = key → rax = value or 0.
+    // rcx = map, rdx = key, r8 = string-key flag → rax = value or 0.
     asm.label("rt_map_get");
     prologue(asm, 48);
     asm.mov_mr_rbp(-8, Reg::Rcx);
     asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.mov_mr_rbp(-32, Reg::R8);
     asm.xor_rr(Reg::R8, Reg::R8);
     asm.mov_mr_rbp(-24, Reg::R8);
     asm.label(".mg_loop");
@@ -711,11 +755,25 @@ fn emit_map_get(asm: &mut Asm) {
     asm.jcc_label(Cc::Ge, ".mg_miss");
     asm.shl_ri(Reg::R8, 4);
     asm.add_rr(Reg::Rcx, Reg::R8);
+    asm.mov_rm_rbp(Reg::Rax, -32);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".mg_scalar");
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::Rdx, -16);
     asm.call_label("rt_streq");
     asm.test_rr(Reg::Rax, Reg::Rax);
     asm.jcc_label(Cc::NZ, ".mg_hit");
+    asm.jmp_label(".mg_next");
+    asm.label(".mg_scalar");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm_rbp(Reg::R8, -24);
+    asm.shl_ri(Reg::R8, 4);
+    asm.add_rr(Reg::Rcx, Reg::R8);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.cmp_rr(Reg::Rax, Reg::Rdx);
+    asm.jcc_label(Cc::E, ".mg_hit");
+    asm.label(".mg_next");
     asm.mov_rm_rbp(Reg::R8, -24);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr_rbp(-24, Reg::R8);
@@ -732,13 +790,62 @@ fn emit_map_get(asm: &mut Asm) {
     epilogue(asm);
 }
 
+fn emit_map_has(asm: &mut Asm) {
+    // rcx = map, rdx = key, r8 = string-key flag → rax = Bool.
+    asm.label("rt_map_has");
+    prologue(asm, 48);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.mov_mr_rbp(-32, Reg::R8);
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.mov_mr_rbp(-24, Reg::R8);
+    asm.label(".mh_loop");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm(Reg::R9, Reg::Rcx, 0);
+    asm.mov_rm_rbp(Reg::R8, -24);
+    asm.cmp_rr(Reg::R8, Reg::R9);
+    asm.jcc_label(Cc::Ge, ".mh_miss");
+    asm.shl_ri(Reg::R8, 4);
+    asm.add_rr(Reg::Rcx, Reg::R8);
+    asm.mov_rm_rbp(Reg::Rax, -32);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".mh_scalar");
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.call_label("rt_streq");
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::NZ, ".mh_hit");
+    asm.jmp_label(".mh_next");
+    asm.label(".mh_scalar");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm_rbp(Reg::R8, -24);
+    asm.shl_ri(Reg::R8, 4);
+    asm.add_rr(Reg::Rcx, Reg::R8);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.cmp_rr(Reg::Rax, Reg::Rdx);
+    asm.jcc_label(Cc::E, ".mh_hit");
+    asm.label(".mh_next");
+    asm.mov_rm_rbp(Reg::R8, -24);
+    asm.add_ri(Reg::R8, 1);
+    asm.mov_mr_rbp(-24, Reg::R8);
+    asm.jmp_label(".mh_loop");
+    asm.label(".mh_hit");
+    asm.mov_ri(Reg::Rax, 1);
+    epilogue(asm);
+    asm.label(".mh_miss");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+}
+
 fn emit_map_set(asm: &mut Asm) {
-    // rcx = map, rdx = key, r8 = val → rax = map (possibly reallocated).
+    // rcx = map, rdx = key, r8 = val, r9 = string-key flag → rax = map.
     asm.label("rt_map_set");
     prologue(asm, 80);
     asm.mov_mr_rbp(-8, Reg::Rcx);
     asm.mov_mr_rbp(-16, Reg::Rdx);
     asm.mov_mr_rbp(-24, Reg::R8);
+    asm.mov_mr_rbp(-56, Reg::R9);
     asm.xor_rr(Reg::R8, Reg::R8);
     asm.mov_mr_rbp(-32, Reg::R8); // i
     asm.label(".ms_loop");
@@ -749,11 +856,25 @@ fn emit_map_set(asm: &mut Asm) {
     asm.jcc_label(Cc::Ge, ".ms_append");
     asm.shl_ri(Reg::R8, 4);
     asm.add_rr(Reg::Rcx, Reg::R8);
+    asm.mov_rm_rbp(Reg::Rax, -56);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".ms_scalar");
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::Rdx, -16);
     asm.call_label("rt_streq");
     asm.test_rr(Reg::Rax, Reg::Rax);
     asm.jcc_label(Cc::NZ, ".ms_hit");
+    asm.jmp_label(".ms_next");
+    asm.label(".ms_scalar");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm_rbp(Reg::R8, -32);
+    asm.shl_ri(Reg::R8, 4);
+    asm.add_rr(Reg::Rcx, Reg::R8);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.cmp_rr(Reg::Rax, Reg::Rdx);
+    asm.jcc_label(Cc::E, ".ms_hit");
+    asm.label(".ms_next");
     asm.mov_rm_rbp(Reg::R8, -32);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr_rbp(-32, Reg::R8);

@@ -10,7 +10,7 @@ use flake_ast::Span;
 use crate::error::VmError;
 use crate::natives::call_native;
 use crate::opcode::Op;
-use crate::value::{Function, Iter, IterKind, Native, TaskRef, TaskState, Value};
+use crate::value::{Function, Iter, IterKind, MapKey, Native, TaskRef, TaskState, Value};
 
 const MAX_CALL_DEPTH: usize = 10_000;
 
@@ -641,16 +641,13 @@ fn expect_int(value: &Value) -> Result<i64, VmError> {
     }
 }
 
-fn map_key(value: &Value) -> Result<String, VmError> {
-    match value {
-        Value::String(s) => Ok(s.to_string()),
-        Value::Int(n) => Ok(n.to_string()),
-        Value::Bool(b) => Ok(b.to_string()),
-        other => Err(VmError::new(
+fn map_key(value: &Value) -> Result<MapKey, VmError> {
+    MapKey::from_value(value).ok_or_else(|| {
+        VmError::new(
             Span::DUMMY,
-            format!("cannot use {} as a map key", other.type_name()),
-        )),
-    }
+            format!("cannot use {} as a map key", value.type_name()),
+        )
+    })
 }
 
 fn make_iter(value: Value) -> Result<Iter, VmError> {
@@ -701,7 +698,7 @@ fn index_get(target: &Value, index: &Value) -> Result<Value, VmError> {
             map.borrow()
                 .get(&key)
                 .cloned()
-                .ok_or_else(|| VmError::new(Span::DUMMY, format!("map has no key {key:?}")))
+                .ok_or_else(|| VmError::new(Span::DUMMY, format!("map has no key {}", key.repr())))
         }
         other => Err(VmError::new(
             Span::DUMMY,

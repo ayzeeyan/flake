@@ -46,6 +46,8 @@ runtime enforces the same single-join rule in gradual code.
 - You cannot move or assign `x` while it is borrowed.
 
 `match` arms are checked independently; the scrutinee is not moved.
+Applying `?` consumes its Result value in a move position: success yields the
+payload, while the error value is returned from the current function.
 
 There is no full lifetime checker. Returning a reference to a local is not
 tracked as thoroughly as in Rust. See also [the tour](tour.md).

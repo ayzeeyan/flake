@@ -322,6 +322,7 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
         }
         Expr::Spawn { call, .. } => check_expr(cx, call, true),
         Expr::Await { task, .. } => check_expr(cx, task, true),
+        Expr::Try { expr, .. } => check_expr(cx, expr, true),
         Expr::Index { target, index, .. } => {
             check_expr(cx, target, false)?;
             check_expr(cx, index, false)

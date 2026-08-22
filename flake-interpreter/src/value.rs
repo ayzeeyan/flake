@@ -11,6 +11,26 @@ use crate::env::Env;
 
 pub type TaskRef = Rc<RefCell<TaskState>>;
 
+/// Hashable map keys retain their runtime type, so `1`, `"1"`, and `true`
+/// never collide.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    String(Rc<str>),
+    Int(i64),
+    Bool(bool),
+}
+
+impl MapKey {
+    #[must_use]
+    pub fn repr(&self) -> String {
+        match self {
+            Self::String(value) => format!("{value:?}"),
+            Self::Int(value) => value.to_string(),
+            Self::Bool(value) => value.to_string(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum Value {
     Nil,
@@ -19,7 +39,7 @@ pub enum Value {
     Float(f64),
     String(Rc<str>),
     List(Rc<RefCell<Vec<Value>>>),
-    Map(Rc<RefCell<HashMap<String, Value>>>),
+    Map(Rc<RefCell<HashMap<MapKey, Value>>>),
     Struct {
         name: Rc<str>,
         fields: Rc<RefCell<HashMap<String, Value>>>,
@@ -204,10 +224,11 @@ impl Value {
             }
             Self::Map(map) => {
                 let map = map.borrow();
-                let inner: Vec<_> = map
+                let mut inner: Vec<_> = map
                     .iter()
-                    .map(|(k, v)| format!("{k:?}: {}", v.repr()))
+                    .map(|(k, v)| format!("{}: {}", k.repr(), v.repr()))
                     .collect();
+                inner.sort();
                 format!("{{{}}}", inner.join(", "))
             }
             Self::Struct { name, fields } => {
