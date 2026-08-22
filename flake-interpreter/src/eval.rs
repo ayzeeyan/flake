@@ -13,7 +13,7 @@ use flake_parser::{ModuleGraph, ReplInput, import_alias, load_graph, parse_repl}
 
 use crate::env::Env;
 use crate::error::{RunError, RuntimeError};
-use crate::value::{Function, NativeFn, Value};
+use crate::value::{Function, NativeFn, TaskRef, TaskState, Value};
 
 const MAX_CALL_DEPTH: usize = 10_000;
 
@@ -41,6 +41,7 @@ struct Interpreter<'io> {
     env: Env,
     stdout: &'io mut dyn Write,
     depth: usize,
+    task_scopes: Vec<Vec<TaskRef>>,
 }
 
 /// Persistent evaluation engine used by `flake run` and the REPL.
@@ -70,6 +71,7 @@ impl Engine {
             env: self.env.clone(),
             stdout,
             depth: 0,
+            task_scopes: vec![Vec::new()],
         };
         interp.install_graph(&graph).map_err(RunError::from)?;
         interp
@@ -89,8 +91,9 @@ impl Engine {
             env: self.env.clone(),
             stdout,
             depth: 0,
+            task_scopes: vec![Vec::new()],
         };
-        match input {
+        let result = match input {
             ReplInput::Program(program) => {
                 interp.collect_items(&program).map_err(RunError::from)?;
                 let has_main = program
@@ -114,6 +117,16 @@ impl Engine {
                     Err(RuntimeError::new(block.span, "`continue` outside of a loop").into())
                 }
             },
+        };
+        match result {
+            Ok(value) => {
+                interp.finish_root_task_scope().map_err(RunError::from)?;
+                Ok(value)
+            }
+            Err(error) => {
+                interp.cancel_task_scope();
+                Err(error)
+            }
         }
     }
 }
@@ -134,6 +147,7 @@ pub fn execute_program(
         env: Env::root(),
         stdout,
         depth: 0,
+        task_scopes: vec![Vec::new()],
     };
     install_builtins(&interp.env);
     interp.collect_items(program).map_err(RunError::from)?;
@@ -348,17 +362,25 @@ impl<'io> Interpreter<'io> {
             return Err(RuntimeError::new(span, "maximum call depth exceeded").into());
         }
         self.depth += 1;
+        self.task_scopes.push(Vec::new());
         let call_env = func.closure.child();
         for (param, arg) in func.params.iter().zip(args) {
             call_env.define(&param.name, arg.clone(), false);
         }
         let saved = self.env.clone();
         self.env = call_env;
-        let result = match self.eval_block(&func.body) {
+        let mut result = match self.eval_block(&func.body) {
             Ok(v) => Ok(v),
             Err(Fail::Control(Control::Return(v))) => Ok(v),
             Err(other) => Err(other),
         };
+        if result.is_ok() {
+            if let Err(err) = self.finish_task_scope() {
+                result = Err(err);
+            }
+        } else {
+            self.cancel_task_scope();
+        }
         self.env = saved;
         self.depth -= 1;
         result
@@ -555,6 +577,42 @@ impl<'io> Interpreter<'io> {
                 }
                 self.call_value(&func, &arg_values, *span)
             }
+            Expr::Spawn { call, span } => {
+                let Expr::Call {
+                    callee,
+                    args,
+                    span: call_span,
+                } = call.as_ref()
+                else {
+                    return Err(RuntimeError::new(*span, "`spawn` expects a function call").into());
+                };
+                let func = self.eval_expr(callee)?;
+                let mut arg_values = Vec::with_capacity(args.len());
+                for arg in args {
+                    arg_values.push(self.eval_expr(arg)?);
+                }
+                let task = Rc::new(RefCell::new(TaskState::Pending {
+                    callee: func,
+                    args: arg_values,
+                    span: *call_span,
+                }));
+                let Some(scope) = self.task_scopes.last_mut() else {
+                    return Err(RuntimeError::new(*span, "`spawn` outside of a task scope").into());
+                };
+                scope.push(task.clone());
+                Ok(Value::Task(task))
+            }
+            Expr::Await { task, span } => {
+                let value = self.eval_expr(task)?;
+                let Value::Task(task) = value else {
+                    return Err(RuntimeError::new(
+                        *span,
+                        format!("cannot await value of type {}", value.type_name()),
+                    )
+                    .into());
+                };
+                self.join_task(&task, *span)
+            }
             Expr::Index {
                 target,
                 index,
@@ -729,6 +787,72 @@ impl<'io> Interpreter<'io> {
                 format!("cannot call value of type {}", other.type_name()),
             )
             .into()),
+        }
+    }
+
+    fn join_task(&mut self, task: &TaskRef, await_span: Span) -> EvalResult<Value> {
+        let (callee, args, call_span) = {
+            let mut state = task.borrow_mut();
+            match &*state {
+                TaskState::Pending { .. } => {}
+                TaskState::Running => {
+                    return Err(RuntimeError::new(await_span, "task is already running").into());
+                }
+                TaskState::Joined => {
+                    return Err(RuntimeError::new(await_span, "task was already awaited").into());
+                }
+                TaskState::Cancelled => {
+                    return Err(RuntimeError::new(await_span, "task was cancelled").into());
+                }
+            }
+            let TaskState::Pending { callee, args, span } =
+                std::mem::replace(&mut *state, TaskState::Running)
+            else {
+                unreachable!("pending task changed while borrowed")
+            };
+            (callee, args, span)
+        };
+        let result = self.call_value(&callee, &args, call_span);
+        *task.borrow_mut() = TaskState::Joined;
+        result
+    }
+
+    fn finish_task_scope(&mut self) -> EvalResult<()> {
+        let tasks = self.task_scopes.pop().unwrap_or_default();
+        for (index, task) in tasks.iter().enumerate() {
+            let pending = matches!(&*task.borrow(), TaskState::Pending { .. });
+            if pending {
+                if let Err(error) = self.join_task(task, Span::DUMMY) {
+                    for remaining in &tasks[index + 1..] {
+                        Self::cancel_task(remaining);
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn cancel_task_scope(&mut self) {
+        for task in self.task_scopes.pop().unwrap_or_default() {
+            Self::cancel_task(&task);
+        }
+    }
+
+    fn cancel_task(task: &TaskRef) {
+        if matches!(&*task.borrow(), TaskState::Pending { .. }) {
+            *task.borrow_mut() = TaskState::Cancelled;
+        }
+    }
+
+    fn finish_root_task_scope(&mut self) -> Result<(), RuntimeError> {
+        match self.finish_task_scope() {
+            Ok(()) => Ok(()),
+            Err(Fail::Runtime(error)) => Err(error),
+            Err(Fail::Control(_)) => Err(RuntimeError::new(
+                Span::DUMMY,
+                "invalid control flow while joining a task",
+            )),
         }
     }
 

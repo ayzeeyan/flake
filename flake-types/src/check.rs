@@ -8,7 +8,7 @@ use flake_ast::{
 };
 use flake_parser::{ModuleGraph, import_alias, is_exported, load_graph};
 
-use crate::effects::EffectSet;
+use crate::effects::{Effect, EffectSet};
 use crate::error::{CheckError, TypeError};
 use crate::ty::Type;
 
@@ -159,6 +159,7 @@ impl Checker {
             },
             Type::List(e) => Type::list(self.resolve(e)),
             Type::Map(k, v) => Type::Map(Box::new(self.resolve(k)), Box::new(self.resolve(v))),
+            Type::Task(result) => Type::Task(Box::new(self.resolve(result))),
             Type::Optional(i) => Type::Optional(Box::new(self.resolve(i))),
             Type::Owned(i) => Type::Owned(Box::new(self.resolve(i))),
             Type::Mut(i) => Type::Mut(Box::new(self.resolve(i))),
@@ -198,6 +199,7 @@ impl Checker {
                 Box::new(self.unify(&k1, &k2, span)?),
                 Box::new(self.unify(&v1, &v2, span)?),
             )),
+            (Type::Task(a), Type::Task(b)) => Ok(Type::Task(Box::new(self.unify(&a, &b, span)?))),
             (Type::Optional(x), Type::Optional(y)) => {
                 Ok(Type::Optional(Box::new(self.unify(&x, &y, span)?)))
             }
@@ -596,6 +598,18 @@ impl Checker {
                     };
                     Type::Map(Box::new(k), Box::new(v))
                 }
+                "Task" => {
+                    let result = match args.as_slice() {
+                        [result] => self.lower_type(result)?,
+                        _ => {
+                            return Err(TypeError::new(
+                                *span,
+                                "Task expects exactly one type argument",
+                            ));
+                        }
+                    };
+                    Type::Task(Box::new(result))
+                }
                 other => {
                     if let Some(alias) = self.aliases.get(other) {
                         alias.clone()
@@ -653,6 +667,13 @@ impl Checker {
             self.define(param.name.name.clone(), ty.clone());
         }
         let body_ty = self.check_block(&func.body)?;
+        if contains_task(&self.resolve(&body_ty).without_ownership()) {
+            return Err(TypeError::with_help(
+                func.body.span,
+                "task handle cannot escape its spawning function",
+                "await the task inside this function and return its result instead",
+            ));
+        }
         self.unify(&body_ty, &ret, func.body.span)?;
         self.pop_scope();
         Ok(())
@@ -684,7 +705,14 @@ impl Checker {
             }
             Stmt::Return { value, span } => {
                 if let Some(v) = value {
-                    self.check_expr(v)?;
+                    let ty = self.check_expr(v)?;
+                    if contains_task(&self.resolve(&ty).without_ownership()) {
+                        return Err(TypeError::with_help(
+                            *span,
+                            "task handle cannot escape its spawning function",
+                            "await the task before returning",
+                        ));
+                    }
                 } else {
                     let _ = span;
                 }
@@ -892,6 +920,29 @@ impl Checker {
                         Ok(Type::Dyn)
                     }
                     other => Err(TypeError::new(*span, format!("cannot call {other}"))),
+                }
+            }
+            Expr::Spawn { call, span } => {
+                if !matches!(call.as_ref(), Expr::Call { .. }) {
+                    return Err(TypeError::with_help(
+                        *span,
+                        "`spawn` expects a function call",
+                        "pass the work and its arguments as `spawn work(args...)`",
+                    ));
+                }
+                let result = self.check_expr(call)?;
+                Ok(Type::Task(Box::new(result)))
+            }
+            Expr::Await { task, span } => {
+                let task_ty = self.check_expr(task)?;
+                match self.resolve(&task_ty).without_ownership() {
+                    Type::Task(result) => Ok(*result),
+                    Type::Dyn | Type::Var(_) => Ok(Type::Dyn),
+                    other => Err(TypeError::with_help(
+                        *span,
+                        format!("cannot await {other}"),
+                        "`await` accepts a Task[T] returned by `spawn`",
+                    )),
                 }
             }
             Expr::Index {
@@ -1290,6 +1341,14 @@ impl Checker {
                 }
                 Ok(())
             }
+            Expr::Spawn { call, .. } => {
+                used.insert(Effect::Conc);
+                self.collect_expr_effects(call, fns, visiting, done, used)
+            }
+            Expr::Await { task, .. } => {
+                used.insert(Effect::Conc);
+                self.collect_expr_effects(task, fns, visiting, done, used)
+            }
             Expr::Interpolated { parts, .. } => {
                 for part in parts {
                     if let InterpPart::Expr(e) = part {
@@ -1447,12 +1506,40 @@ fn edit_distance(a: &str, b: &str) -> usize {
 fn occurs(id: u32, ty: &Type) -> bool {
     match ty {
         Type::Var(j) => *j == id,
-        Type::List(e) | Type::Optional(e) | Type::Owned(e) | Type::Mut(e) => occurs(id, e),
+        Type::List(e) | Type::Task(e) | Type::Optional(e) | Type::Owned(e) | Type::Mut(e) => {
+            occurs(id, e)
+        }
         Type::Ref { inner, .. } => occurs(id, inner),
         Type::Map(k, v) => occurs(id, k) || occurs(id, v),
         Type::Fn { params, ret, .. } => params.iter().any(|p| occurs(id, p)) || occurs(id, ret),
         Type::Module { members, .. } => members.iter().any(|(_, t)| occurs(id, t)),
         _ => false,
+    }
+}
+
+fn contains_task(ty: &Type) -> bool {
+    match ty {
+        Type::Task(_) => true,
+        Type::List(inner)
+        | Type::Optional(inner)
+        | Type::Owned(inner)
+        | Type::Mut(inner)
+        | Type::Ref { inner, .. } => contains_task(inner),
+        Type::Map(key, value) => contains_task(key) || contains_task(value),
+        Type::Struct { fields, .. } => fields.iter().any(|(_, field)| contains_task(field)),
+        Type::Enum { variants, .. } => variants
+            .iter()
+            .any(|(_, fields)| fields.iter().any(contains_task)),
+        Type::Nil
+        | Type::Bool
+        | Type::Int
+        | Type::Float
+        | Type::String
+        | Type::Fn { .. }
+        | Type::Range
+        | Type::Dyn
+        | Type::Var(_)
+        | Type::Module { .. } => false,
     }
 }
 

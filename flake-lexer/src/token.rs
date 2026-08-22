@@ -73,6 +73,8 @@ pub enum TokenKind {
     Pub,
     Unsafe,
     Match,
+    Spawn,
+    Await,
 
     // Operators
     Plus,
@@ -150,6 +152,8 @@ impl TokenKind {
             "pub" => Self::Pub,
             "unsafe" => Self::Unsafe,
             "match" => Self::Match,
+            "spawn" => Self::Spawn,
+            "await" => Self::Await,
             _ => return None,
         })
     }
@@ -186,6 +190,8 @@ impl TokenKind {
                 | Self::Pub
                 | Self::Unsafe
                 | Self::Match
+                | Self::Spawn
+                | Self::Await
         )
     }
 
@@ -228,6 +234,8 @@ impl TokenKind {
             Self::Pub => "`pub`",
             Self::Unsafe => "`unsafe`",
             Self::Match => "`match`",
+            Self::Spawn => "`spawn`",
+            Self::Await => "`await`",
             Self::Plus => "`+`",
             Self::Minus => "`-`",
             Self::Star => "`*`",

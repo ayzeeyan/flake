@@ -276,6 +276,34 @@ fn pub_enum_parses() {
 }
 
 #[test]
+fn spawn_and_await_parse_and_pretty_print() {
+    let program = parse_ok(
+        "fn work(n: Int) -> Int { n + 1 }\nfn main() / conc { let task: Task[Int] = spawn work(41) await task }",
+    );
+    let Item::Fn(main) = &program.items[1] else {
+        panic!("expected main function");
+    };
+    assert!(matches!(
+        main.body.stmts.as_slice(),
+        [Stmt::Let(s)] if matches!(s.value, Expr::Spawn { .. })
+    ));
+    assert!(matches!(
+        main.body.tail.as_deref(),
+        Some(Expr::Await { .. })
+    ));
+    let pretty = print_program(&program);
+    assert!(pretty.contains("spawn work(41)"), "{pretty}");
+    assert!(pretty.contains("await task"), "{pretty}");
+    parse_str(&pretty).expect("pretty-printed concurrency should parse");
+}
+
+#[test]
+fn spawn_requires_a_call() {
+    let err = parse_str("fn main() / conc { spawn 42 }").unwrap_err();
+    assert!(err.message.contains("function call"), "{}", err.message);
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

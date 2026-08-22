@@ -7,6 +7,8 @@ use std::rc::Rc;
 
 use crate::opcode::Chunk;
 
+pub type TaskRef = Rc<RefCell<TaskState>>;
+
 #[derive(Clone)]
 pub enum Value {
     Nil,
@@ -27,6 +29,16 @@ pub enum Value {
         end: i64,
     },
     Iter(Rc<RefCell<Iter>>),
+    Task(TaskRef),
+}
+
+#[derive(Clone)]
+pub enum TaskState {
+    Pending { callee: Value, args: Vec<Value> },
+    Ready(Value),
+    Running,
+    Joined,
+    Cancelled,
 }
 
 #[derive(Clone)]
@@ -181,6 +193,7 @@ impl Value {
             Self::Function(_) | Self::Native(_) => "Function",
             Self::Range { .. } => "Range",
             Self::Iter(_) => "Iter",
+            Self::Task(_) => "Task",
         }
     }
 
@@ -216,6 +229,16 @@ impl Value {
             Self::Native(n) => format!("<fn {}>", n.name()),
             Self::Range { start, end } => format!("{start}..{end}"),
             Self::Iter(_) => "<iter>".into(),
+            Self::Task(task) => {
+                let state = match &*task.borrow() {
+                    TaskState::Pending { .. } => "pending",
+                    TaskState::Ready(_) => "ready",
+                    TaskState::Running => "running",
+                    TaskState::Joined => "joined",
+                    TaskState::Cancelled => "cancelled",
+                };
+                format!("<task {state}>")
+            }
         }
     }
 
@@ -240,6 +263,7 @@ impl Value {
             }
             (Self::Native(a), Self::Native(b)) => a == b,
             (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
+            (Self::Task(a), Self::Task(b)) => Rc::ptr_eq(a, b),
             (Self::List(a), Self::List(b)) => {
                 if Rc::ptr_eq(a, b) {
                     return true;
@@ -300,6 +324,18 @@ impl fmt::Display for Value {
 impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<fn {}>", self.name)
+    }
+}
+
+impl fmt::Debug for TaskState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pending { .. } => f.write_str("Pending"),
+            Self::Ready(_) => f.write_str("Ready"),
+            Self::Running => f.write_str("Running"),
+            Self::Joined => f.write_str("Joined"),
+            Self::Cancelled => f.write_str("Cancelled"),
+        }
     }
 }
 

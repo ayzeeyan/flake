@@ -14,6 +14,8 @@ pub enum Type {
     String,
     List(Box<Type>),
     Map(Box<Type>, Box<Type>),
+    /// Scope-bound result of a `spawn` expression.
+    Task(Box<Type>),
     Struct {
         name: String,
         fields: Vec<(String, Type)>,
@@ -70,6 +72,7 @@ impl Type {
                 Box::new(k.without_ownership()),
                 Box::new(v.without_ownership()),
             ),
+            Self::Task(result) => Self::Task(Box::new(result.without_ownership())),
             Self::Optional(i) => Self::Optional(Box::new(i.without_ownership())),
             Self::Fn {
                 params,
@@ -126,6 +129,7 @@ impl fmt::Display for Type {
             Self::String => f.write_str("String"),
             Self::List(e) => write!(f, "[{e}]"),
             Self::Map(k, v) => write!(f, "Map[{k}, {v}]"),
+            Self::Task(result) => write!(f, "Task[{result}]"),
             Self::Struct { name, .. } => f.write_str(name),
             Self::Module { name, .. } => write!(f, "module {name}"),
             Self::Enum { name, .. } => f.write_str(name),

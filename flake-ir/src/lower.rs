@@ -680,6 +680,10 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             });
             dest
         }
+        // Milestone 1 native fallback: task creation and joining lower to the
+        // underlying call/value. The interpreter and VM retain real handles.
+        Expr::Spawn { call, .. } => lower_expr(b, call),
+        Expr::Await { task, .. } => lower_expr(b, task),
         Expr::Index { target, index, .. } => {
             let obj = lower_expr(b, target);
             let idx = lower_expr(b, index);
@@ -1034,13 +1038,17 @@ fn lower_type(ty: Option<&TypeExpr>) -> IrType {
     match ty {
         None => IrType::Unknown,
         Some(TypeExpr::Dyn { .. }) => IrType::Dyn,
-        Some(TypeExpr::Named { name, .. }) => match name.name.as_str() {
+        Some(TypeExpr::Named { name, args, .. }) => match name.name.as_str() {
             "Int" => IrType::Int,
             "Float" => IrType::Float,
             "Bool" => IrType::Bool,
             "String" => IrType::String,
             "Nil" | "Unit" => IrType::Nil,
             "Range" => IrType::Range,
+            "Task" => args
+                .first()
+                .map(|result| lower_type(Some(result)))
+                .unwrap_or(IrType::Dyn),
             other => IrType::Struct(other.to_string()),
         },
         Some(TypeExpr::List { element, .. }) => IrType::List(Box::new(lower_type(Some(element)))),

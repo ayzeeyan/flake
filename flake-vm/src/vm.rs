@@ -10,7 +10,7 @@ use flake_ast::Span;
 use crate::error::VmError;
 use crate::natives::call_native;
 use crate::opcode::Op;
-use crate::value::{Function, Iter, IterKind, Native, Value};
+use crate::value::{Function, Iter, IterKind, Native, TaskRef, TaskState, Value};
 
 const MAX_CALL_DEPTH: usize = 10_000;
 
@@ -18,6 +18,7 @@ struct Frame {
     func: Rc<Function>,
     ip: usize,
     slots: usize,
+    tasks: Vec<TaskRef>,
 }
 
 pub struct Vm<'io> {
@@ -206,8 +207,47 @@ impl<'io> Vm<'io> {
                         }
                     }
                 }
+                Op::Spawn(argc) => {
+                    let argc = argc as usize;
+                    if self.stack.len() < argc + 1 {
+                        return Err(VmError::new(Span::DUMMY, "stack underflow in `spawn`"));
+                    }
+                    let mut args = Vec::with_capacity(argc);
+                    for _ in 0..argc {
+                        args.push(self.pop());
+                    }
+                    args.reverse();
+                    let callee = self.pop();
+                    if !matches!(callee, Value::Function(_) | Value::Native(_)) {
+                        return Err(VmError::new(
+                            Span::DUMMY,
+                            format!("cannot spawn {}", callee.type_name()),
+                        ));
+                    }
+                    let task = Rc::new(RefCell::new(TaskState::Pending { callee, args }));
+                    self.frames[frame_index].tasks.push(task.clone());
+                    self.stack.push(Value::Task(task));
+                }
+                Op::ReadyTask => {
+                    let value = self.pop();
+                    let task = Rc::new(RefCell::new(TaskState::Ready(value)));
+                    self.frames[frame_index].tasks.push(task.clone());
+                    self.stack.push(Value::Task(task));
+                }
+                Op::Await => {
+                    let value = self.pop();
+                    let Value::Task(task) = value else {
+                        return Err(VmError::new(
+                            Span::DUMMY,
+                            format!("cannot await {}", value.type_name()),
+                        ));
+                    };
+                    let result = self.join_task(&task)?;
+                    self.stack.push(result);
+                }
                 Op::Return => {
                     let result = self.pop();
+                    self.finish_frame_tasks(frame_index)?;
                     let frame = self.frames.pop().unwrap();
                     let callee_idx = frame.slots.saturating_sub(1);
                     self.stack.truncate(callee_idx);
@@ -345,8 +385,98 @@ impl<'io> Vm<'io> {
         while self.stack.len() < needed {
             self.stack.push(Value::Nil);
         }
-        self.frames.push(Frame { func, ip: 0, slots });
+        self.frames.push(Frame {
+            func,
+            ip: 0,
+            slots,
+            tasks: Vec::new(),
+        });
         Ok(())
+    }
+
+    fn join_task(&mut self, task: &TaskRef) -> Result<Value, VmError> {
+        enum Work {
+            Ready(Value),
+            Call(Value, Vec<Value>),
+        }
+
+        let work = {
+            let mut state = task.borrow_mut();
+            match &*state {
+                TaskState::Pending { .. } | TaskState::Ready(_) => {}
+                TaskState::Running => {
+                    return Err(VmError::new(Span::DUMMY, "task is already running"));
+                }
+                TaskState::Joined => {
+                    return Err(VmError::new(Span::DUMMY, "task was already awaited"));
+                }
+                TaskState::Cancelled => {
+                    return Err(VmError::new(Span::DUMMY, "task was cancelled"));
+                }
+            }
+            match std::mem::replace(&mut *state, TaskState::Running) {
+                TaskState::Pending { callee, args } => Work::Call(callee, args),
+                TaskState::Ready(value) => Work::Ready(value),
+                _ => unreachable!("joinable task changed while borrowed"),
+            }
+        };
+
+        let result = match work {
+            Work::Ready(value) => Ok(value),
+            Work::Call(Value::Function(function), args) => self.run_task_function(function, args),
+            Work::Call(Value::Native(native), args) => call_native(native, &args, self.stdout),
+            Work::Call(other, _) => Err(VmError::new(
+                Span::DUMMY,
+                format!("cannot spawn {}", other.type_name()),
+            )),
+        };
+        *task.borrow_mut() = TaskState::Joined;
+        result
+    }
+
+    fn finish_frame_tasks(&mut self, frame_index: usize) -> Result<(), VmError> {
+        let tasks = self.frames[frame_index].tasks.clone();
+        for (index, task) in tasks.iter().enumerate() {
+            let joinable = matches!(
+                &*task.borrow(),
+                TaskState::Pending { .. } | TaskState::Ready(_)
+            );
+            if joinable {
+                if let Err(error) = self.join_task(task) {
+                    for remaining in &tasks[index + 1..] {
+                        if matches!(
+                            &*remaining.borrow(),
+                            TaskState::Pending { .. } | TaskState::Ready(_)
+                        ) {
+                            *remaining.borrow_mut() = TaskState::Cancelled;
+                        }
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn run_task_function(
+        &mut self,
+        function: Rc<Function>,
+        args: Vec<Value>,
+    ) -> Result<Value, VmError> {
+        let saved_stack = std::mem::take(&mut self.stack);
+        let saved_frames = std::mem::take(&mut self.frames);
+
+        self.stack.push(Value::Function(function.clone()));
+        self.stack.extend(args);
+        let setup = self.call(function, self.stack.len().saturating_sub(1), Span::DUMMY);
+        let result = match setup {
+            Ok(()) => self.run(),
+            Err(error) => Err(error),
+        };
+
+        self.stack = saved_stack;
+        self.frames = saved_frames;
+        result
     }
 
     fn pop(&mut self) -> Value {

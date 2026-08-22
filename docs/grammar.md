@@ -1,4 +1,4 @@
-# Flake grammar (v0.4, sketch)
+# Flake grammar (v0.5 development, sketch)
 
 ```
 program     := item*
@@ -29,7 +29,8 @@ cmp         := range (("<" | "<=" | ">" | ">=") range)*
 range       := term (".." term)?
 term        := factor (("+" | "-") factor)*
 factor      := unary (("*" | "/" | "%") unary)*
-unary       := ("-" | "!" | "&" "mut"?) unary | postfix
+unary       := ("-" | "!" | "&" "mut"? | "await") unary
+             | "spawn" postfix | postfix
 postfix     := primary (call | index | field)*
 primary     := ident | literal | list | map | string | "if" | "match" | block | "(" expr ")"
 match       := "match" expr "{" arm* "}"
@@ -41,6 +42,10 @@ type        := "owned" type | "ref" type | "mut" type | "&" "mut"? type
 atom        := "dyn" | ident ("[" type ("," type)* "]")? | "[" type "]"
              | "fn" "(" types? ")" ("->" type)? ("/" effects)?
 ```
+
+`spawn` requires a call expression (`spawn work(args...)`) and produces
+`Task[T]`. `await` consumes a task handle and produces its result. Both carry
+the `conc` effect.
 
 Newlines are statement separators. Semicolons are optional. `//` and nested
 `/* */` comments are skipped by the lexer.

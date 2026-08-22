@@ -29,6 +29,11 @@ Moving inside a `loop` / `while` / `for` is rejected: the body may run more
 than once. After `if` / `else`, a value is moved only if **both** branches
 moved it.
 
+`spawn f(args...)` captures arguments in move positions. In a `strict`
+function, passing an `owned` value into a task therefore moves it just like an
+ordinary call. Awaiting a task also consumes its handle in strict code; the
+runtime enforces the same single-join rule in gradual code.
+
 ## Borrows
 
 `&x` and `&mut x` borrow without moving.

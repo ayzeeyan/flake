@@ -2,10 +2,11 @@
 
 **Clarity, crystallized.**
 
-This is the v0.4 tour. Flake is a braced, immutable-by-default language with
+This is the v0.5 development tour. Flake is a braced, immutable-by-default language with
 local type inference, an explicit `dyn` escape hatch, effect annotations,
 opt-in ownership, enums and `match`, multi-file `import`, and a standard
-library that runs on the interpreter, VM, and native x86-64 backend.
+library that runs on the interpreter, VM, and native x86-64 backend. v0.5 adds
+typed, structured tasks under the `conc` effect.
 
 ## Hello
 
@@ -44,7 +45,7 @@ early.
 ## Types
 
 Built-in types: `Int`, `Float`, `Bool`, `String`, `Nil`, `[T]` (lists),
-`Map[K, V]`, `Range`, `dyn`.
+`Map[K, V]`, `Range`, `Task[T]`, `dyn`.
 
 ```flake
 let n: Int = 42
@@ -109,6 +110,34 @@ functions have their effects inferred. `main` may perform I/O without writing
 `/ io`.
 
 Known effects: `io`, `alloc`, `conc`, `panic`, `pure`.
+
+## Structured concurrency
+
+`spawn` starts a call in the current function's task scope. `await` joins its
+single-use `Task[T]` handle and yields `T`:
+
+```flake
+fn square(n: Int) -> Int { n * n }
+
+fn main() / conc + io {
+    let left: Task[Int] = spawn square(6)
+    let right = spawn square(7)
+    print(await left)
+    print(await right)
+}
+```
+
+Both operations require `conc`; effects performed by the child call are also
+required in the parent. Call arguments are evaluated and captured when the
+task is spawned. A task cannot escape the spawning function, cannot be awaited
+twice, and is implicitly joined before that function returns if it was not
+awaited explicitly. Child failures propagate to the parent.
+
+The interpreter and VM currently use deterministic cooperative execution; no
+parallel scheduler or event loop is implied yet. The native backend can run
+the same surface through a synchronous fallback, although scheduling-visible
+side-effect order can differ. See
+[concurrency.md](concurrency.md) for the complete milestone-1 model.
 
 ## Modules
 

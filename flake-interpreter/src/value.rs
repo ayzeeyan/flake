@@ -9,6 +9,8 @@ use flake_ast::{Block, Ident, Span};
 
 use crate::env::Env;
 
+pub type TaskRef = Rc<RefCell<TaskState>>;
+
 #[derive(Clone)]
 pub enum Value {
     Nil,
@@ -44,6 +46,20 @@ pub enum Value {
         tag: i64,
         arity: usize,
     },
+    Task(TaskRef),
+}
+
+/// Cooperative task state. Calls and arguments are captured at `spawn` time.
+#[derive(Clone)]
+pub enum TaskState {
+    Pending {
+        callee: Value,
+        args: Vec<Value>,
+        span: Span,
+    },
+    Running,
+    Joined,
+    Cancelled,
 }
 
 #[derive(Clone)]
@@ -153,6 +169,7 @@ impl Value {
             Self::Module { .. } => "Module",
             Self::Enum { .. } => "Enum",
             Self::VariantCtor { .. } => "Function",
+            Self::Task(_) => "Task",
         }
     }
 
@@ -221,6 +238,15 @@ impl Value {
             Self::VariantCtor {
                 type_name, variant, ..
             } => format!("<ctor {type_name}.{variant}>"),
+            Self::Task(task) => {
+                let state = match &*task.borrow() {
+                    TaskState::Pending { .. } => "pending",
+                    TaskState::Running => "running",
+                    TaskState::Joined => "joined",
+                    TaskState::Cancelled => "cancelled",
+                };
+                format!("<task {state}>")
+            }
         }
     }
 
@@ -254,6 +280,7 @@ impl Value {
             }
             (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
             (Self::Native(a), Self::Native(b)) => a == b,
+            (Self::Task(a), Self::Task(b)) => Rc::ptr_eq(a, b),
             (
                 Self::Struct {
                     name: n1,
@@ -318,5 +345,16 @@ impl fmt::Display for Value {
 impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<fn {}>", self.name)
+    }
+}
+
+impl fmt::Debug for TaskState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pending { .. } => f.write_str("Pending"),
+            Self::Running => f.write_str("Running"),
+            Self::Joined => f.write_str("Joined"),
+            Self::Cancelled => f.write_str("Cancelled"),
+        }
     }
 }

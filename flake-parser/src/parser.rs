@@ -659,6 +659,30 @@ impl<'src> Parser<'src> {
             }
             TokenKind::If => self.parse_if(),
             TokenKind::Match => self.parse_match(),
+            TokenKind::Spawn => {
+                self.bump();
+                self.skip_nl();
+                let call = self.parse_expr(18)?;
+                if !matches!(call, Expr::Call { .. }) {
+                    return Err(ParseError::new(
+                        tok.span.merge(call.span()),
+                        "`spawn` expects a function call such as `spawn work()`",
+                    ));
+                }
+                Ok(Expr::Spawn {
+                    span: tok.span.merge(call.span()),
+                    call: Box::new(call),
+                })
+            }
+            TokenKind::Await => {
+                self.bump();
+                self.skip_nl();
+                let task = self.parse_expr(18)?;
+                Ok(Expr::Await {
+                    span: tok.span.merge(task.span()),
+                    task: Box::new(task),
+                })
+            }
             _ => Err(self.unexpected("expression")),
         }
     }

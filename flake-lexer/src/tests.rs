@@ -38,7 +38,7 @@ fn whitespace_only_is_eof() {
 
 #[test]
 fn keywords_and_identifiers() {
-    let src = "fn let var if else while for loop in return break continue true false nil dyn type struct enum strict owned ref mut import as pub unsafe match foo _bar Baz_1";
+    let src = "fn let var if else while for loop in return break continue true false nil dyn type struct enum strict owned ref mut import as pub unsafe match spawn await foo _bar Baz_1";
     let got = kinds_no_nl(src);
     assert_eq!(
         got,
@@ -71,6 +71,8 @@ fn keywords_and_identifiers() {
             TokenKind::Pub,
             TokenKind::Unsafe,
             TokenKind::Match,
+            TokenKind::Spawn,
+            TokenKind::Await,
             ident(),
             ident(),
             ident(),

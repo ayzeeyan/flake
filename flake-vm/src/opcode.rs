@@ -85,11 +85,20 @@ pub enum Op {
     GetGlobal(u16),
     DefineGlobal(u16),
     Call(u8),
+    /// Capture a callee and arguments in a scope-bound cooperative task.
+    Spawn(u8),
+    /// Wrap an already-computed value (used for enum constructors).
+    ReadyTask,
+    /// Join a task and replace it with its result.
+    Await,
     Return,
     Print,
     BuildList(u16),
     BuildMap(u16),
-    BuildStruct { name: u16, fields: Vec<u16> },
+    BuildStruct {
+        name: u16,
+        fields: Vec<u16>,
+    },
     MakeRange,
     MakeIter,
     IterNext(u16),

@@ -80,6 +80,24 @@ fn f(c: Color) -> Int {
 }
 
 #[test]
+fn lowers_concurrency_to_native_fallback_shape() {
+    let dump = ir(r#"
+fn work(n: Int) -> Int { n + 1 }
+fn main() / conc + io {
+    let task: Task[Int] = spawn work(41)
+    print(await task)
+}
+"#);
+    assert!(
+        dump.contains("/ conc + io") || dump.contains("/ io + conc"),
+        "{dump}"
+    );
+    assert!(dump.contains("call work"), "{dump}");
+    assert!(!dump.contains("spawn"), "{dump}");
+    assert!(!dump.contains("await"), "{dump}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

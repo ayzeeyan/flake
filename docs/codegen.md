@@ -53,7 +53,7 @@ A small hand-written runtime is linked into every image:
 
 Imports are resolved from `KERNEL32.dll` via a standard PE import table.
 
-## What compiles natively (v0.4)
+## What compiles natively (v0.5 development)
 
 Integers, bools, floats (SSE2), strings, `if`/`while`/`for`/`match`, enums
 (as tagged lists), functions (including more than four arguments and indirect
@@ -61,3 +61,10 @@ Integers, bools, floats (SSE2), strings, `if`/`while`/`for`/`match`, enums
 built-in helpers listed above.
 
 Register allocation keeps hot locals in callee-saved registers.
+
+Structured concurrency currently uses a synchronous native fallback: the IR
+lowers `spawn f(args)` as the call and `await task` as its underlying value.
+This lets typed `conc` programs compile and produce coherent pure results
+without claiming that the PE runtime has a scheduler. Scheduling-visible
+side-effect order can differ. Interpreter and VM retain real, scope-bound task
+handles; a native task runtime is later v0.5 work.

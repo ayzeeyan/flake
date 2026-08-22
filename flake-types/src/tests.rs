@@ -393,6 +393,72 @@ fn private_fn_is_not_imported() {
 }
 
 #[test]
+fn spawn_and_await_have_typed_task_results() {
+    ok(r#"
+fn work(n: Int) -> Int { n + 1 }
+fn main() / conc {
+    let task: Task[Int] = spawn work(41)
+    let answer: Int = await task
+}
+"#);
+}
+
+#[test]
+fn spawn_requires_conc_effect() {
+    let msg = err(r#"
+fn work() -> Int { 42 }
+fn wrapper() / pure {
+    let task = spawn work()
+    await task
+}
+fn main() { wrapper() }
+"#);
+    assert!(msg.contains("conc"), "{msg}");
+}
+
+#[test]
+fn spawned_child_effects_are_preserved() {
+    let msg = err(r#"
+fn noisy() / io { print("child") }
+fn wrapper() / conc {
+    let task = spawn noisy()
+    await task
+}
+fn main() { wrapper() }
+"#);
+    assert!(msg.contains("io"), "{msg}");
+}
+
+#[test]
+fn await_requires_a_task() {
+    let msg = err("fn main() / conc { await 42 }");
+    assert!(msg.contains("cannot await Int"), "{msg}");
+}
+
+#[test]
+fn task_handles_cannot_escape_their_function() {
+    let msg = err(r#"
+fn work() -> Int { 42 }
+fn leak() / conc {
+    let task = spawn work()
+    task
+}
+fn main() { }
+"#);
+    assert!(msg.contains("cannot escape"), "{msg}");
+
+    let msg = err(r#"
+fn work() -> Int { 42 }
+fn leak() / conc {
+    let task = spawn work()
+    return task
+}
+fn main() { }
+"#);
+    assert!(msg.contains("cannot escape"), "{msg}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

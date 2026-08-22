@@ -28,6 +28,8 @@ between:
   `strict` / `owned` contexts instead of on every binding.
 - **Effects as part of the type system.** If a function does I/O, you can see it
   in the signature: `fn read_file(path: String) -> String / io + alloc`.
+- **Structured tasks as a visible effect.** `spawn work()` and `await task`
+  produce typed, scope-bound `Task[T]` values under the `conc` effect.
 - **Progressive complexity.** Write a script. Drop down to fine-grained control
   when you need it.
 
@@ -43,10 +45,11 @@ between:
 
 ## Status
 
-**v0.4** — production-quality native x86-64 (register allocation, Windows ABI,
-SSE2 floats), mature gradual ownership, enums and `match`, `pub` modules, and
-a useful standard library. Interpreter, VM, and native stay in sync. No LLVM
-or Cranelift.
+**v0.5 is in development.** Milestone 1 adds structured concurrency foundations:
+typed `spawn` / `await`, the operational `conc` effect, and scope-bound tasks in
+the interpreter and VM. The native backend has a documented synchronous
+fallback. The v0.4 native, ownership, enum, module, and standard-library base
+remains intact. No LLVM or Cranelift.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
 for a language tour.
@@ -63,6 +66,7 @@ flake run --native examples/hello.flk
 flake run examples/modules.flk
 flake run examples/stdlib.flk
 flake run examples/enum.flk
+flake run --vm examples/concurrency.flk
 flake run --native examples/app.flk
 flake build examples/hello.flk -o hello.exe
 flake check examples/hello.flk
@@ -86,6 +90,11 @@ fn add(a: Int, b: Int) -> Int {
 
 strict fn take(name: owned String) / io {
     print(name)
+}
+
+fn parallel_shape() -> Int / conc {
+    let task: Task[Int] = spawn add(20, 22)
+    await task
 }
 ```
 
@@ -112,6 +121,7 @@ strict fn take(name: owned String) / io {
 | [examples/stdlib.flk](examples/stdlib.flk) | Standard library |
 | [examples/borrow.flk](examples/borrow.flk) | Borrows |
 | [examples/app.flk](examples/app.flk) | Native-ready mini program |
+| [examples/concurrency.flk](examples/concurrency.flk) | Scope-bound `spawn` / `await` tasks |
 
 ## Workspace
 
@@ -131,6 +141,7 @@ strict fn take(name: owned String) / io {
 
 - [Language tour](docs/tour.md)
 - [Ownership](docs/ownership.md)
+- [Structured concurrency](docs/concurrency.md)
 - [IR](docs/ir.md)
 - [Native codegen](docs/codegen.md)
 - [Grammar sketch](docs/grammar.md)

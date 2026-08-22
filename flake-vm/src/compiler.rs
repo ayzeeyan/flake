@@ -455,6 +455,35 @@ impl<'a> FnCompiler<'a> {
                 self.chunk.emit(Op::Call(args.len() as u8));
                 Ok(())
             }
+            Expr::Spawn { call, span } => {
+                let Expr::Call { callee, args, .. } = call.as_ref() else {
+                    return Err(VmError::new(*span, "`spawn` expects a function call"));
+                };
+                // Enum construction has no callable value in the VM. Preserve
+                // the Task[T] surface while completing that zero-work task now.
+                if let Expr::Field { target, field, .. } = callee.as_ref() {
+                    if self
+                        .names
+                        .enum_variants(target)
+                        .is_some_and(|vars| vars.iter().any(|name| name == &field.name))
+                    {
+                        self.compile_expr(call)?;
+                        self.chunk.emit(Op::ReadyTask);
+                        return Ok(());
+                    }
+                }
+                self.compile_expr(callee)?;
+                for arg in args {
+                    self.compile_expr(arg)?;
+                }
+                self.chunk.emit(Op::Spawn(args.len() as u8));
+                Ok(())
+            }
+            Expr::Await { task, .. } => {
+                self.compile_expr(task)?;
+                self.chunk.emit(Op::Await);
+                Ok(())
+            }
             Expr::Index { target, index, .. } => {
                 self.compile_expr(target)?;
                 self.compile_expr(index)?;

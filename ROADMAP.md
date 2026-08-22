@@ -1,12 +1,42 @@
 # Flake Roadmap
 
-**v0.4 is complete.** Production-quality native x86-64, mature gradual ownership,
-enums/`match`, `pub` modules, and a useful standard library. Interpreter, VM,
-and native stay in sync. There is no LLVM, Cranelift, or C transpilation.
+**v0.5 is in development.** Milestone 1 is complete: typed, scope-bound tasks
+make `conc` operational through `spawn` / `await` in the interpreter and VM,
+with a coherent synchronous native fallback. The v0.4 production native,
+ownership, enum, module, and standard-library base remains intact.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.4 milestones
+## v0.5 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Structured concurrency foundations (`conc` effect) | **done** |
+| 2 | Core language expansion (enums, pattern matching, errors, maps) | planned |
+| 3 | Native backend maturation | planned |
+| 4 | Strengthened module system | planned |
+| 5 | Cross-backend consistency and expanded testing | planned |
+| 6 | v0.5 polish, documentation, and examples | planned |
+| 7 | Flake v0.5 complete | planned |
+
+## What v0.5 milestone 1 delivers
+
+- `spawn call(args...)` and joining syntax `await task`
+- Typed, non-escaping, single-use `Task[T]` handles
+- `conc` effect checking on task creation and joins, while preserving child
+  effects such as `io`
+- Function-owned task scopes: explicit join, implicit join before successful
+  return, deterministic failure propagation, and no detached work
+- Cooperative task execution in both the tree-walking interpreter and VM
+- VM bytecode support through `Spawn`, `ReadyTask`, and `Await`
+- Native x86-64 remains usable through a documented synchronous fallback
+- Concurrency tests, [model documentation](docs/concurrency.md), and
+  [example](examples/concurrency.flk)
+
+The milestone deliberately does not add a parallel scheduler, event loop,
+timers, cancellation API, or native task runtime.
+
+## v0.4 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
@@ -151,12 +181,12 @@ There is no LLVM, Cranelift, or C transpilation.
 Lexer, parser, AST, gradual types/effects/ownership, interpreter, VM
 foundation, REPL. See git history milestones 0–10.
 
-## Later (not in v0.4)
+## Later / outside v0.5
 
 1. Full lifetime/borrow checker on the level of Rust
 2. aarch64 and System V ELF objects
 3. Package manager / versioned dependencies / lockfile
-4. Async / structured concurrency as a `conc` effect
+4. Full parallel async runtime, scheduler, I/O reactor, and cancellation API
 5. Self-hosting
 6. Inlining and other optimisations beyond linear-scan register allocation
 7. Nested modules / dotted import paths

@@ -1,0 +1,13 @@
+// Structured concurrency foundations: task handles cannot outlive this call.
+fn square(n: Int) -> Int {
+    n * n
+}
+
+fn main() / conc + io {
+    let left: Task[Int] = spawn square(6)
+    let right: Task[Int] = spawn square(7)
+
+    print("tasks spawned")
+    print("left = {await left}")
+    print("right = {await right}")
+}

@@ -42,6 +42,11 @@ A **function** has:
 A **local** is `%id` with an optional source name and an IR type (`Int`,
 `Bool`, `String`, `dyn`, …).
 
+In v0.5 milestone 1, structured task handles remain an interpreter/VM runtime
+concept. IR lowering maps `spawn call()` to the call result and `await task` to
+the underlying value. This is the native backend's deliberate synchronous
+fallback, not a promise of native parallel scheduling.
+
 ## Instructions (summary)
 
 | Instruction | Meaning |

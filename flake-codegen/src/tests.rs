@@ -39,6 +39,19 @@ fn native_function_call() {
 }
 
 #[test]
+fn native_concurrency_synchronous_fallback() {
+    let out = run_native(&src(r#"
+fn work(n: Int) -> Int { n + 1 }
+fn main() / conc + io {
+    let task: Task[Int] = spawn work(41)
+    print(await task)
+}
+"#))
+    .expect("native concurrency fallback");
+    assert_eq!(out, "42\n");
+}
+
+#[test]
 fn native_hello() {
     let text = include_str!("../../examples/hello.flk");
     let out = run_native(&src(text)).expect("hello native");

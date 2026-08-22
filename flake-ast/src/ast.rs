@@ -264,6 +264,16 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
+    /// Start a scope-bound task. The operand is restricted to a call expression.
+    Spawn {
+        call: Box<Expr>,
+        span: Span,
+    },
+    /// Join a task and yield its result.
+    Await {
+        task: Box<Expr>,
+        span: Span,
+    },
     Index {
         target: Box<Expr>,
         index: Box<Expr>,
@@ -331,6 +341,8 @@ impl Expr {
             | Self::Binary { span, .. }
             | Self::Assign { span, .. }
             | Self::Call { span, .. }
+            | Self::Spawn { span, .. }
+            | Self::Await { span, .. }
             | Self::Index { span, .. }
             | Self::Field { span, .. }
             | Self::Range { span, .. }

@@ -65,6 +65,7 @@ fn all_examples_typecheck() {
         "enum.flk",
         "visible.flk",
         "app.flk",
+        "concurrency.flk",
     ] {
         check_example(name);
     }
@@ -158,6 +159,14 @@ fn app_output() {
 }
 
 #[test]
+fn concurrency_output() {
+    assert_eq!(
+        run_example("concurrency.flk"),
+        "tasks spawned\nleft = 36\nright = 49\n"
+    );
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",
@@ -173,6 +182,7 @@ fn native_matches_interpreter_on_all_examples() {
         "enum.flk",
         "visible.flk",
         "app.flk",
+        "concurrency.flk",
     ] {
         let interp = run_example(name);
         let output = flake_bin()
@@ -207,6 +217,7 @@ fn vm_matches_interpreter_on_all_examples() {
         "enum.flk",
         "visible.flk",
         "app.flk",
+        "concurrency.flk",
     ] {
         let interp = run_example(name);
         let vm = run_example_vm(name);

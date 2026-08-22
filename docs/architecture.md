@@ -20,7 +20,7 @@ source → lexer → parser → AST
 | `flake-types` | Inference, `dyn`, effects, gradual ownership |
 | `flake-ir` | Control-flow-graph IR (locals + basic blocks) |
 | `flake-interpreter` | Tree-walking runtime and REPL engine |
-| `flake-vm` | Bytecode compiler and stack VM |
+| `flake-vm` | Bytecode compiler, stack VM, and cooperative task opcodes |
 | `flake-codegen` | Pure-Rust x86-64 encoder and PE writer |
 | `flake-cli` | `flake` CLI: `run`, `check`, `repl`, `ir`, `build` |
 
@@ -30,6 +30,14 @@ items are exported; otherwise everything is exported.
 
 `enum` / `match` are lowered to tagged lists (`[tag, fields…]`) on the IR, VM,
 and native paths. The interpreter keeps a dedicated enum value for display.
+
+`spawn` captures a callable and its evaluated arguments in a task registered
+to the current function invocation. Interpreter and VM task scopes drive a
+pending child when it is `await`ed and drain remaining children before return.
+The VM represents this directly with `Spawn`, `ReadyTask`, and `Await`
+opcodes. For v0.5 milestone 1, IR/native lowering intentionally erases the
+task wrapper and executes the call synchronously; this keeps native builds
+coherent until a native task runtime exists.
 
 The CLI type-checks before running (pass `--skip-check` to bypass).
 

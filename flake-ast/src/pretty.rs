@@ -281,6 +281,14 @@ fn print_expr(expr: &Expr, indent: usize, out: &mut String) {
             }
             out.push(')');
         }
+        Expr::Spawn { call, .. } => {
+            out.push_str("spawn ");
+            print_expr(call, indent, out);
+        }
+        Expr::Await { task, .. } => {
+            out.push_str("await ");
+            print_expr(task, indent, out);
+        }
         Expr::Index { target, index, .. } => {
             print_expr(target, indent, out);
             out.push('[');

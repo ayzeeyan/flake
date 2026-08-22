@@ -220,6 +220,52 @@ fn repl_state_persists() {
 }
 
 #[test]
+fn repl_supports_scoped_tasks() {
+    let mut engine = Engine::new();
+    let mut out = Vec::new();
+    engine
+        .eval_repl(
+            &Source::new("<repl>", "fn work(n: Int) -> Int { n + 1 }"),
+            &mut out,
+        )
+        .unwrap();
+    let value = engine
+        .eval_repl(
+            &Source::new("<repl>", "let task = spawn work(41)\nawait task"),
+            &mut out,
+        )
+        .unwrap();
+    assert_eq!(value, Value::Int(42));
+}
+
+#[test]
+fn failed_scope_cancels_remaining_tasks() {
+    let mut engine = Engine::new();
+    let mut out = Vec::new();
+    engine
+        .eval_repl(
+            &Source::new(
+                "<repl>",
+                "fn fail() -> Int { 1 / 0 }\nfn later() -> Int { 42 }",
+            ),
+            &mut out,
+        )
+        .unwrap();
+    let first = engine.eval_repl(
+        &Source::new(
+            "<repl>",
+            "let failed = spawn fail()\nlet cancelled = spawn later()",
+        ),
+        &mut out,
+    );
+    assert!(first.is_err());
+    let error = engine
+        .eval_repl(&Source::new("<repl>", "await cancelled"), &mut out)
+        .expect_err("remaining task should be cancelled");
+    assert!(error.to_string().contains("cancelled"), "{error}");
+}
+
+#[test]
 fn stdlib_natives() {
     let (_, out) = run(&main(
         r#"
@@ -265,6 +311,60 @@ fn main() {
 }
 "#);
     assert_eq!(out, "true\nfalse\n");
+}
+
+#[test]
+fn structured_tasks_are_deferred_and_joined() {
+    let (_, out) = run(r#"
+fn work(n: Int) -> Int / io {
+    print("work {n}")
+    n * 2
+}
+fn main() / conc + io {
+    let task = spawn work(21)
+    print("spawned")
+    print(await task)
+}
+"#);
+    assert_eq!(out, "spawned\nwork 21\n42\n");
+}
+
+#[test]
+fn unawaited_tasks_finish_before_scope_exit() {
+    let (_, out) = run(r#"
+fn child() / io { print("child") }
+fn main() / conc + io {
+    spawn child()
+    print("parent")
+}
+"#);
+    assert_eq!(out, "parent\nchild\n");
+}
+
+#[test]
+fn task_handles_can_only_be_awaited_once() {
+    let msg = run_err(
+        r#"
+fn work() -> Int { 42 }
+fn main() / conc {
+    let task = spawn work()
+    await task
+    await task
+}
+"#,
+    );
+    assert!(msg.contains("already awaited"), "{msg}");
+}
+
+#[test]
+fn unawaited_task_failure_propagates() {
+    let msg = run_err(
+        r#"
+fn fail() -> Int { 1 / 0 }
+fn main() / conc { spawn fail() }
+"#,
+    );
+    assert!(msg.contains("division by zero"), "{msg}");
 }
 
 #[test]
