@@ -1,10 +1,10 @@
 # Flake Roadmap
 
-**Flake v0.5.5 development is in progress.** Theme: **Meaningful language expansion + deeper reliability**.
+**Flake v0.5.5 is complete.** Theme: **Meaningful language expansion + deeper reliability**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.5.5 milestones
+## v0.5.5 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 3 | Native x86-64 support for enums and pattern matching | **done** |
 | 4 | Stdlib growth and better error-handling ergonomics | **done** |
 | 5 | Examples, expanded testing and consistency | **done** |
-| 6 | Flake v0.5.5 complete | in progress |
+| 6 | Flake v0.5.5 complete | **done** |
 
 ## What v0.5.5 milestone 1 delivers
 
@@ -54,6 +54,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - Added standalone `examples/pattern_matching.flk` demonstrating shapes, commands, nested shapes, and list patterns.
   - Added multi-file project `examples/projects/query_engine/` showcasing domain AST filters, query execution, and display formatting.
   - Validated 100% output identity across tree-walking Interpreter, Bytecode VM, and pure-Rust x86-64 native backend on all examples.
+
+## What v0.5.5 milestone 6 delivers
+
+- Documentation, versioning, and project polish:
+  - Version bump to `0.5.5` across all workspace crates.
+  - Release notes published in `docs/release-notes-v0.5.5.md`.
+  - Updated `README.md`, `docs/tour.md`, and `docs/examples.md`.
+  - Verified 100% test passing across the entire workspace test suite.
 
 ## v0.5.2 milestones (complete)
 

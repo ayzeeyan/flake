@@ -32,6 +32,7 @@ optional `release.s` diagnostic listing.
 | [`effects.flk`](../examples/effects.flk) | visible effect annotations |
 | [`ownership.flk`](../examples/ownership.flk) | gradual and strict ownership |
 | [`enum.flk`](../examples/enum.flk) | algebraic enums and exhaustive `match` |
+| [`pattern_matching.flk`](../examples/pattern_matching.flk) | nested variant destructuring and list pattern matching |
 | [`data.flk`](../examples/data.flk) | typed maps, scalar patterns, and Result-style `?` |
 | [`concurrency.flk`](../examples/concurrency.flk) | the smallest `Task[T]`, `spawn`, and `await` program |
 | [`task_pipeline.flk`](../examples/task_pipeline.flk) | several scope-bound tasks returning enum values |
@@ -118,6 +119,26 @@ examples/projects/analytics/
 - `services.aggregator` aggregates samples into `AggregateResult` with counts, totals, min, max, and averages.
 - `utils.report` generates formatted sample lines and table summaries.
 - Verified across Interpreter, Bytecode VM, and Native x86-64.
+
+### Query engine project (`examples/projects/query_engine/`)
+
+A multi-module project demonstrating algebraic query filters, dataset evaluation services, and formatted output:
+
+```
+examples/projects/query_engine/
+├── main.flk
+├── domain/
+│   └── ast.flk
+├── services/
+│   └── executor.flk
+└── utils/
+    └── display.flk
+```
+
+- `domain.ast` declares the `Filter` algebraic enum (`Eq`, `And`, `Always`) and `QueryResult`.
+- `services.executor` matches filter expressions against map row records.
+- `utils.display` formats filters and dataset records into human-readable strings.
+- Runs with identical results across Interpreter, Bytecode VM, and Native x86-64.
 
 ## Adding an example
 

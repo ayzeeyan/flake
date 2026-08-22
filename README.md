@@ -58,19 +58,17 @@ between:
 
 ## Status
 
-**Flake v0.5.2 is complete.** Building on v0.5.1's stability and native backend,
-v0.5.2 delivers further stability, richer standard library growth, and practical usability:
-- **Native backend expansion & hardening**: native string (`+`) and list (`+`)
-  concatenation, nested collection display, and resilient runtime key detection.
-- **Richer standard library**: new `std/map.flk` module, plus functional helpers
-  across `std/list.flk` (`zip`, `unzip`, `take_while`, `drop_while`, `find_index`, `unique`, `count_where`, `repeat_item`, `chunk`),
-  `std/string.flk` (`starts_with_str`, `ends_with_str`, `capitalize`, `reverse_str`, `is_digit`, `is_alpha`),
-  `std/math.flk` (`abs_val`, `min_val`, `max_val`, `is_prime`, `sum_range`, `product`, `mean`),
-  `std/option.flk`, and `std/result.flk`.
-- **Quality-of-life builtins**: `entries(map)` (sorted key-value pairs), `is_empty(coll)`
-  (lists, strings, maps), `has_key(map, key)`, and empty map literal `{}` syntax.
-- **New multi-file analytics project**: complete [analytics example](examples/projects/analytics/main.flk)
-  demonstrating domain metrics, aggregation services, report utilities, and cross-backend execution.
+**Flake v0.5.5 is complete.** Building on previous stability and native backend achievements,
+v0.5.5 delivers algebraic data types, rich pattern matching, and expanded standard library capabilities:
+- **Algebraic data types (enums)**: full support for unit and payload variants across frontend, bytecode VM, and pure-Rust x86-64 native backend.
+- **Rich pattern matching**: nested variant destructuring, list pattern matching, wildcard bindings, and static exhaustiveness verification.
+- **Richer standard library & error handling**: new functional combinators in `std/option.flk` (`and_then_option`, `or_else_option`, `is_some_and`, `unwrap_or_else`, `flatten_option`),
+  `std/result.flk` (`flatten_result`, `or_else_result`, `unwrap_or_else`, `inspect_ok`, `inspect_err`),
+  `std/list.flk` (`head`, `last`, `intersperse`, `partition`, `flat_map`),
+  `std/string.flk` (`contains_str`, `count_occurrences`, `truncate`),
+  `std/map.flk` (`from_entries`, `invert_map`, `keys_list`, `values_list`), and
+  `std/math.flk` (`square`, `cube`, `div_ceil`, `in_range`).
+- **New examples & multi-file projects**: standalone [`pattern_matching.flk`](examples/pattern_matching.flk) and multi-file [`projects/query_engine/`](examples/projects/query_engine/main.flk).
 - **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
@@ -78,7 +76,7 @@ for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.5.2 release notes](docs/release-notes-v0.5.2.md) for the complete
+See the [v0.5.5 release notes](docs/release-notes-v0.5.5.md) for the complete
 feature and compatibility summary.
 
 ## Build and run

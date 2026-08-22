@@ -773,10 +773,10 @@ impl Checker {
                         flake_ast::Pattern::Variant { variant, .. } => {
                             covered.insert(variant.name.as_str());
                         }
-                        flake_ast::Pattern::Ident(id) => {
-                            if variants.iter().any(|(v, f)| v == &id.name && f.is_empty()) {
-                                covered.insert(id.name.as_str());
-                            }
+                        flake_ast::Pattern::Ident(id)
+                            if variants.iter().any(|(v, f)| v == &id.name && f.is_empty()) =>
+                        {
+                            covered.insert(id.name.as_str());
                         }
                         _ => {}
                     }

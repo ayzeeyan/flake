@@ -79,12 +79,14 @@ let name = match c {
 }
 ```
 
-`match` is an expression. Variant patterns must be qualified (`Color.Red`). A
-`_` or identifier arm is a catch-all. Matches on enums must cover every variant
-(or include `_`). Literal patterns support `nil`, bools, integers, floats, and
-strings; matching a Bool with both `true` and `false` is exhaustive. Duplicate
-patterns and arms after a catch-all are rejected as unreachable. Enums and
-scalar patterns work on the interpreter, VM, and native paths.
+`match` is an expression. Variant patterns can be qualified (`Color.Red`) or
+nested (`Tree.Node(Tree.Leaf(a), Tree.Empty)`). List patterns match exact
+element sequences (`[0, y]` or `[a, b]`). A `_` or identifier arm is a catch-all.
+Matches on enums must cover every variant (or include `_`). Literal patterns
+support `nil`, bools, integers, floats, and strings; matching a Bool with both
+`true` and `false` is exhaustive. Duplicate patterns and arms after a catch-all
+are rejected as unreachable. Enums and rich patterns work across the interpreter,
+VM, and native x86-64 paths.
 
 User-defined enums cover Result-style error handling:
 
