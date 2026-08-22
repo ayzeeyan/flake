@@ -1,0 +1,10 @@
+import domain.metric as dm
+import services.aggregator as agg
+
+pub fn format_sample(s: dm.MetricSample) -> String {
+    "[{s.category}] {s.name}: {s.value}"
+}
+
+pub fn format_summary(title: String, res: agg.AggregateResult) -> String {
+    "=== {title} ===\nSamples: {res.count} | Total: {res.total} | Min: {res.min_val} | Max: {res.max_val} | Avg: {res.average}"
+}

@@ -21,6 +21,7 @@ const EXAMPLES: &[&str] = &[
     "projects/telemetry/main.flk",
     "projects/release/main.flk",
     "projects/pipeline/main.flk",
+    "projects/analytics/main.flk",
 ];
 
 fn flake_bin() -> Command {
@@ -234,6 +235,23 @@ fn pipeline_project_output() {
             "[TX-102] premium: processed(score: 210)\n",
             "[TX-103] standard: failed(invalid value)\n",
             "pipeline batch total score: 310\n",
+        )
+    );
+}
+
+#[test]
+fn analytics_project_output() {
+    assert_eq!(
+        run_example("projects/analytics/main.flk"),
+        concat!(
+            "starting analytics pipeline\n",
+            "[system] cpu_usage: 45\n",
+            "[system] mem_usage: 75\n",
+            "[network] req_latency: 120\n",
+            "[system] disk_io: 30\n",
+            "[network] dns_lookup: 15\n",
+            "=== System & Network Metrics ===\n",
+            "Samples: 5 | Total: 285 | Min: 15 | Max: 120 | Avg: 57\n",
         )
     );
 }

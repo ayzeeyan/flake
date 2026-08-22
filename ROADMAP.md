@@ -11,8 +11,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Native backend expansion and hardening | **done** |
 | 2 | Standard library growth | **done** |
 | 3 | Language and builtin quality-of-life | **done** |
-| 4 | Expanded examples and cross-backend testing | in progress |
-| 5 | Flake v0.5.2 complete | planned |
+| 4 | Expanded examples and cross-backend testing | **done** |
+| 5 | Flake v0.5.2 complete | in progress |
 
 ## What v0.5.2 milestone 1 delivers
 
@@ -40,6 +40,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - `is_empty(coll)` builtin checking whether list, string, or map is empty.
   - `has_key(map, key)` builtin checking map key membership across type checker, interpreter, VM, IR, and native code.
   - 100% agreement and test coverage across Interpreter, VM, and Native x86-64.
+
+## What v0.5.2 milestone 4 delivers
+
+- Expanded multi-file examples and end-to-end consistency tests:
+  - Multi-file analytics project in `examples/projects/analytics/` (`domain/metric.flk`, `services/aggregator.flk`, `utils/report.flk`, `main.flk`).
+  - Added `analytics_project_output` test verifying CLI execution.
+  - Verified 100% backend consistency and compatibility across all 25 examples for Interpreter, VM, and Native x86-64.
 
 ## v0.5.1 milestones (complete)
 

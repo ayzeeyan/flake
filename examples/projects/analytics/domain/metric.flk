@@ -1,0 +1,15 @@
+// Metric sample domain definitions.
+
+pub struct MetricSample {
+    name: String
+    category: String
+    value: Int
+}
+
+pub fn make_sample(name: String, category: String, value: Int) -> MetricSample {
+    MetricSample {
+        name: name,
+        category: category,
+        value: value,
+    }
+}

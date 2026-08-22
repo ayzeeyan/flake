@@ -1,0 +1,22 @@
+import domain.metric as dm
+import services.aggregator as agg
+import utils.report as rpt
+
+fn main() {
+    print("starting analytics pipeline")
+
+    let s1 = dm.make_sample("cpu_usage", "system", 45)
+    let s2 = dm.make_sample("mem_usage", "system", 75)
+    let s3 = dm.make_sample("req_latency", "network", 120)
+    let s4 = dm.make_sample("disk_io", "system", 30)
+    let s5 = dm.make_sample("dns_lookup", "network", 15)
+
+    let samples = [s1, s2, s3, s4, s5]
+
+    for s in samples {
+        print(rpt.format_sample(s))
+    }
+
+    let summary = agg.aggregate_samples(samples)
+    print(rpt.format_summary("System & Network Metrics", summary))
+}
