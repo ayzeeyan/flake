@@ -89,4 +89,45 @@ pub fn trim_str(s: String) -> String {
     trim(s)
 }
 
+pub fn starts_with_str(s: String, prefix: String) -> Bool {
+    starts_with(s, prefix)
+}
+
+pub fn ends_with_str(s: String, suffix: String) -> Bool {
+    ends_with(s, suffix)
+}
+
+pub fn capitalize(s: String) -> String {
+    if len(s) == 0 {
+        return ""
+    }
+    let first_ch = upper(s[0])
+    let rem = slice(s, 1, len(s))
+    "{first_ch}{rem}"
+}
+
+pub fn reverse_str(s: String) -> String {
+    var out = ""
+    var i = len(s)
+    while i > 0 {
+        i = i - 1
+        out = "{out}{s[i]}"
+    }
+    out
+}
+
+pub fn is_digit(ch: String) -> Bool {
+    ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" ||
+    ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
+}
+
+pub fn is_alpha(ch: String) -> Bool {
+    let low = lower(ch)
+    low == "a" || low == "b" || low == "c" || low == "d" || low == "e" ||
+    low == "f" || low == "g" || low == "h" || low == "i" || low == "j" ||
+    low == "k" || low == "l" || low == "m" || low == "n" || low == "o" ||
+    low == "p" || low == "q" || low == "r" || low == "s" || low == "t" ||
+    low == "u" || low == "v" || low == "w" || low == "x" || low == "y" || low == "z"
+}
+
 

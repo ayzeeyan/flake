@@ -63,3 +63,64 @@ pub fn is_odd(n: Int) -> Bool {
     n % 2 != 0
 }
 
+pub fn abs_val(x: Int) -> Int {
+    abs(x)
+}
+
+pub fn min_val(a: Int, b: Int) -> Int {
+    min(a, b)
+}
+
+pub fn max_val(a: Int, b: Int) -> Int {
+    max(a, b)
+}
+
+pub fn is_prime(n: Int) -> Bool {
+    if n <= 1 {
+        return false
+    }
+    if n <= 3 {
+        return true
+    }
+    if n % 2 == 0 || n % 3 == 0 {
+        return false
+    }
+    var i = 5
+    while i * i <= n {
+        if n % i == 0 || n % (i + 2) == 0 {
+            return false
+        }
+        i = i + 6
+    }
+    true
+}
+
+pub fn sum_range(start: Int, end: Int) -> Int {
+    var s = 0
+    var i = start
+    while i < end {
+        s = s + i
+        i = i + 1
+    }
+    s
+}
+
+pub fn product(xs) -> Int {
+    var p = 1
+    for x in xs {
+        p = p * x
+    }
+    p
+}
+
+pub fn mean(xs) -> Int {
+    if len(xs) == 0 {
+        return 0
+    }
+    var s = 0
+    for x in xs {
+        s = s + x
+    }
+    s / len(xs)
+}
+

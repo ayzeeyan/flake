@@ -1,0 +1,56 @@
+// Map utilities. `import map`.
+
+pub fn get_or(m: Map[dyn, dyn], key: dyn, default_val: dyn) -> dyn {
+    if contains(m, key) {
+        m[key]
+    } else {
+        default_val
+    }
+}
+
+pub fn merge(m1: Map[dyn, dyn], m2: Map[dyn, dyn]) -> Map[dyn, dyn] {
+    var out: Map[dyn, dyn] = {}
+    let ks1 = keys(m1)
+    for k in ks1 {
+        out[k] = m1[k]
+    }
+    let ks2 = keys(m2)
+    for k in ks2 {
+        out[k] = m2[k]
+    }
+    out
+}
+
+pub fn count_by(xs, key_fn: fn(dyn) -> dyn) -> Map[dyn, dyn] {
+    var counts: Map[dyn, dyn] = {}
+    for x in xs {
+        let k = key_fn(x)
+        if contains(counts, k) {
+            counts[k] = counts[k] + 1
+        } else {
+            counts[k] = 1
+        }
+    }
+    counts
+}
+
+pub fn filter_map(m: Map[dyn, dyn], pred: fn(dyn, dyn) -> Bool) -> Map[dyn, dyn] {
+    var out: Map[dyn, dyn] = {}
+    let ks = keys(m)
+    for k in ks {
+        let v = m[k]
+        if pred(k, v) {
+            out[k] = v
+        }
+    }
+    out
+}
+
+pub fn map_values_with(m: Map[dyn, dyn], f: fn(dyn) -> dyn) -> Map[dyn, dyn] {
+    var out: Map[dyn, dyn] = {}
+    let ks = keys(m)
+    for k in ks {
+        out[k] = f(m[k])
+    }
+    out
+}

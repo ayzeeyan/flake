@@ -64,3 +64,27 @@ pub fn and_then(r: Result, f: fn(dyn) -> Result) -> Result {
     }
 }
 
+pub fn is_ok_and(r: Result, pred: fn(dyn) -> Bool) -> Bool {
+    match r {
+        Result.Ok(v) => pred(v)
+        Result.Err(m) => false
+    }
+}
+
+pub fn is_err_and(r: Result, pred: fn(String) -> Bool) -> Bool {
+    match r {
+        Result.Ok(v) => false
+        Result.Err(m) => pred(m)
+    }
+}
+
+pub fn expect_ok(r: Result, msg: String) -> dyn / panic {
+    match r {
+        Result.Ok(v) => v
+        Result.Err(m) => {
+            assert(false, "{msg}: {m}")
+            nil
+        }
+    }
+}
+

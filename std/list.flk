@@ -162,3 +162,107 @@ pub fn max_item(xs) -> dyn {
     m
 }
 
+pub fn zip(xs, ys) -> [dyn] {
+    var out = []
+    var i = 0
+    while i < len(xs) && i < len(ys) {
+        push(out, [xs[i], ys[i]])
+        i = i + 1
+    }
+    out
+}
+
+pub fn unzip(pairs) -> [dyn] {
+    var firsts = []
+    var seconds = []
+    for pair in pairs {
+        push(firsts, pair[0])
+        push(seconds, pair[1])
+    }
+    [firsts, seconds]
+}
+
+pub fn take_while(xs, pred: fn(dyn) -> Bool) -> [dyn] {
+    var out = []
+    for x in xs {
+        if !pred(x) {
+            return out
+        }
+        push(out, x)
+    }
+    out
+}
+
+pub fn drop_while(xs, pred: fn(dyn) -> Bool) -> [dyn] {
+    var out = []
+    var dropping = true
+    for x in xs {
+        if dropping && pred(x) {
+            continue
+        }
+        dropping = false
+        push(out, x)
+    }
+    out
+}
+
+pub fn find_index(xs, pred: fn(dyn) -> Bool) -> Int {
+    var i = 0
+    while i < len(xs) {
+        if pred(xs[i]) {
+            return i
+        }
+        i = i + 1
+    }
+    -1
+}
+
+pub fn unique(xs) -> [dyn] {
+    var out = []
+    for x in xs {
+        if !contains_item(out, x) {
+            push(out, x)
+        }
+    }
+    out
+}
+
+pub fn count_where(xs, pred: fn(dyn) -> Bool) -> Int {
+    var count = 0
+    for x in xs {
+        if pred(x) {
+            count = count + 1
+        }
+    }
+    count
+}
+
+pub fn repeat_item(item: dyn, n: Int) -> [dyn] {
+    var out = []
+    var i = 0
+    while i < n {
+        push(out, item)
+        i = i + 1
+    }
+    out
+}
+
+pub fn chunk(xs, size: Int) -> [dyn] {
+    if size <= 0 {
+        return []
+    }
+    var out = []
+    var current = []
+    for x in xs {
+        push(current, x)
+        if len(current) == size {
+            push(out, current)
+            current = []
+        }
+    }
+    if len(current) > 0 {
+        push(out, current)
+    }
+    out
+}
+

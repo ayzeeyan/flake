@@ -806,6 +806,28 @@ fn emit_display_list(asm: &mut Asm) {
     asm.mov_ri(Reg::R10, 4);
     asm.cmp_rr(Reg::Rax, Reg::R10);
     asm.jcc_label(Cc::E, ".dl_value_float");
+    // Check if element is a nested list: pointer >= 0x10000 with valid len/cap
+    asm.mov_ri(Reg::R10, 0x10000);
+    asm.cmp_rr(Reg::Rcx, Reg::R10);
+    asm.jcc_label(Cc::L, ".dl_repr");
+    asm.mov_rm(Reg::R10, Reg::Rcx, 0); // len
+    asm.mov_rm(Reg::R11, Reg::Rcx, 8); // cap
+    asm.test_rr(Reg::R10, Reg::R10);
+    asm.jcc_label(Cc::L, ".dl_repr");
+    asm.mov_ri(Reg::Rax, 0x10000);
+    asm.cmp_rr(Reg::R10, Reg::Rax);
+    asm.jcc_label(Cc::Ge, ".dl_repr");
+    asm.cmp_rr(Reg::R11, Reg::R10);
+    asm.jcc_label(Cc::L, ".dl_repr");
+    asm.cmp_rr(Reg::R11, Reg::Rax);
+    asm.jcc_label(Cc::Ge, ".dl_repr");
+    asm.test_rr(Reg::R11, Reg::R11);
+    asm.jcc_label(Cc::Z, ".dl_repr");
+    // It's a nested list!
+    asm.xor_rr(Reg::Rdx, Reg::Rdx);
+    asm.call_label("rt_display_list");
+    asm.jmp_label(".dl_value_done");
+    asm.label(".dl_repr");
     asm.call_label("rt_repr");
     asm.jmp_label(".dl_value_done");
     asm.label(".dl_value_string");
@@ -890,6 +912,10 @@ fn emit_display_map(asm: &mut Asm) {
     asm.mov_ri(Reg::R10, 2);
     asm.cmp_rr(Reg::Rax, Reg::R10);
     asm.jcc_label(Cc::E, ".dm_key_bool");
+    // If key >= 0x10000, it's a heap pointer (string key)
+    asm.mov_ri(Reg::R10, 0x10000);
+    asm.cmp_rr(Reg::Rcx, Reg::R10);
+    asm.jcc_label(Cc::Ge, ".dm_key_string");
     asm.call_label("rt_itoa");
     asm.jmp_label(".dm_key_done");
     asm.label(".dm_key_string");
@@ -1001,7 +1027,12 @@ fn emit_map_get(asm: &mut Asm) {
     asm.add_rr(Reg::Rcx, Reg::R8);
     asm.mov_rm_rbp(Reg::Rax, -32);
     asm.test_rr(Reg::Rax, Reg::Rax);
-    asm.jcc_label(Cc::Z, ".mg_scalar");
+    asm.jcc_label(Cc::NZ, ".mg_str");
+    asm.mov_rm_rbp(Reg::R10, -16);
+    asm.mov_ri(Reg::R11, 0x10000);
+    asm.cmp_rr(Reg::R10, Reg::R11);
+    asm.jcc_label(Cc::L, ".mg_scalar");
+    asm.label(".mg_str");
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::Rdx, -16);
     asm.call_label("rt_streq");
@@ -1059,7 +1090,12 @@ fn emit_map_has(asm: &mut Asm) {
     asm.add_rr(Reg::Rcx, Reg::R8);
     asm.mov_rm_rbp(Reg::Rax, -32);
     asm.test_rr(Reg::Rax, Reg::Rax);
-    asm.jcc_label(Cc::Z, ".mh_scalar");
+    asm.jcc_label(Cc::NZ, ".mh_str");
+    asm.mov_rm_rbp(Reg::R10, -16);
+    asm.mov_ri(Reg::R11, 0x10000);
+    asm.cmp_rr(Reg::R10, Reg::R11);
+    asm.jcc_label(Cc::L, ".mh_scalar");
+    asm.label(".mh_str");
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::Rdx, -16);
     asm.call_label("rt_streq");
@@ -1182,7 +1218,12 @@ fn emit_map_set(asm: &mut Asm) {
     asm.add_rr(Reg::Rcx, Reg::R8);
     asm.mov_rm_rbp(Reg::Rax, -56);
     asm.test_rr(Reg::Rax, Reg::Rax);
-    asm.jcc_label(Cc::Z, ".ms_scalar");
+    asm.jcc_label(Cc::NZ, ".ms_str");
+    asm.mov_rm_rbp(Reg::R10, -16);
+    asm.mov_ri(Reg::R11, 0x10000);
+    asm.cmp_rr(Reg::R10, Reg::R11);
+    asm.jcc_label(Cc::L, ".ms_scalar");
+    asm.label(".ms_str");
     asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::Rdx, -16);
     asm.call_label("rt_strcmp");

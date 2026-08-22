@@ -431,7 +431,6 @@ fn emit_inst(
                 }
                 UnOp::Not => {
                     asm.test_rr(Reg::Rax, Reg::Rax);
-                    asm.xor_rr(Reg::Rax, Reg::Rax);
                     asm.setcc(Cc::Z, Reg::Rax);
                     asm.movzx_rax_al();
                 }
@@ -1481,6 +1480,24 @@ fn emit_get_index(
         }
         _ => {
             let id = next_id(uniq);
+            let is_map = format!(".dget_map{id}");
+            let is_list = format!(".dget_list{id}");
+            let done = format!(".dget_done{id}");
+            frame.load(asm, *index, Reg::R10);
+            asm.mov_ri(Reg::R11, 0x10000);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::Ge, &is_map);
+            asm.jmp_label(&is_list);
+
+            asm.label(&is_map);
+            frame.load(asm, *obj, Reg::Rcx);
+            frame.load(asm, *index, Reg::Rdx);
+            asm.mov_ri(Reg::R8, 1);
+            asm.call_label("rt_map_get");
+            frame.store(asm, *dest, Reg::Rax);
+            asm.jmp_label(&done);
+
+            asm.label(&is_list);
             frame.load(asm, *obj, Reg::Rax);
             frame.load(asm, *index, Reg::R10);
             asm.test_rr(Reg::R10, Reg::R10);
@@ -1503,6 +1520,7 @@ fn emit_get_index(
             asm.add_rr(Reg::Rax, Reg::R10);
             asm.mov_rm(Reg::Rax, Reg::Rax, 16);
             frame.store(asm, *dest, Reg::Rax);
+            asm.label(done);
         }
     }
 }
@@ -1540,6 +1558,25 @@ fn emit_set_index(
         }
         _ => {
             let id = next_id(uniq);
+            let is_map = format!(".dset_map{id}");
+            let is_list = format!(".dset_list{id}");
+            let done = format!(".dset_done{id}");
+            frame.load(asm, *index, Reg::R10);
+            asm.mov_ri(Reg::R11, 0x10000);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::Ge, &is_map);
+            asm.jmp_label(&is_list);
+
+            asm.label(&is_map);
+            frame.load(asm, *obj, Reg::Rcx);
+            frame.load(asm, *index, Reg::Rdx);
+            frame.load(asm, *value, Reg::R8);
+            asm.mov_ri(Reg::R9, 1);
+            asm.call_label("rt_map_set");
+            frame.store(asm, *obj, Reg::Rax);
+            asm.jmp_label(&done);
+
+            asm.label(&is_list);
             frame.load(asm, *obj, Reg::Rax);
             frame.load(asm, *index, Reg::R10);
             asm.test_rr(Reg::R10, Reg::R10);
@@ -1562,6 +1599,7 @@ fn emit_set_index(
             asm.add_rr(Reg::Rax, Reg::R10);
             frame.load(asm, *value, Reg::R10);
             asm.mov_mr(Reg::Rax, 16, Reg::R10);
+            asm.label(done);
         }
     }
 }

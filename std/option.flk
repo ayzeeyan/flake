@@ -33,3 +33,30 @@ pub fn map_option(o: Option, f: fn(dyn) -> dyn) -> Option {
     }
 }
 
+pub fn filter_option(o: Option, pred: fn(dyn) -> Bool) -> Option {
+    match o {
+        Option.Some(v) => if pred(v) { Option.Some(v) } else { Option.None }
+        Option.None => Option.None
+    }
+}
+
+pub fn zip_option(a: Option, b: Option) -> Option {
+    match a {
+        Option.Some(va) => match b {
+            Option.Some(vb) => Option.Some([va, vb])
+            Option.None => Option.None
+        }
+        Option.None => Option.None
+    }
+}
+
+pub fn expect_some(o: Option, msg: String) -> dyn {
+    match o {
+        Option.Some(v) => v
+        Option.None => {
+            assert(false, msg)
+            nil
+        }
+    }
+}
+

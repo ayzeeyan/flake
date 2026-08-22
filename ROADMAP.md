@@ -9,8 +9,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Native backend expansion and hardening | **done** |
-| 2 | Standard library growth | in progress |
-| 3 | Language and builtin quality-of-life | planned |
+| 2 | Standard library growth | **done** |
+| 3 | Language and builtin quality-of-life | in progress |
 | 4 | Expanded examples and cross-backend testing | planned |
 | 5 | Flake v0.5.2 complete | planned |
 
@@ -20,6 +20,18 @@ There is no LLVM, Cranelift, or C transpilation.
   - String concatenation (`s1 + s2`) and list concatenation (`xs + ys`) via `+` operator on the native x86-64 path using `rt_concat2` and `rt_list_concat`.
   - Type-aware IR binary lowering preserving `IrType::String` and `IrType::List` for `AstBin::Add`.
   - Unit tests verifying native string and list concatenation.
+
+## What v0.5.2 milestone 2 delivers
+
+- Expanded and enriched standard library:
+  - `std/list.flk`: `zip`, `unzip`, `take_while`, `drop_while`, `find_index`, `unique`, `count_where`, `repeat_item`, `chunk`.
+  - `std/string.flk`: `starts_with_str`, `ends_with_str`, `capitalize`, `reverse_str`, `is_digit`, `is_alpha`.
+  - `std/math.flk`: `abs_val`, `min_val`, `max_val`, `is_prime`, `sum_range`, `product`, `mean`.
+  - `std/map.flk`: `get_or`, `merge`, `count_by`, `filter_map`, `map_values_with`.
+  - `std/option.flk`: `filter_option`, `zip_option`, `expect_some`.
+  - `std/result.flk`: `is_ok_and`, `is_err_and`, `expect_ok`.
+  - Fix for native `UnOp::Not` instruction flag clobber and support for empty map literal `{}` syntax.
+  - Complete cross-backend consistency test suite in `flake-cli/tests/backend_consistency.rs`.
 
 ## v0.5.1 milestones (complete)
 

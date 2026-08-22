@@ -1176,13 +1176,16 @@ impl<'src> Parser<'src> {
     }
 
     fn looks_like_map(&self) -> bool {
-        // `{ key : value` where current token is `{`.
+        // `{ key : value` or empty `{}` where current token is `{`.
         let mut i = self.pos + 1;
         while i < self.tokens.len() && matches!(self.tokens[i].kind, TokenKind::Newline) {
             i += 1;
         }
-        if i >= self.tokens.len() || matches!(self.tokens[i].kind, TokenKind::RBrace) {
+        if i >= self.tokens.len() {
             return false;
+        }
+        if matches!(self.tokens[i].kind, TokenKind::RBrace) {
+            return true;
         }
         match &self.tokens[i].kind {
             TokenKind::StringStart => {

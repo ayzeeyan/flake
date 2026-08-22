@@ -597,4 +597,94 @@ fn main() {
     assert_all_backends("keys-values-range", source, expected);
 }
 
+#[test]
+fn stdlib_v052_expansion_agrees_across_all_backends() {
+    let source = r#"
+import list
+import string
+import math
+import map
+import option
+import result
+
+fn is_gt_two(x) -> Bool { x > 2 }
+fn is_lt_three(x) -> Bool { x < 3 }
+fn parity_key(x) -> String { if math.is_even(x) { "even" } else { "odd" } }
+
+fn main() {
+    let xs = [1, 2, 3]
+    let ys = [10, 20, 30]
+    let zipped = list.zip(xs, ys)
+    print(zipped)
+    let unzipped = list.unzip(zipped)
+    print(unzipped)
+
+    let nums = [1, 2, 3, 4, 5, 2, 1]
+    print(list.take_while(nums, is_lt_three))
+    print(list.drop_while(nums, is_lt_three))
+    print(list.find_index(nums, is_gt_two))
+    print(list.unique(nums))
+    print(list.count_where(nums, is_gt_two))
+    print(list.repeat_item("a", 3))
+    print(list.chunk(nums, 3))
+
+    print(string.capitalize("flake"))
+    print(string.reverse_str("flake"))
+    print(string.is_digit("7"), string.is_digit("a"))
+    print(string.is_alpha("z"), string.is_alpha("9"))
+
+    print(math.is_prime(7), math.is_prime(8), math.is_prime(1))
+    print(math.sum_range(1, 6))
+    print(math.product([2, 3, 4]))
+    print(math.mean([10, 20, 30]))
+
+    let m1 = { "a": 1, "b": 2 }
+    let m2 = { "b": 20, "c": 30 }
+    let merged = map.merge(m1, m2)
+    print(merged)
+    print(map.get_or(m1, "a", 999), map.get_or(m1, "z", 999))
+    print(map.count_by([1, 2, 3, 4, 5, 6], parity_key))
+
+    let opt_some = option.Option.Some(42)
+    let opt_none = option.Option.None
+    print(option.is_some(option.filter_option(opt_some, is_gt_two)))
+    print(option.is_some(option.filter_option(opt_some, is_lt_three)))
+    print(option.expect_some(opt_some, "missing"))
+
+    let res_ok = result.Result.Ok(10)
+    print(result.is_ok_and(res_ok, is_gt_two))
+    print(result.expect_ok(res_ok, "bad"))
+}
+"#;
+    let expected = concat!(
+        "[[1, 10], [2, 20], [3, 30]]\n",
+        "[[1, 2, 3], [10, 20, 30]]\n",
+        "[1, 2]\n",
+        "[3, 4, 5, 2, 1]\n",
+        "2\n",
+        "[1, 2, 3, 4, 5]\n",
+        "3\n",
+        "[\"a\", \"a\", \"a\"]\n",
+        "[[1, 2, 3], [4, 5, 2], [1]]\n",
+        "Flake\n",
+        "ekalf\n",
+        "true false\n",
+        "true false\n",
+        "true false false\n",
+        "15\n",
+        "24\n",
+        "20\n",
+        "{\"a\": 1, \"b\": 20, \"c\": 30}\n",
+        "1 999\n",
+        "{\"even\": 3, \"odd\": 3}\n",
+        "true\n",
+        "false\n",
+        "42\n",
+        "true\n",
+        "10\n",
+    );
+    assert_all_backends("stdlib-v052-expansion", source, expected);
+}
+
+
 
