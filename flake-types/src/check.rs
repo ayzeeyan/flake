@@ -19,6 +19,8 @@ struct Checker {
     aliases: HashMap<String, Type>,
     functions: HashMap<String, Type>,
     enums: HashMap<String, Type>,
+    ambiguous_imports: HashMap<String, Vec<String>>,
+    type_context: Option<String>,
     current_returns: Vec<Type>,
 }
 
@@ -31,6 +33,8 @@ impl Checker {
             aliases: HashMap::new(),
             functions: HashMap::new(),
             enums: HashMap::new(),
+            ambiguous_imports: HashMap::new(),
+            type_context: None,
             current_returns: Vec::new(),
         };
         this.install_builtins();
@@ -288,71 +292,152 @@ impl Checker {
         graph: &ModuleGraph,
         module: &flake_parser::LoadedModule,
     ) -> Result<(), TypeError> {
+        self.ambiguous_imports = graph.ambiguous_imports(module);
+        let mut resolved_imports = Vec::new();
         for item in &module.program.items {
             let Item::Import(import) = item else {
                 continue;
             };
-            let Some(imported) = graph.get(&import.path.name) else {
+            let Some(imported) = graph.imported(module, import) else {
                 return Err(TypeError::new(
                     import.span,
                     format!("unresolved import `{}`", import.path.name),
                 ));
             };
             let alias = import_alias(import).to_string();
-            let mut members = Vec::new();
+            resolved_imports.push((alias.clone(), imported));
+
+            // Predeclare nominal types from every import before lowering any
+            // public signature. Import order must not affect name resolution.
             for item in &imported.program.items {
                 if !is_exported(item, &imported.program) {
                     continue;
                 }
                 match item {
                     Item::Struct(st) => {
-                        let mut fields = Vec::new();
-                        for field in &st.fields {
-                            fields.push((field.name.name.clone(), self.lower_type(&field.ty)?));
-                        }
                         let ty = Type::Struct {
-                            name: st.name.name.clone(),
-                            fields: fields.clone(),
+                            name: flake_parser::qualify(&imported.name, &st.name.name),
+                            fields: Vec::new(),
                         };
-                        self.structs.insert(st.name.name.clone(), ty.clone());
-                        members.push((st.name.name.clone(), ty));
-                    }
-                    Item::Type(alias_item) => {
-                        let ty = self.lower_type(&alias_item.ty)?;
-                        self.aliases.insert(alias_item.name.name.clone(), ty);
-                    }
-                    Item::Fn(func) => {
-                        let ty = self.lower_fn_type(func)?;
-                        if !self.functions.contains_key(&func.name.name) {
-                            self.functions.insert(func.name.name.clone(), ty.clone());
+                        self.structs
+                            .insert(format!("{alias}.{}", st.name.name), ty.clone());
+                        if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
+                            self.structs.insert(st.name.name.clone(), ty.clone());
                         }
-                        members.push((func.name.name.clone(), ty));
                     }
                     Item::Enum(en) => {
-                        let mut variants = Vec::new();
-                        for v in &en.variants {
-                            let fields = v
-                                .fields
-                                .iter()
-                                .map(|t| self.lower_type(t))
-                                .collect::<Result<Vec<_>, _>>()?;
-                            variants.push((v.name.name.clone(), fields));
-                        }
                         let ty = Type::Enum {
-                            name: en.name.name.clone(),
-                            variants,
+                            name: flake_parser::qualify(&imported.name, &en.name.name),
+                            variants: Vec::new(),
                         };
-                        self.enums.insert(en.name.name.clone(), ty.clone());
-                        members.push((en.name.name.clone(), ty));
+                        self.enums
+                            .insert(format!("{alias}.{}", en.name.name), ty.clone());
+                        if graph.unqualified_import_is_unambiguous(module, &en.name.name) {
+                            self.enums.insert(en.name.name.clone(), ty.clone());
+                        }
                     }
-                    Item::Import(_) => {}
+                    Item::Fn(_) | Item::Type(_) | Item::Import(_) => {}
                 }
             }
+        }
+
+        let mut module_members: HashMap<String, Vec<(String, Type)>> = HashMap::new();
+        for (alias, imported) in &resolved_imports {
+            self.type_context = Some(alias.clone());
+            for item in &imported.program.items {
+                if !is_exported(item, &imported.program) {
+                    continue;
+                }
+                match item {
+                    Item::Type(alias_item) => {
+                        let ty = self.lower_type(&alias_item.ty)?;
+                        self.aliases
+                            .insert(format!("{alias}.{}", alias_item.name.name), ty.clone());
+                        if graph.unqualified_import_is_unambiguous(module, &alias_item.name.name) {
+                            self.aliases.insert(alias_item.name.name.clone(), ty);
+                        }
+                    }
+                    Item::Struct(st) => {
+                        let fields = st
+                            .fields
+                            .iter()
+                            .map(|field| Ok((field.name.name.clone(), self.lower_type(&field.ty)?)))
+                            .collect::<Result<Vec<_>, TypeError>>()?;
+                        let ty = Type::Struct {
+                            name: flake_parser::qualify(&imported.name, &st.name.name),
+                            fields,
+                        };
+                        self.structs
+                            .insert(format!("{alias}.{}", st.name.name), ty.clone());
+                        if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
+                            self.structs.insert(st.name.name.clone(), ty.clone());
+                        }
+                        module_members
+                            .entry(alias.clone())
+                            .or_default()
+                            .push((st.name.name.clone(), ty));
+                    }
+                    Item::Enum(en) => {
+                        let variants = en
+                            .variants
+                            .iter()
+                            .map(|variant| {
+                                let fields = variant
+                                    .fields
+                                    .iter()
+                                    .map(|field| self.lower_type(field))
+                                    .collect::<Result<Vec<_>, _>>()?;
+                                Ok((variant.name.name.clone(), fields))
+                            })
+                            .collect::<Result<Vec<_>, TypeError>>()?;
+                        let ty = Type::Enum {
+                            name: flake_parser::qualify(&imported.name, &en.name.name),
+                            variants,
+                        };
+                        self.enums
+                            .insert(format!("{alias}.{}", en.name.name), ty.clone());
+                        if graph.unqualified_import_is_unambiguous(module, &en.name.name) {
+                            self.enums.insert(en.name.name.clone(), ty.clone());
+                        }
+                        module_members
+                            .entry(alias.clone())
+                            .or_default()
+                            .push((en.name.name.clone(), ty));
+                    }
+                    Item::Fn(_) | Item::Import(_) => {}
+                }
+            }
+        }
+
+        for (alias, imported) in &resolved_imports {
+            self.type_context = Some(alias.clone());
+            for item in &imported.program.items {
+                let Item::Fn(func) = item else {
+                    continue;
+                };
+                if !is_exported(item, &imported.program) {
+                    continue;
+                }
+                let ty = self.lower_fn_type(func)?;
+                if graph.unqualified_import_is_unambiguous(module, &func.name.name)
+                    && !self.functions.contains_key(&func.name.name)
+                {
+                    self.functions.insert(func.name.name.clone(), ty.clone());
+                }
+                module_members
+                    .entry(alias.clone())
+                    .or_default()
+                    .push((func.name.name.clone(), ty));
+            }
+        }
+        self.type_context = None;
+
+        for (alias, imported) in resolved_imports {
             self.define(
-                alias,
+                alias.clone(),
                 Type::Module {
                     name: imported.name.clone(),
-                    members,
+                    members: module_members.remove(&alias).unwrap_or_default(),
                 },
             );
         }
@@ -387,7 +472,22 @@ impl Checker {
         suggest_name(name, &self.known_names())
     }
 
+    fn ambiguous_import_error(&self, name: &str, span: Span) -> Option<TypeError> {
+        let aliases = self.ambiguous_imports.get(name)?;
+        let choices = aliases
+            .iter()
+            .map(|alias| format!("`{alias}.{name}`"))
+            .collect::<Vec<_>>()
+            .join(" or ");
+        Some(TypeError::with_help(
+            span,
+            format!("ambiguous imported name `{name}`"),
+            format!("use a qualified name: {choices}"),
+        ))
+    }
+
     fn check_program(&mut self, program: &Program) -> Result<(), TypeError> {
+        validate_public_api(program)?;
         for item in &program.items {
             match item {
                 Item::Type(alias) => {
@@ -707,12 +807,24 @@ impl Checker {
                     Type::Task(Box::new(result))
                 }
                 other => {
-                    if let Some(alias) = self.aliases.get(other) {
+                    let contextual = self.type_context.as_ref().and_then(|alias| {
+                        let qualified = format!("{alias}.{other}");
+                        self.aliases
+                            .get(&qualified)
+                            .or_else(|| self.structs.get(&qualified))
+                            .or_else(|| self.enums.get(&qualified))
+                            .cloned()
+                    });
+                    if let Some(contextual) = contextual {
+                        contextual
+                    } else if let Some(alias) = self.aliases.get(other) {
                         alias.clone()
                     } else if let Some(st) = self.structs.get(other) {
                         st.clone()
                     } else if let Some(en) = self.enums.get(other) {
                         en.clone()
+                    } else if let Some(error) = self.ambiguous_import_error(other, *span) {
+                        return Err(error);
                     } else {
                         Type::Struct {
                             name: other.to_string(),
@@ -916,6 +1028,9 @@ impl Checker {
                 Literal::String(_) => Type::String,
             }),
             Expr::Ident(id) => self.lookup(&id.name).ok_or_else(|| {
+                if let Some(error) = self.ambiguous_import_error(&id.name, id.span) {
+                    return error;
+                }
                 let msg = format!("undefined variable `{}`", id.name);
                 match self.suggest(&id.name) {
                     Some(alt) => {
@@ -1176,7 +1291,7 @@ impl Checker {
                                 field.span,
                                 format!("module `{name}` has no export `{}`", field.name),
                                 format!(
-                                    "if `{}` exists in `{name}.flk`, mark it `pub`",
+                                    "if `{}` exists in module `{name}`, mark it `pub`",
                                     field.name
                                 ),
                             )
@@ -1593,6 +1708,88 @@ impl Checker {
             }
             Expr::Literal { .. } | Expr::Ident(_) => Ok(()),
         }
+    }
+}
+
+fn validate_public_api(program: &Program) -> Result<(), TypeError> {
+    let private_types: HashSet<&str> = program
+        .items
+        .iter()
+        .filter(|item| !item.is_pub())
+        .filter_map(|item| match item {
+            Item::Struct(st) => Some(st.name.name.as_str()),
+            Item::Enum(en) => Some(en.name.name.as_str()),
+            Item::Type(alias) => Some(alias.name.name.as_str()),
+            Item::Fn(_) | Item::Import(_) => None,
+        })
+        .collect();
+    if private_types.is_empty() {
+        return Ok(());
+    }
+
+    for item in &program.items {
+        if !item.is_pub() {
+            continue;
+        }
+        let (owner, types): (String, Vec<&TypeExpr>) = match item {
+            Item::Fn(function) => {
+                let mut types: Vec<_> = function
+                    .params
+                    .iter()
+                    .filter_map(|param| param.ty.as_ref())
+                    .collect();
+                types.extend(function.return_type.iter());
+                (format!("function `{}`", function.name.name), types)
+            }
+            Item::Struct(st) => (
+                format!("struct `{}`", st.name.name),
+                st.fields.iter().map(|field| &field.ty).collect(),
+            ),
+            Item::Enum(en) => (
+                format!("enum `{}`", en.name.name),
+                en.variants
+                    .iter()
+                    .flat_map(|variant| variant.fields.iter())
+                    .collect(),
+            ),
+            Item::Type(alias) => (format!("type alias `{}`", alias.name.name), vec![&alias.ty]),
+            Item::Import(_) => continue,
+        };
+        for ty in types {
+            if let Some((name, span)) = private_type_in(ty, &private_types) {
+                return Err(TypeError::with_help(
+                    span,
+                    format!("public {owner} exposes private type `{name}`"),
+                    format!("mark `{name}` `pub`, or keep {owner} private"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn private_type_in<'a>(ty: &'a TypeExpr, private_types: &HashSet<&str>) -> Option<(&'a str, Span)> {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if !name.name.contains('.') && private_types.contains(name.name.as_str()) {
+                return Some((name.name.as_str(), name.span));
+            }
+            args.iter()
+                .find_map(|argument| private_type_in(argument, private_types))
+        }
+        TypeExpr::List { element, .. }
+        | TypeExpr::Optional { inner: element, .. }
+        | TypeExpr::Owned { inner: element, .. }
+        | TypeExpr::Ref { inner: element, .. }
+        | TypeExpr::Mut { inner: element, .. } => private_type_in(element, private_types),
+        TypeExpr::Fn { params, ret, .. } => params
+            .iter()
+            .find_map(|param| private_type_in(param, private_types))
+            .or_else(|| {
+                ret.as_deref()
+                    .and_then(|return_type| private_type_in(return_type, private_types))
+            }),
+        TypeExpr::Dyn { .. } => None,
     }
 }
 

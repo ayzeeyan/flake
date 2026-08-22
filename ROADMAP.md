@@ -1,10 +1,12 @@
 # Flake Roadmap
 
-**v0.5 is in development.** Milestones 1–3 are complete. Typed, scope-bound
+**v0.5 is in development.** Milestones 1–4 are complete. Typed, scope-bound
 tasks make `conc` operational; Result-style `?`, scalar patterns, stronger enum
 checking, and typed maps expand the core language; and the owned x86-64 backend
 now has CFG-aware register reuse, typed indirect calls, stronger native runtime
-coverage, and more reliable executable production.
+coverage, and more reliable executable production. Project-rooted dotted
+imports, strict `pub` APIs, canonical module identities, and isolated module
+environments now support comfortable hierarchical multi-file projects.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -15,7 +17,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Structured concurrency foundations (`conc` effect) | **done** |
 | 2 | Core language expansion (enums, pattern matching, errors, maps) | **done** |
 | 3 | Native backend maturation | **done** |
-| 4 | Strengthened module system | planned |
+| 4 | Strengthened module system | **done** |
 | 5 | Cross-backend consistency and expanded testing | planned |
 | 6 | v0.5 polish, documentation, and examples | planned |
 | 7 | Flake v0.5 complete | planned |
@@ -74,6 +76,27 @@ timers, cancellation API, or native task runtime.
   `.exe` by default, and writes a `.s` listing only with `--emit-asm`
 - Focused regression coverage for register reuse, aggregate interference,
   indirect calls, maps, floats, PE metadata, and CLI artifact behavior
+
+## What v0.5 milestone 4 delivers
+
+- Project-rooted dotted imports: `import services.checkout` resolves to
+  `services/checkout.flk`, while simple imports retain sibling-first behavior
+- Path-derived canonical module identities, so equal file stems in different
+  directories stay distinct through checking, VM compilation, IR, and native code
+- Private-by-default module APIs: only explicit `pub` functions, structs,
+  enums, and type aliases are visible to importers, and public signatures
+  cannot leak private local types
+- Qualified value, type, and enum-pattern access, plus bare imported names only
+  when their owner is unambiguous
+- Deterministic diagnostics for duplicate aliases/paths, alias/declaration
+  conflicts, ambiguous exports, missing files, and full import-cycle chains
+- Per-module interpreter environments that isolate private helpers; VM and
+  native functions use the same canonical module qualification
+- Hierarchical [inventory](examples/projects/inventory/main.flk) and transitive
+  [telemetry](examples/projects/telemetry/main.flk) projects, exercised across
+  the interpreter, VM, and native backend
+- Dedicated [module documentation](docs/modules.md) covering layout,
+  resolution, visibility, namespaces, and current package boundaries
 
 ## v0.4 milestones (complete)
 
@@ -228,4 +251,4 @@ foundation, REPL. See git history milestones 0–10.
 4. Full parallel async runtime, scheduler, I/O reactor, and cancellation API
 5. Self-hosting
 6. Inlining and other optimisations beyond the current CFG-aware register allocator
-7. Nested modules / dotted import paths
+7. Inline modules, public re-exports, and package-level dependency aliases

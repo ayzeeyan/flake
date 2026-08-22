@@ -67,6 +67,8 @@ fn all_examples_typecheck() {
         "app.flk",
         "concurrency.flk",
         "data.flk",
+        "projects/inventory/main.flk",
+        "projects/telemetry/main.flk",
     ] {
         check_example(name);
     }
@@ -176,6 +178,22 @@ fn data_output() {
 }
 
 #[test]
+fn hierarchical_inventory_project_output() {
+    assert_eq!(
+        run_example("projects/inventory/main.flk"),
+        "premium x4 = 146\n"
+    );
+}
+
+#[test]
+fn transitive_telemetry_project_output() {
+    assert_eq!(
+        run_example("projects/telemetry/main.flk"),
+        "[AVERAGE: 25]\n"
+    );
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
     for name in [
         "hello.flk",
@@ -193,6 +211,8 @@ fn native_matches_interpreter_on_all_examples() {
         "app.flk",
         "concurrency.flk",
         "data.flk",
+        "projects/inventory/main.flk",
+        "projects/telemetry/main.flk",
     ] {
         let interp = run_example(name);
         let output = flake_bin()
@@ -229,6 +249,8 @@ fn vm_matches_interpreter_on_all_examples() {
         "app.flk",
         "concurrency.flk",
         "data.flk",
+        "projects/inventory/main.flk",
+        "projects/telemetry/main.flk",
     ] {
         let interp = run_example(name);
         let vm = run_example_vm(name);

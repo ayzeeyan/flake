@@ -1,9 +1,9 @@
 // A tiny library module used by `modules.flk`.
 
-fn add(a: Int, b: Int) -> Int {
+pub fn add(a: Int, b: Int) -> Int {
     a + b
 }
 
-fn square(n: Int) -> Int {
+pub fn square(n: Int) -> Int {
     n * n
 }

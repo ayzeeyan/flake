@@ -1,0 +1,7 @@
+fn decorate(label: String) -> String {
+    upper(label)
+}
+
+pub fn metric(label: String, value: Int) -> String {
+    "{decorate(label)}: {value}"
+}

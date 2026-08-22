@@ -7,7 +7,7 @@ local type inference, an explicit `dyn` escape hatch, effect annotations,
 opt-in ownership, enums and `match`, multi-file `import`, and a standard
 library that runs on the interpreter, VM, and native x86-64 backend. v0.5 adds
 typed structured tasks under `conc`, Result propagation, stronger patterns,
-and typed-key maps.
+typed-key maps, and hierarchical modules with explicit APIs.
 
 ## Hello
 
@@ -154,22 +154,39 @@ side-effect order can differ. See
 
 ## Modules
 
-Each `.flk` file is a module. `import math` loads `math.flk` from the same
-directory. `import math as m` binds the namespace under `m`.
+Each `.flk` file is a module. Simple imports remain sibling-first;
+project-rooted dotted imports map segments to directories. `as` chooses the
+local namespace, otherwise the last segment is used.
 
 ```flake
-import math
+import domain.pricing as pricing
+import services.checkout as checkout
 
 fn main() {
-    print(math.add(2, 40))
-    print(square(5))    // bare name, if unambiguous
+    let tier: pricing.Tier = pricing.Tier.Premium
+    print(checkout.order_total(tier, 4))
 }
 ```
 
-If the imported file has any `pub` item, only those items are exported
-(qualified `math.add` and unambiguous bare names). If it has no `pub` at all,
-everything is exported — existing modules keep working. Private helpers stay
-callable inside their own file.
+`import domain.pricing` resolves `domain/pricing.flk` beneath the entry file's
+directory, the project root. A nested module can still use `import helper` for
+a sibling `helper.flk`. Canonical path-derived identities keep modules such as
+`left/util.flk` and `right/util.flk` distinct.
+
+Only declarations marked `pub` are exported; unmarked functions, structs,
+enums, and type aliases are private even when a file contains no public items.
+Public values are always available through their namespace and are also
+available bare when exactly one import exports that spelling. Collisions must
+be qualified and produce a diagnostic listing the valid alternatives.
+Qualified types (`pricing.Tier`) and patterns
+(`pricing.Tier.Premium`) follow the same namespace.
+
+Import aliases and paths cannot be duplicated, aliases cannot collide with a
+top-level declaration, and cyclic imports report the full cycle. Each module
+has an isolated interpreter environment; VM and native functions use the same
+canonical qualification. See [modules.md](modules.md) and the runnable
+[inventory](../examples/projects/inventory/main.flk) and
+[telemetry](../examples/projects/telemetry/main.flk) projects.
 
 There is no package manager or versioned registry yet.
 

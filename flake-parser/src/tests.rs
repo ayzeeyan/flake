@@ -215,6 +215,66 @@ fn pretty_roundtrip_hello() {
 }
 
 #[test]
+fn dotted_imports_parse_and_pretty_print() {
+    let program = parse_ok("import services.checkout as checkout\nfn main() {}");
+    let Item::Import(import) = &program.items[0] else {
+        panic!("expected import");
+    };
+    assert_eq!(import.path.name, "services.checkout");
+    assert_eq!(
+        import.alias.as_ref().map(|alias| alias.name.as_str()),
+        Some("checkout")
+    );
+    let pretty = print_program(&program);
+    assert!(
+        pretty.contains("import services.checkout as checkout"),
+        "{pretty}"
+    );
+    parse_str(&pretty).expect("pretty-printed dotted import should parse");
+}
+
+#[test]
+fn qualified_types_and_variant_patterns_parse() {
+    let program = parse_ok(
+        "fn label(value: domain.Status) -> Int { match value { domain.Status.Ready => 1 _ => 0 } }",
+    );
+    let Item::Fn(function) = &program.items[0] else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.params[0].ty,
+        Some(TypeExpr::Named { ref name, .. }) if name.name == "domain.Status"
+    ));
+    let Some(Expr::Match { arms, .. }) = function.body.tail.as_deref() else {
+        panic!("expected match");
+    };
+    assert!(matches!(
+        &arms[0].pattern,
+        flake_ast::Pattern::Variant { ty: Some(name), variant, .. }
+            if name.name == "domain.Status" && variant.name == "Ready"
+    ));
+    let pretty = print_program(&program);
+    assert!(pretty.contains("domain.Status.Ready"), "{pretty}");
+    parse_str(&pretty).expect("pretty-printed qualified pattern should parse");
+}
+
+#[test]
+fn qualified_struct_initializers_parse() {
+    let program = parse_ok("fn point() -> geometry.Point { geometry.Point { x: 3, y: 4 } }");
+    let Item::Fn(function) = &program.items[0] else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.body.tail.as_deref(),
+        Some(Expr::StructInit { name, fields, .. })
+            if name.name == "geometry.Point" && fields.len() == 2
+    ));
+    let pretty = print_program(&program);
+    assert!(pretty.contains("geometry.Point {"), "{pretty}");
+    parse_str(&pretty).expect("pretty-printed qualified struct should parse");
+}
+
+#[test]
 fn error_on_bad_top_level() {
     let err = parse_str("1 + 2").unwrap_err();
     assert!(err.message.contains("expected"), "{}", err.message);

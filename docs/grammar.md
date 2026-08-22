@@ -12,7 +12,8 @@ struct      := "pub"? "struct" ident "{" (ident ":" type)* "}"
 enum        := "pub"? "enum" ident "{" variant* "}"
 variant     := ident ("(" type ("," type)* ")")?
 type-alias  := "pub"? "type" ident "=" type
-import      := "import" ident ("as" ident)?   // `import math` → sibling math.flk
+import      := "import" path ("as" ident)?
+path        := ident ("." ident)*
 
 block       := "{" stmt* expr? "}"
 stmt        := let | var | return | break | continue
@@ -36,11 +37,11 @@ primary     := ident | literal | list | map | string | "if" | "match" | block | 
 match       := "match" expr "{" arm* "}"
 arm         := pattern "=>" expr
 pattern     := "_" | ident | literal
-             | ident "." ident ("(" ident ("," ident)* ")")?
+             | path "." ident ("(" ident ("," ident)* ")")?
 
 type        := "owned" type | "ref" type | "mut" type | "&" "mut"? type
              | atom "?"?
-atom        := "dyn" | ident ("[" type ("," type)* "]")? | "[" type "]"
+atom        := "dyn" | path ("[" type ("," type)* "]")? | "[" type "]"
              | "fn" "(" types? ")" ("->" type)? ("/" effects)?
 ```
 
@@ -55,5 +56,7 @@ the enclosing function.
 Newlines are statement separators. Semicolons are optional. `//` and nested
 `/* */` comments are skipped by the lexer.
 
-If a module contains any `pub` item, only `pub` items are exported. Otherwise
-every declaration is exported.
+Dotted import paths are rooted at the directory containing the entry file;
+single-segment imports first check next to the importer. Only explicit `pub`
+items are exported. See [modules.md](modules.md) for resolution, aliases,
+visibility, and ambiguity rules.

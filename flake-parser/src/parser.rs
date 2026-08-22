@@ -352,7 +352,7 @@ impl<'src> Parser<'src> {
     fn parse_import(&mut self) -> Result<ImportDecl, ParseError> {
         let start = self.current().span;
         self.expect(&TokenKind::Import, "`import`")?;
-        let path = self.parse_ident()?;
+        let path = self.parse_dotted_ident()?;
         let mut span = start.merge(path.span);
         let alias = if self.eat(&TokenKind::As) {
             let alias = self.parse_ident()?;
@@ -497,6 +497,12 @@ impl<'src> Parser<'src> {
                 if matches!(self.kind(), TokenKind::Dot) {
                     lhs = self.finish_field(lhs)?;
                     continue;
+                }
+                if matches!(self.kind(), TokenKind::LBrace) && self.looks_like_struct_init() {
+                    if let Some(name) = expr_path_ident(&lhs) {
+                        lhs = self.parse_struct_init(name)?;
+                        continue;
+                    }
                 }
                 if self.eat(&TokenKind::Question) {
                     let span = lhs.span().merge(self.prev().span);
@@ -811,14 +817,21 @@ impl<'src> Parser<'src> {
                 )),
             };
         }
-        let ident = self.parse_ident()?;
+        let mut ident = self.parse_ident()?;
         if ident.name == "_" {
             return Ok(flake_ast::Pattern::Wildcard { span: ident.span });
         }
         self.skip_nl();
         if self.eat(&TokenKind::Dot) {
             self.skip_nl();
-            let variant = self.parse_ident()?;
+            let mut variant = self.parse_ident()?;
+            while self.eat(&TokenKind::Dot) {
+                ident.name.push('.');
+                ident.name.push_str(&variant.name);
+                ident.span = ident.span.merge(variant.span);
+                self.skip_nl();
+                variant = self.parse_ident()?;
+            }
             let mut binds = Vec::new();
             let mut span = ident.span.merge(variant.span);
             self.skip_nl();
@@ -1117,7 +1130,7 @@ impl<'src> Parser<'src> {
                 span: start.merge(self.prev().span),
             });
         }
-        let name = self.parse_ident()?;
+        let name = self.parse_dotted_ident()?;
         let mut span = name.span;
         let mut args = Vec::new();
         if self.eat(&TokenKind::LBracket) {
@@ -1149,6 +1162,17 @@ impl<'src> Parser<'src> {
         } else {
             Err(self.unexpected("identifier"))
         }
+    }
+
+    fn parse_dotted_ident(&mut self) -> Result<Ident, ParseError> {
+        let mut path = self.parse_ident()?;
+        while self.eat(&TokenKind::Dot) {
+            let segment = self.parse_ident()?;
+            path.name.push('.');
+            path.name.push_str(&segment.name);
+            path.span = path.span.merge(segment.span);
+        }
+        Ok(path)
     }
 
     fn looks_like_map(&self) -> bool {
@@ -1349,6 +1373,20 @@ fn is_assign_target(expr: &Expr) -> bool {
         expr,
         Expr::Ident(_) | Expr::Index { .. } | Expr::Field { .. }
     )
+}
+
+fn expr_path_ident(expr: &Expr) -> Option<Ident> {
+    match expr {
+        Expr::Ident(ident) => Some(ident.clone()),
+        Expr::Field { target, field, .. } => {
+            let mut path = expr_path_ident(target)?;
+            path.name.push('.');
+            path.name.push_str(&field.name);
+            path.span = path.span.merge(field.span);
+            Some(path)
+        }
+        _ => None,
+    }
 }
 
 fn fold_string(parts: Vec<InterpPart>, span: Span) -> Expr {

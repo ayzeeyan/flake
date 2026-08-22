@@ -486,6 +486,89 @@ fn private_fn_is_not_imported() {
 }
 
 #[test]
+fn modules_are_private_by_default_even_without_public_items() {
+    let dir = std::env::temp_dir().join(format!(
+        "flake-private-default-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::write(dir.join("lib.flk"), "fn hidden() -> Int { 42 }\n").expect("write lib");
+    let main_path = dir.join("main.flk");
+    let text = "import lib\nfn main() { lib.hidden() }\n";
+    std::fs::write(&main_path, text).expect("write main");
+    let source = flake_ast::Source::new(main_path.display().to_string(), text);
+    let error = crate::check(&source).expect_err("unmarked declaration should be private");
+    let message = error.to_string();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(message.contains("no export `hidden`"), "{message}");
+}
+
+#[test]
+fn public_apis_cannot_leak_private_types() {
+    let message = err(
+        "struct Secret { code: Int }\npub fn reveal(secret: Secret) -> Int { secret.code }\nfn main() {}",
+    );
+    assert!(
+        message.contains("exposes private type `Secret`"),
+        "{message}"
+    );
+    assert!(message.contains("mark `Secret` `pub`"), "{message}");
+}
+
+#[test]
+fn colliding_imports_require_qualified_names() {
+    let dir = std::env::temp_dir().join(format!(
+        "flake-import-collision-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(dir.join("left")).expect("left dir");
+    std::fs::create_dir_all(dir.join("right")).expect("right dir");
+    std::fs::write(
+        dir.join("left/value.flk"),
+        "pub enum Status { Ready }\npub fn value() -> Int { 1 }\n",
+    )
+    .expect("write left");
+    std::fs::write(
+        dir.join("right/value.flk"),
+        "pub enum Status { Ready }\npub fn value() -> Int { 2 }\n",
+    )
+    .expect("write right");
+    let main_path = dir.join("main.flk");
+    let qualified = "import left.value as left\nimport right.value as right\nfn describe(status: left.Status) -> Int { match status { left.Status.Ready => 1 } }\nfn main() { describe(left.Status.Ready) + left.value() + right.value() }\n";
+    std::fs::write(&main_path, qualified).expect("write qualified main");
+    let source = flake_ast::Source::new(main_path.display().to_string(), qualified);
+    crate::check(&source).expect("qualified imports should type-check");
+
+    let mismatched = "import left.value as left\nimport right.value as right\nfn wrong(status: left.Status) -> right.Status { status }\nfn main() {}\n";
+    std::fs::write(&main_path, mismatched).expect("write nominal mismatch");
+    let source = flake_ast::Source::new(main_path.display().to_string(), mismatched);
+    let error = crate::check(&source).expect_err("module-qualified enum types are nominal");
+    assert!(error.to_string().contains("type mismatch"), "{error}");
+
+    let ambiguous =
+        "import left.value as left\nimport right.value as right\nfn main() { value() }\n";
+    std::fs::write(&main_path, ambiguous).expect("write ambiguous main");
+    let source = flake_ast::Source::new(main_path.display().to_string(), ambiguous);
+    let error = crate::check(&source).expect_err("bare collision should fail");
+    let message = error.to_string();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        message.contains("ambiguous imported name `value`"),
+        "{message}"
+    );
+    assert!(message.contains("left.value"), "{message}");
+    assert!(message.contains("right.value"), "{message}");
+}
+
+#[test]
 fn spawn_and_await_have_typed_task_results() {
     ok(r#"
 fn work(n: Int) -> Int { n + 1 }

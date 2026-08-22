@@ -1,0 +1,23 @@
+// Inventory domain model. Only the enum and public functions cross the boundary.
+pub enum Tier {
+    Standard
+    Premium
+}
+
+fn unit_price(tier: Tier) -> Int {
+    match tier {
+        Tier.Standard => 20
+        Tier.Premium => 35
+    }
+}
+
+pub fn price_for(tier: Tier, quantity: Int) -> Int {
+    unit_price(tier) * quantity
+}
+
+pub fn tier_name(tier: Tier) -> String {
+    match tier {
+        Tier.Standard => "standard"
+        Tier.Premium => "premium"
+    }
+}

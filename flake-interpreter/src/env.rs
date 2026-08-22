@@ -17,6 +17,7 @@ pub struct Env {
 struct EnvInner {
     parent: Option<Env>,
     bindings: HashMap<String, Binding>,
+    types: HashMap<String, String>,
 }
 
 struct Binding {
@@ -31,6 +32,7 @@ impl Env {
             inner: Rc::new(RefCell::new(EnvInner {
                 parent: None,
                 bindings: HashMap::new(),
+                types: HashMap::new(),
             })),
         }
     }
@@ -41,6 +43,7 @@ impl Env {
             inner: Rc::new(RefCell::new(EnvInner {
                 parent: Some(self.clone()),
                 bindings: HashMap::new(),
+                types: HashMap::new(),
             })),
         }
     }
@@ -58,6 +61,24 @@ impl Env {
             return Some(b.value.clone());
         }
         inner.parent.as_ref().and_then(|p| p.get(name))
+    }
+
+    pub fn define_type(&self, name: impl Into<String>, canonical: impl Into<String>) {
+        self.inner
+            .borrow_mut()
+            .types
+            .insert(name.into(), canonical.into());
+    }
+
+    pub fn resolve_type(&self, name: &str) -> Option<String> {
+        let inner = self.inner.borrow();
+        if let Some(canonical) = inner.types.get(name) {
+            return Some(canonical.clone());
+        }
+        inner
+            .parent
+            .as_ref()
+            .and_then(|parent| parent.resolve_type(name))
     }
 
     pub fn assign(&self, name: &str, value: Value, span: Span) -> Result<(), RuntimeError> {

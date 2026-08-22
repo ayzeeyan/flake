@@ -295,6 +295,38 @@ fn write_file_roundtrip() {
 }
 
 #[test]
+fn imported_modules_keep_private_helpers_isolated() {
+    let dir = std::env::temp_dir().join(format!(
+        "flake-module-isolation-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::write(
+        dir.join("left.flk"),
+        "fn helper() -> Int { 1 }\npub fn value() -> Int { helper() }\n",
+    )
+    .expect("write left");
+    std::fs::write(
+        dir.join("right.flk"),
+        "fn helper() -> Int { 2 }\npub fn value() -> Int { helper() }\n",
+    )
+    .expect("write right");
+    let main_path = dir.join("main.flk");
+    let text =
+        "import left\nimport right\nfn main() { print(left.value()) print(right.value()) }\n";
+    std::fs::write(&main_path, text).expect("write main");
+    let source = Source::new(main_path.display().to_string(), text);
+    let (_, output) = execute_captured(&source)
+        .unwrap_or_else(|error| panic!("run failed:\n{}", error.display(&source)));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(output, "1\n2\n");
+}
+
+#[test]
 fn enums_and_match() {
     let src = include_str!("../../examples/enum.flk");
     let (_, out) = run(src);

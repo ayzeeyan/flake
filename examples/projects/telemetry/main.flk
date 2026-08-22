@@ -1,0 +1,7 @@
+import app.dashboard as dashboard
+import metrics.stats as stats
+
+fn main() {
+    let samples: stats.SampleSet = stats.SampleSet { total: 100, count: 4 }
+    print(dashboard.render(samples))
+}

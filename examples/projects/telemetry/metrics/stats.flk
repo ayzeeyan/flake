@@ -1,0 +1,12 @@
+pub struct SampleSet {
+    total: Int
+    count: Int
+}
+
+fn non_empty_count(summary: SampleSet) -> Int {
+    if summary.count == 0 { 1 } else { summary.count }
+}
+
+pub fn average(summary: SampleSet) -> Int {
+    summary.total / non_empty_count(summary)
+}

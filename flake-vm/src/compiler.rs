@@ -22,6 +22,8 @@ struct Names {
     imported_fns: HashMap<String, String>,
     /// alias → exported function names (empty set means nothing is exported)
     exported: HashMap<String, HashSet<String>>,
+    local_types: HashSet<String>,
+    imported_types: HashMap<String, String>,
     enums: HashMap<String, Vec<String>>,
 }
 
@@ -48,13 +50,31 @@ impl Names {
         Some(qualify(module, field))
     }
 
+    fn type_global(&self, name: &str) -> String {
+        if let Some((alias, item)) = name.split_once('.') {
+            if let Some(module) = self.imports.get(alias) {
+                return qualify(module, item);
+            }
+        }
+        if self.local_types.contains(name) {
+            if let Some(prefix) = &self.prefix {
+                return qualify(prefix, name);
+            }
+        }
+        self.imported_types
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_string())
+    }
+
     fn enum_variants(&self, target: &Expr) -> Option<&[String]> {
         match target {
             Expr::Ident(id) => self.enums.get(&id.name).map(Vec::as_slice),
             Expr::Field { target, field, .. } => {
                 if let Expr::Ident(module) = target.as_ref() {
                     if self.imports.contains_key(&module.name) {
-                        return self.enums.get(&field.name).map(Vec::as_slice);
+                        let qualified = format!("{}.{}", module.name, field.name);
+                        return self.enums.get(&qualified).map(Vec::as_slice);
                     }
                 }
                 None
@@ -351,7 +371,7 @@ impl<'a> FnCompiler<'a> {
                 }
                 let name_c = self
                     .chunk
-                    .add_constant(Value::from_string(name.name.clone()));
+                    .add_constant(Value::from_string(self.names.type_global(&name.name)));
                 self.chunk.emit(Op::BuildStruct {
                     name: name_c,
                     fields: field_consts,
@@ -808,6 +828,8 @@ pub fn compile(program: &Program) -> Result<Compiled, VmError> {
                 .collect(),
             imported_fns: HashMap::new(),
             exported: HashMap::new(),
+            local_types: type_names(program),
+            imported_types: HashMap::new(),
             enums: enums_from(program),
         },
     )
@@ -837,32 +859,46 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
     let mut imports = HashMap::new();
     let mut imported_fns = HashMap::new();
     let mut exported = HashMap::new();
+    let local_types = type_names(&module.program);
+    let mut imported_types = HashMap::new();
     let mut enums = enums_from(&module.program);
     for item in &module.program.items {
         if let Item::Import(import) = item {
-            let module_name = import.path.name.clone();
             let alias = import_alias(import).to_string();
-            imports.insert(alias.clone(), module_name.clone());
             exported.entry(alias.clone()).or_insert_with(HashSet::new);
-            if let Some(imported) = graph.get(&module_name) {
+            if let Some(imported) = graph.imported(module, import) {
+                let module_name = imported.name.clone();
+                imports.insert(alias.clone(), module_name.clone());
                 for item in &imported.program.items {
                     if !is_exported(item, &imported.program) {
                         continue;
                     }
                     match item {
                         Item::Fn(func) => {
-                            imported_fns
-                                .entry(func.name.name.clone())
-                                .or_insert_with(|| qualify(&module_name, &func.name.name));
+                            if graph.unqualified_import_is_unambiguous(module, &func.name.name) {
+                                imported_fns.insert(
+                                    func.name.name.clone(),
+                                    qualify(&module_name, &func.name.name),
+                                );
+                            }
                             exported
                                 .get_mut(&alias)
                                 .unwrap()
                                 .insert(func.name.name.clone());
                         }
                         Item::Enum(en) => {
-                            enums.entry(en.name.name.clone()).or_insert_with(|| {
-                                en.variants.iter().map(|v| v.name.name.clone()).collect()
-                            });
+                            let variants: Vec<_> =
+                                en.variants.iter().map(|v| v.name.name.clone()).collect();
+                            enums.insert(format!("{alias}.{}", en.name.name), variants.clone());
+                            if graph.unqualified_import_is_unambiguous(module, &en.name.name) {
+                                enums.insert(en.name.name.clone(), variants);
+                            }
+                        }
+                        Item::Struct(st)
+                            if graph.unqualified_import_is_unambiguous(module, &st.name.name) =>
+                        {
+                            imported_types
+                                .insert(st.name.name.clone(), qualify(&module_name, &st.name.name));
                         }
                         _ => {}
                     }
@@ -880,6 +916,8 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
         local_fns,
         imported_fns,
         exported,
+        local_types,
+        imported_types,
         enums,
     }
 }
@@ -895,6 +933,17 @@ fn enums_from(program: &Program) -> HashMap<String, Vec<String>> {
         }
     }
     enums
+}
+
+fn type_names(program: &Program) -> HashSet<String> {
+    program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct(st) => Some(st.name.name.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn compile_with_names(program: &Program, names: &Names) -> Result<Compiled, VmError> {

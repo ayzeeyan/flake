@@ -117,13 +117,15 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
         local_fns: fn_names(program),
         imported_fns: HashMap::new(),
         exported: HashMap::new(),
+        local_types: type_names(program),
+        imported_types: HashMap::new(),
     };
     let mut fn_rets = HashMap::new();
     for item in &program.items {
         if let Item::Fn(func) = item {
             fn_rets.insert(
                 names.global(&func.name.name),
-                lower_type(func.return_type.as_ref()),
+                names.resolve_type(lower_type(func.return_type.as_ref())),
             );
         }
     }
@@ -137,7 +139,7 @@ pub fn lower_graph(graph: &ModuleGraph) -> Module {
     let fn_rets = collect_fn_rets(graph);
     for module in &graph.modules {
         let names = names_for(graph, module, module.name == entry);
-        let enums = enums_for(graph, module);
+        let enums = enums_for(graph, module, &names);
         let part = lower_program_with(&module.name, &module.program, &names, &fn_rets, &enums);
         structs.extend(part.structs);
         functions.extend(part.functions);
@@ -156,6 +158,8 @@ struct Names {
     local_fns: HashSet<String>,
     imported_fns: HashMap<String, String>,
     exported: HashMap<String, HashSet<String>>,
+    local_types: HashSet<String>,
+    imported_types: HashMap<String, String>,
 }
 
 impl Names {
@@ -187,6 +191,36 @@ impl Names {
         }
         self.imported_fns.get(name).cloned()
     }
+
+    fn type_global(&self, name: &str) -> String {
+        if let Some((alias, item)) = name.split_once('.') {
+            if let Some(module) = self.imports.get(alias) {
+                return qualify(module, item);
+            }
+        }
+        if self.local_types.contains(name) {
+            if let Some(prefix) = &self.prefix {
+                return qualify(prefix, name);
+            }
+        }
+        self.imported_types
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.to_string())
+    }
+
+    fn resolve_type(&self, ty: IrType) -> IrType {
+        match ty {
+            IrType::Struct(name) => IrType::Struct(self.type_global(&name)),
+            IrType::List(element) => IrType::List(Box::new(self.resolve_type(*element))),
+            IrType::Map(key, value) => IrType::Map(
+                Box::new(self.resolve_type(*key)),
+                Box::new(self.resolve_type(*value)),
+            ),
+            IrType::Func(ret) => IrType::Func(Box::new(self.resolve_type(*ret))),
+            other => other,
+        }
+    }
 }
 
 fn fn_names(program: &Program) -> HashSet<String> {
@@ -200,30 +234,57 @@ fn fn_names(program: &Program) -> HashSet<String> {
         .collect()
 }
 
+fn type_names(program: &Program) -> HashSet<String> {
+    program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Struct(st) => Some(st.name.name.clone()),
+            Item::Enum(en) => Some(en.name.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry: bool) -> Names {
     let local_fns = fn_names(&module.program);
     let mut imports = HashMap::new();
     let mut imported_fns = HashMap::new();
     let mut exported = HashMap::new();
+    let local_types = type_names(&module.program);
+    let mut imported_types = HashMap::new();
     for item in &module.program.items {
         if let Item::Import(import) = item {
-            let module_name = import.path.name.clone();
             let alias = import_alias(import).to_string();
-            imports.insert(alias.clone(), module_name.clone());
             exported.entry(alias.clone()).or_insert_with(HashSet::new);
-            if let Some(imported) = graph.get(&module_name) {
+            if let Some(imported) = graph.imported(module, import) {
+                let module_name = imported.name.clone();
+                imports.insert(alias.clone(), module_name.clone());
                 for item in &imported.program.items {
                     if !is_exported(item, &imported.program) {
                         continue;
                     }
                     if let Item::Fn(func) = item {
-                        imported_fns
-                            .entry(func.name.name.clone())
-                            .or_insert_with(|| qualify(&module_name, &func.name.name));
+                        if graph.unqualified_import_is_unambiguous(module, &func.name.name) {
+                            imported_fns.insert(
+                                func.name.name.clone(),
+                                qualify(&module_name, &func.name.name),
+                            );
+                        }
                         exported
                             .get_mut(&alias)
                             .unwrap()
                             .insert(func.name.name.clone());
+                    }
+                    let imported_type = match item {
+                        Item::Struct(st) => Some(&st.name.name),
+                        Item::Enum(en) => Some(&en.name.name),
+                        _ => None,
+                    };
+                    if let Some(name) = imported_type {
+                        if graph.unqualified_import_is_unambiguous(module, name) {
+                            imported_types.insert(name.clone(), qualify(&module_name, name));
+                        }
                     }
                 }
             }
@@ -239,6 +300,8 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
         local_fns,
         imported_fns,
         exported,
+        local_types,
+        imported_types,
     }
 }
 
@@ -251,7 +314,7 @@ fn collect_fn_rets(graph: &ModuleGraph) -> HashMap<String, IrType> {
             if let Item::Fn(func) = item {
                 fn_rets.insert(
                     names.global(&func.name.name),
-                    lower_type(func.return_type.as_ref()),
+                    names.resolve_type(lower_type(func.return_type.as_ref())),
                 );
             }
         }
@@ -272,11 +335,16 @@ fn lower_program_with(
         match item {
             Item::Struct(st) => {
                 structs.push(StructDef {
-                    name: st.name.name.clone(),
+                    name: names.type_global(&st.name.name),
                     fields: st
                         .fields
                         .iter()
-                        .map(|f| (f.name.name.clone(), lower_type(Some(&f.ty))))
+                        .map(|f| {
+                            (
+                                f.name.name.clone(),
+                                names.resolve_type(lower_type(Some(&f.ty))),
+                            )
+                        })
                         .collect(),
                 });
             }
@@ -315,30 +383,42 @@ fn enums_of(program: &Program) -> EnumTable {
     enums
 }
 
-fn enums_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule) -> EnumTable {
+fn enums_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, names: &Names) -> EnumTable {
     let mut enums = enums_of(&module.program);
     for item in &module.program.items {
+        if let Item::Enum(en) = item {
+            if let Some(variants) = enums.get(&en.name.name).cloned() {
+                enums.insert(names.type_global(&en.name.name), variants);
+            }
+        }
+    }
+    for item in &module.program.items {
         if let Item::Import(import) = item {
-            if let Some(imported) = graph.get(&import.path.name) {
+            if let Some(imported) = graph.imported(module, import) {
+                let alias = import_alias(import);
                 for item in &imported.program.items {
                     if !is_exported(item, &imported.program) {
                         continue;
                     }
                     if let Item::Enum(en) = item {
-                        enums.entry(en.name.name.clone()).or_insert_with(|| {
-                            en.variants
-                                .iter()
-                                .map(|v| {
-                                    (
-                                        v.name.name.clone(),
-                                        v.fields
-                                            .iter()
-                                            .map(|field| lower_type(Some(field)))
-                                            .collect(),
-                                    )
-                                })
-                                .collect()
-                        });
+                        let variants: EnumVariants = en
+                            .variants
+                            .iter()
+                            .map(|v| {
+                                (
+                                    v.name.name.clone(),
+                                    v.fields
+                                        .iter()
+                                        .map(|field| names.resolve_type(lower_type(Some(field))))
+                                        .collect(),
+                                )
+                            })
+                            .collect();
+                        enums.insert(format!("{alias}.{}", en.name.name), variants.clone());
+                        enums.insert(qualify(&imported.name, &en.name.name), variants.clone());
+                        if graph.unqualified_import_is_unambiguous(module, &en.name.name) {
+                            enums.insert(en.name.name.clone(), variants);
+                        }
                     }
                 }
             }
@@ -349,11 +429,18 @@ fn enums_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule) -> EnumTa
 
 fn enum_variants<'a>(b: &'a Builder, target: &Expr) -> Option<(String, &'a EnumVariants)> {
     match target {
-        Expr::Ident(id) => b.enums.get(&id.name).map(|v| (id.name.clone(), v)),
+        Expr::Ident(id) => b
+            .enums
+            .get(&id.name)
+            .map(|v| (b.names.type_global(&id.name), v)),
         Expr::Field { target, field, .. } => {
             if let Expr::Ident(module) = target.as_ref() {
                 if b.names.imports.contains_key(&module.name) {
-                    return b.enums.get(&field.name).map(|v| (field.name.clone(), v));
+                    let qualified = format!("{}.{}", module.name, field.name);
+                    return b
+                        .enums
+                        .get(&qualified)
+                        .map(|v| (b.names.type_global(&qualified), v));
                 }
             }
             None
@@ -372,9 +459,9 @@ fn lower_fn(
     let mut params = Vec::new();
     for p in &func.params {
         let ty = lower_type(p.ty.as_ref());
-        params.push(b.alloc(Some(p.name.name.clone()), ty));
+        params.push(b.alloc(Some(p.name.name.clone()), names.resolve_type(ty)));
     }
-    let ret = lower_type(func.return_type.as_ref());
+    let ret = names.resolve_type(lower_type(func.return_type.as_ref()));
     let result = lower_block_value(&mut b, &func.body);
     if !b.sealed() {
         b.emit(Inst::Return {
@@ -425,7 +512,7 @@ fn lower_stmt(b: &mut Builder, stmt: &Stmt) {
             let val = lower_expr(b, &s.value);
             let ty =
                 s.ty.as_ref()
-                    .map(|t| lower_type(Some(t)))
+                    .map(|t| b.names.resolve_type(lower_type(Some(t))))
                     .unwrap_or_else(|| {
                         b.locals
                             .iter()
@@ -603,10 +690,11 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                 .iter()
                 .map(|(f, v)| (f.name.clone(), lower_expr(b, v)))
                 .collect();
-            let dest = b.alloc(None, IrType::Struct(name.name.clone()));
+            let type_name = b.names.type_global(&name.name);
+            let dest = b.alloc(None, IrType::Struct(type_name.clone()));
             b.emit(Inst::MakeStruct {
                 dest,
-                name: name.name.clone(),
+                name: type_name,
                 fields,
             });
             dest

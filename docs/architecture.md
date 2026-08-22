@@ -24,9 +24,21 @@ source → lexer → parser → AST
 | `flake-codegen` | Pure-Rust x86-64 encoder and PE writer |
 | `flake-cli` | `flake` CLI: `run`, `check`, `repl`, `ir`, `build` |
 
-`import name` loads `name.flk` next to the importer, then walks parent
-directories for `std/name.flk`. If a module contains any `pub` item, only those
-items are exported; otherwise everything is exported.
+The module loader builds an acyclic graph before checking or execution.
+`import services.checkout` maps to `services/checkout.flk` beneath the entry
+file's directory; single-segment imports first check next to the importer.
+Standard-library lookup then walks ancestor `std/` directories and can use
+`FLAKE_STD`. Resolved paths become canonical dotted identities and import edges
+record the actual target rather than relying on a file stem.
+
+Only explicit `pub` declarations cross a module boundary. Namespaces always
+work; bare exports are installed only when exactly one import owns the name.
+Qualified types and enum patterns share the same lookup rules. The interpreter
+creates an isolated lexical environment for every module, while VM and IR/native
+lowering qualify functions with the canonical identity. This prevents private
+helpers or equal stems in separate directories from colliding. Duplicate import
+bindings and cycles fail during graph construction. See
+[modules.md](modules.md).
 
 Enums lower to tagged lists (`[tag, fields…]`) on the IR, VM, and native
 paths. The interpreter keeps a dedicated enum value for display. Enum and

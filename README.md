@@ -51,11 +51,13 @@ between:
 
 ## Status
 
-**v0.5 is in development.** Milestones 1–3 are complete: typed structured
+**v0.5 is in development.** Milestones 1–4 are complete: typed structured
 tasks, Result-style `?` propagation, scalar and enum patterns, stronger match
 diagnostics, and typed maps now sit alongside a more mature native x86-64
 backend with CFG-aware register reuse, typed indirect calls, better Float/map
-runtime behavior, and hardened PE production. Native concurrency retains its
+runtime behavior, and hardened PE production. Hierarchical dotted imports,
+private-by-default APIs, canonical module identities, and deterministic name
+resolution make multi-file projects practical. Native concurrency retains its
 documented synchronous fallback. No LLVM, Cranelift, or transpilation.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
@@ -74,6 +76,8 @@ flake run examples/modules.flk
 flake run examples/stdlib.flk
 flake run examples/enum.flk
 flake run examples/data.flk
+flake run examples/projects/inventory/main.flk
+flake run --native examples/projects/telemetry/main.flk
 flake run --vm examples/concurrency.flk
 flake run --native examples/app.flk
 flake build examples/hello.flk -o hello.exe
@@ -139,6 +143,8 @@ fn add_two(result: Result) -> Result {
 | [examples/app.flk](examples/app.flk) | Native-ready mini program |
 | [examples/concurrency.flk](examples/concurrency.flk) | Scope-bound `spawn` / `await` tasks |
 | [examples/data.flk](examples/data.flk) | Result `?`, scalar patterns, and typed maps |
+| [examples/projects/inventory/main.flk](examples/projects/inventory/main.flk) | Hierarchical imports, public enums, and qualified types |
+| [examples/projects/telemetry/main.flk](examples/projects/telemetry/main.flk) | Transitive modules and isolated private helpers |
 
 ## Workspace
 
@@ -160,6 +166,7 @@ fn add_two(result: Result) -> Result {
 - [Ownership](docs/ownership.md)
 - [Structured concurrency](docs/concurrency.md)
 - [Errors and Result propagation](docs/errors.md)
+- [Modules and multi-file projects](docs/modules.md)
 - [IR](docs/ir.md)
 - [Native codegen](docs/codegen.md)
 - [Grammar sketch](docs/grammar.md)

@@ -1,0 +1,8 @@
+import domain.pricing as pricing
+import services.checkout as checkout
+
+fn main() {
+    let tier = pricing.Tier.Premium
+    let total = checkout.order_total(tier, 4)
+    print("{pricing.tier_name(tier)} x4 = {total}")
+}

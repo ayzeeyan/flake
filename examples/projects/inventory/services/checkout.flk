@@ -1,0 +1,13 @@
+// Dotted imports are resolved from the project containing main.flk.
+import domain.pricing as pricing
+
+fn service_fee(tier: pricing.Tier) -> Int {
+    match tier {
+        pricing.Tier.Standard => 2
+        pricing.Tier.Premium => 6
+    }
+}
+
+pub fn order_total(tier: pricing.Tier, quantity: Int) -> Int {
+    pricing.price_for(tier, quantity) + service_fee(tier)
+}

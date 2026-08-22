@@ -1,0 +1,11 @@
+import metrics.stats as stats
+import format.text as text
+
+fn decorate(message: String) -> String {
+    "[{message}]"
+}
+
+pub fn render(summary: stats.SampleSet) -> String {
+    let message = text.metric("average", stats.average(summary))
+    decorate(message)
+}

@@ -44,6 +44,12 @@ struct Interpreter<'io> {
     task_scopes: Vec<Vec<TaskRef>>,
 }
 
+#[derive(Clone)]
+struct InstalledModule {
+    value: Value,
+    env: Env,
+}
+
 /// Persistent evaluation engine used by `flake run` and the REPL.
 pub struct Engine {
     env: Env,
@@ -199,42 +205,64 @@ pub fn execute_captured(source: &Source) -> Result<(Value, String), RunError> {
 
 impl<'io> Interpreter<'io> {
     fn install_graph(&mut self, graph: &ModuleGraph) -> Result<(), RuntimeError> {
+        let prelude = self.env.clone();
         let mut done = HashMap::new();
-        self.install_module(graph, graph.entry(), &mut done)
+        self.install_module(graph, graph.entry(), &prelude, &mut done)?;
+        self.env = done
+            .get(&graph.entry().name)
+            .expect("entry module was installed")
+            .env
+            .clone();
+        Ok(())
     }
 
     fn install_module(
         &mut self,
         graph: &ModuleGraph,
         module: &flake_parser::LoadedModule,
-        done: &mut HashMap<String, Value>,
+        prelude: &Env,
+        done: &mut HashMap<String, InstalledModule>,
     ) -> Result<(), RuntimeError> {
         if done.contains_key(&module.name) {
             return Ok(());
         }
+        let module_env = prelude.child();
         for item in &module.program.items {
             if let Item::Import(import) = item {
-                let Some(imported) = graph.get(&import.path.name) else {
+                let Some(imported) = graph.imported(module, import) else {
                     return Err(RuntimeError::new(
                         import.span,
                         format!("unresolved import `{}`", import.path.name),
                     ));
                 };
-                self.install_module(graph, imported, done)?;
+                self.install_module(graph, imported, prelude, done)?;
                 let alias = import_alias(import);
-                if let Some(module_val) = done.get(&imported.name).cloned() {
-                    self.env.define(alias, module_val.clone(), false);
-                    if let Value::Module { members, .. } = &module_val {
+                if let Some(installed) = done.get(&imported.name) {
+                    module_env.define(alias, installed.value.clone(), false);
+                    if let Value::Module { members, .. } = &installed.value {
                         for (name, value) in members.iter() {
-                            if self.env.get(name).is_none() {
-                                self.env.define(name, value.clone(), false);
+                            if graph.unqualified_import_is_unambiguous(module, name) {
+                                module_env.define(name, value.clone(), false);
+                            }
+                        }
+                    }
+                    for item in &imported.program.items {
+                        if let Item::Struct(st) = item {
+                            if flake_parser::is_exported(item, &imported.program)
+                                && graph.unqualified_import_is_unambiguous(module, &st.name.name)
+                            {
+                                module_env.define_type(
+                                    &st.name.name,
+                                    flake_parser::qualify(&imported.name, &st.name.name),
+                                );
                             }
                         }
                     }
                 }
             }
         }
-        self.collect_items(&module.program)?;
+        let type_prefix = (module.name != graph.entry().name).then_some(module.name.as_str());
+        Self::collect_items_in(&module_env, &module.program, type_prefix)?;
         let mut members = HashMap::new();
         for item in &module.program.items {
             if !flake_parser::is_exported(item, &module.program) {
@@ -242,12 +270,12 @@ impl<'io> Interpreter<'io> {
             }
             match item {
                 Item::Fn(func) => {
-                    if let Some(value) = self.env.get(&func.name.name) {
+                    if let Some(value) = module_env.get(&func.name.name) {
                         members.insert(func.name.name.clone(), value);
                     }
                 }
                 Item::Enum(en) => {
-                    if let Some(value) = self.env.get(&en.name.name) {
+                    if let Some(value) = module_env.get(&en.name.name) {
                         members.insert(en.name.name.clone(), value);
                     }
                 }
@@ -258,11 +286,25 @@ impl<'io> Interpreter<'io> {
             name: Rc::from(module.name.as_str()),
             members: Rc::new(members),
         };
-        done.insert(module.name.clone(), module_val);
+        done.insert(
+            module.name.clone(),
+            InstalledModule {
+                value: module_val,
+                env: module_env,
+            },
+        );
         Ok(())
     }
 
     fn collect_items(&mut self, program: &Program) -> Result<(), RuntimeError> {
+        Self::collect_items_in(&self.env, program, None)
+    }
+
+    fn collect_items_in(
+        env: &Env,
+        program: &Program,
+        module_name: Option<&str>,
+    ) -> Result<(), RuntimeError> {
         for item in &program.items {
             match item {
                 Item::Fn(func) => {
@@ -270,25 +312,34 @@ impl<'io> Interpreter<'io> {
                         name: func.name.name.clone(),
                         params: func.params.iter().map(|p| p.name.clone()).collect(),
                         body: func.body.clone(),
-                        closure: self.env.clone(),
+                        closure: env.clone(),
                         span: func.span,
                     }));
-                    self.env.define(&func.name.name, value, false);
+                    env.define(&func.name.name, value, false);
                 }
-                Item::Struct(_) | Item::Type(_) | Item::Import(_) => {}
+                Item::Struct(st) => {
+                    let type_name = module_name
+                        .map(|module| flake_parser::qualify(module, &st.name.name))
+                        .unwrap_or_else(|| st.name.name.clone());
+                    env.define_type(&st.name.name, type_name);
+                }
+                Item::Type(_) | Item::Import(_) => {}
                 Item::Enum(en) => {
+                    let type_name = module_name
+                        .map(|module| flake_parser::qualify(module, &en.name.name))
+                        .unwrap_or_else(|| en.name.name.clone());
                     let mut members = HashMap::new();
                     for (tag, v) in en.variants.iter().enumerate() {
                         let ctor = if v.fields.is_empty() {
                             Value::Enum {
-                                type_name: Rc::from(en.name.name.as_str()),
+                                type_name: Rc::from(type_name.as_str()),
                                 variant: Rc::from(v.name.name.as_str()),
                                 tag: tag as i64,
                                 fields: Vec::new(),
                             }
                         } else {
                             Value::VariantCtor {
-                                type_name: Rc::from(en.name.name.as_str()),
+                                type_name: Rc::from(type_name.as_str()),
                                 variant: Rc::from(v.name.name.as_str()),
                                 tag: tag as i64,
                                 arity: v.fields.len(),
@@ -296,7 +347,7 @@ impl<'io> Interpreter<'io> {
                         };
                         members.insert(v.name.name.clone(), ctor);
                     }
-                    self.env.define(
+                    env.define(
                         &en.name.name,
                         Value::Module {
                             name: Rc::from(en.name.name.as_str()),
@@ -680,7 +731,7 @@ impl<'io> Interpreter<'io> {
             } => {
                 let value = self.eval_expr(scrutinee)?;
                 for arm in arms {
-                    if let Some(binds) = match_pattern(&arm.pattern, &value) {
+                    if let Some(binds) = match_pattern(&arm.pattern, &value, &self.env) {
                         let saved = self.env.clone();
                         self.env = saved.child();
                         for (name, val) in binds {
@@ -698,8 +749,20 @@ impl<'io> Interpreter<'io> {
                 for (field, value) in fields {
                     map.insert(field.name.clone(), self.eval_expr(value)?);
                 }
+                let type_name = if let Some((alias, item)) = name.name.split_once('.') {
+                    match self.env.get(alias) {
+                        Some(Value::Module { name: module, .. }) => {
+                            flake_parser::qualify(&module, item)
+                        }
+                        _ => name.name.clone(),
+                    }
+                } else {
+                    self.env
+                        .resolve_type(&name.name)
+                        .unwrap_or_else(|| name.name.clone())
+                };
                 Ok(Value::Struct {
-                    name: Rc::from(name.name.as_str()),
+                    name: Rc::from(type_name),
                     fields: Rc::new(RefCell::new(map)),
                 })
             }
@@ -1492,7 +1555,11 @@ fn index_set(target: &Value, index: &Value, value: Value, span: Span) -> EvalRes
     }
 }
 
-fn match_pattern(pat: &flake_ast::Pattern, value: &Value) -> Option<Vec<(String, Value)>> {
+fn match_pattern(
+    pat: &flake_ast::Pattern,
+    value: &Value,
+    env: &Env,
+) -> Option<Vec<(String, Value)>> {
     match pat {
         flake_ast::Pattern::Wildcard { .. } => Some(Vec::new()),
         flake_ast::Pattern::Literal { value: literal, .. } => {
@@ -1509,7 +1576,20 @@ fn match_pattern(pat: &flake_ast::Pattern, value: &Value) -> Option<Vec<(String,
                 ..
             } => {
                 if let Some(t) = ty {
-                    if t.name.as_str() != type_name.as_ref() {
+                    let matches_type = if let Some((alias, name)) = t.name.split_once('.') {
+                        match env.get(alias) {
+                            Some(Value::Module { name: module, .. }) => {
+                                flake_parser::qualify(&module, name) == type_name.as_ref()
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        type_name
+                            .rsplit('.')
+                            .next()
+                            .is_some_and(|name| name == t.name)
+                    };
+                    if !matches_type {
                         return None;
                     }
                 }
