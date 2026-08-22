@@ -56,6 +56,23 @@ The standard `result` module provides `is_ok`, `is_err`, `unwrap_or`,
 useful before generic enum parameters land; user-defined Result-like enums keep
 fully concrete payload types.
 
+The multi-file [release gate](../examples/projects/release/main.flk) exposes a
+public Result-like enum from a service module, propagates a failed check with
+`?`, and handles both variants at the application boundary.
+
 `?` is implemented in all execution paths. The interpreter returns the enum
 value directly, the VM emits an early `Return`, and IR/native lower it to a tag
 test with success and error control-flow blocks.
+
+## Recoverable values and runtime failures
+
+Result-like enums model failures the caller is expected to handle. Assertions,
+integer overflow, division by zero, missing map keys, invalid task joins, and
+failed panic-effectful helpers remain runtime failures. Functions that can
+trigger an assertion or `unwrap` expose the `panic` effect; `contains(map,
+key)` is the non-failing way to test map presence before indexing.
+
+VM runtime instructions retain source spans, so CLI diagnostics highlight the
+failing expression. Native failures preserve the child process's stdout and
+stderr. Shared semantic markers for these boundaries are exercised by the
+[backend consistency suite](testing.md).

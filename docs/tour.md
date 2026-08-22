@@ -2,12 +2,13 @@
 
 **Clarity, crystallized.**
 
-This is the v0.5 development tour. Flake is a braced, immutable-by-default language with
-local type inference, an explicit `dyn` escape hatch, effect annotations,
-opt-in ownership, enums and `match`, multi-file `import`, and a standard
-library that runs on the interpreter, VM, and native x86-64 backend. v0.5 adds
-typed structured tasks under `conc`, Result propagation, stronger patterns,
-typed-key maps, and hierarchical modules with explicit APIs.
+This tour describes the implemented v0.5 language surface. Flake is a braced,
+immutable-by-default language with local type inference, an explicit `dyn`
+escape hatch, effect annotations, opt-in ownership, enums and `match`,
+multi-file imports, and a standard library that runs on the interpreter, VM,
+and native x86-64 backend. v0.5 adds typed structured tasks under `conc`,
+Result propagation, stronger patterns, typed-key maps, and hierarchical modules
+with explicit APIs.
 
 ## Hello
 
@@ -146,11 +147,12 @@ task is spawned. A task cannot escape the spawning function, cannot be awaited
 twice, and is implicitly joined before that function returns if it was not
 awaited explicitly. Child failures propagate to the parent.
 
-The interpreter and VM currently use deterministic cooperative execution; no
+The interpreter and VM use deterministic cooperative execution; no
 parallel scheduler or event loop is implied yet. The native backend can run
 the same surface through a synchronous fallback, although scheduling-visible
 side-effect order can differ. See
-[concurrency.md](concurrency.md) for the complete milestone-1 model.
+[concurrency.md](concurrency.md) for the complete model and
+[task_pipeline.flk](../examples/task_pipeline.flk) for a portable example.
 
 ## Modules
 
@@ -186,7 +188,9 @@ top-level declaration, and cyclic imports report the full cycle. Each module
 has an isolated interpreter environment; VM and native functions use the same
 canonical qualification. See [modules.md](modules.md) and the runnable
 [inventory](../examples/projects/inventory/main.flk) and
-[telemetry](../examples/projects/telemetry/main.flk) projects.
+[telemetry](../examples/projects/telemetry/main.flk) projects. The
+[release gate](../examples/projects/release/main.flk) combines modules with
+tasks, typed maps, public enums, and Result propagation.
 
 There is no package manager or versioned registry yet.
 
@@ -214,9 +218,11 @@ fn reuse(name: owned String) / io {
 
 Copy types (`Int`, `Float`, `Bool`, `Nil`) never move.
 
-Borrows (`&x` / `&mut x`) last until the end of the current block. Moving an
-`owned` value inside a loop is an error. After `if`/`else`, a value is treated
-as moved only if both branches moved it.
+A temporary borrow used only in one statement ends with that statement. A
+borrow stored in a binding lasts until the end of its block. Moving an `owned`
+value inside a loop is an error. After `if`/`else`, a value is treated as moved
+only if both branches moved it. Task arguments and `await` use move positions
+in strict code. See [ownership.md](ownership.md) for the full gradual boundary.
 
 ## Control flow
 
@@ -264,9 +270,10 @@ print("Hello, {name}!")   // interpolation
 Map keys are typed and must be `String`, `Int`, or `Bool`. Key identity keeps
 types distinct at runtime, and `contains(map, key)` probes without raising a
 missing-key error. Lookup, assignment, membership, and concrete key types work
-on all three execution paths.
+on all three execution paths. Display is deterministic in typed-key order;
+indexing a missing key is a runtime error.
 
-## Standard library (v0.4)
+## Standard library
 
 Prelude natives (no `import`):
 
@@ -285,7 +292,7 @@ Prelude natives (no `import`):
 | `env(name)`, `cwd()` | environment | `io` |
 | `trim`, `upper`, `lower` | ASCII/Unicode string case and trim | `alloc` |
 | `contains`, `starts_with`, `ends_with` | list/string/map search | pure |
-| `abs`, `min`, `max` | typed Int or homogeneous Float helpers | pure |
+| `abs`, `min`, `max` | Int/Float helpers; `min`/`max` require one homogeneous numeric type | pure |
 | `range(n)` / `range(a, b)` | integer range | pure |
 | `join(list, sep)` | concatenate | `alloc` |
 | `split(s, sep)` | split a string | `alloc` |
@@ -314,4 +321,6 @@ flake ir examples/hello.flk             # dump the custom IR
 The VM and native backend match the interpreter on all examples. Native code
 uses CFG-aware liveness/interference register allocation and the Windows x64
 ABI. `flake build` emits only the executable unless `--emit-asm` is requested;
-see [codegen.md](codegen.md).
+see [codegen.md](codegen.md). The [examples guide](examples.md) provides a
+learning path and native build walkthrough; [testing.md](testing.md) defines
+the backend-consistency contract.

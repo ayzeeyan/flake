@@ -1,0 +1,27 @@
+// Public release-domain model; helpers remain private to this module.
+
+pub enum Check {
+    Format
+    Tests
+    Package
+}
+
+fn base_weight(check: Check) -> Int {
+    match check {
+        Check.Format => 1
+        Check.Tests => 4
+        Check.Package => 2
+    }
+}
+
+pub fn label(check: Check) -> String {
+    match check {
+        Check.Format => "format"
+        Check.Tests => "tests"
+        Check.Package => "package"
+    }
+}
+
+pub fn weighted_score(check: Check, score: Int) -> Int {
+    score + base_weight(check)
+}

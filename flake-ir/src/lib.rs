@@ -1,6 +1,8 @@
 //! Custom intermediate representation for Flake.
 //!
-//! Pipeline: source → AST → **IR** → bytecode VM or native x86-64.
+//! Native pipeline: source → AST → **IR** → x86-64 machine code.
+//!
+//! The interpreter and bytecode VM consume the AST directly.
 
 mod error;
 mod ir;

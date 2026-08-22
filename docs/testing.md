@@ -27,8 +27,10 @@ tests in their owning crates.
   structured task scopes, Result propagation, maps, and failure behavior.
 - IR and codegen tests pin lowering types, CFG shapes, register allocation,
   ABI behavior, runtime helpers, PE metadata, and native process errors.
-- Example tests type-check every checked-in example and compare its complete
-  stdout across the interpreter, VM, and native backend.
+- Example tests use one canonical entry-point registry to type-check every
+  runnable example and compare its complete stdout across the interpreter, VM,
+  and native backend. Adding an example to the registry automatically gives it
+  all three parity runs.
 - The table-driven consistency matrix runs focused programs for Float and
   checked-integer operations, typed list display, ordered maps, strings,
   structs, enums and scalar patterns, Result `?`, indirect wide calls,
@@ -71,3 +73,5 @@ A feature is not backend-complete until it has:
 
 If native behavior must remain partial, document the boundary explicitly and
 keep accepted programs deterministic on every backend where parity is claimed.
+The [examples guide](examples.md) explains how runnable teaching programs join
+this gate.

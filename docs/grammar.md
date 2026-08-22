@@ -1,4 +1,4 @@
-# Flake grammar (v0.5 development, sketch)
+# Flake grammar (v0.5 sketch)
 
 ```
 program     := item*

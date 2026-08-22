@@ -123,7 +123,21 @@ have inline module declarations, public re-exports, package manifests,
 versioned dependencies, a registry, or lockfiles. Those package-management
 features remain outside v0.5.
 
-See the runnable
-[inventory](../examples/projects/inventory/main.flk) and
-[telemetry](../examples/projects/telemetry/main.flk) projects for hierarchical
-and transitive examples.
+## Runnable projects
+
+- [Inventory](../examples/projects/inventory/main.flk) demonstrates a public
+  domain enum, qualified types, and a service layered over that domain.
+- [Telemetry](../examples/projects/telemetry/main.flk) demonstrates transitive
+  imports and same-named private helpers isolated in separate modules.
+- [Release gate](../examples/projects/release/main.flk) combines public enums,
+  a Result-like service API, maps, and structured tasks in a native-ready
+  application.
+
+Run a project by passing its entry file; imports are resolved from that file's
+project root:
+
+```bash
+flake run examples/projects/release/main.flk
+flake run --vm examples/projects/release/main.flk
+flake run --native examples/projects/release/main.flk
+```

@@ -1,53 +1,90 @@
 # Gradual ownership
 
-Flake's ownership system is **opt-in**. Ordinary functions may reuse values
-freely. `strict` and `owned` functions turn on move and borrow checking.
+Flake's ownership system is opt-in. Ordinary functions keep script-like value
+reuse; `strict fn` and `owned fn` turn on move and borrow checking where a
+systems boundary needs it. The same program can introduce ownership one API at
+a time instead of adopting a whole-program lifetime regime.
 
-## When rules apply
+## Where checking applies
 
-- `strict fn` and `owned fn` are checked.
-- Unannotated functions are not. `fn reuse(name: owned String)` may print
-  `name` twice.
+```flake
+fn gradual(name: owned String) / io {
+    print(name)
+    print(name) // allowed outside a checked function
+}
 
-## Moves
-
-In a checked function, an `owned` value is **moved** on use in a move
-position (passed to a call, stored in a list, returned, used as a `let`
-initializer). A later use is an error:
-
+strict fn checked(name: owned String) / io {
+    print(name)
+    // print(name) // error: use of moved value `name`
+}
 ```
-use of moved value `x`
-help: in `strict` functions, `owned` values are moved on use; take `ref T` to reuse
-```
 
-Copy types (`Int`, `Float`, `Bool`, `Nil`) never move. `ref T` may be used
-many times and cannot be assigned.
+- `strict fn` and `owned fn` bodies are checked.
+- An `owned T` parameter or binding identifies a movable value.
+- `ref T` identifies a reusable, non-assignable reference-like value.
+- Copy types (`Int`, `Float`, `Bool`, and `Nil`) never move.
 
-Re-assignment (`x = "b"`) makes an `owned` binding available again.
+Annotations do not silently enable strict checking in an otherwise gradual
+function. This distinction is intentional and is reflected in diagnostics.
 
-Moving inside a `loop` / `while` / `for` is rejected: the body may run more
-than once. After `if` / `else`, a value is moved only if **both** branches
-moved it.
+## Moves and control flow
 
-`spawn f(args...)` captures arguments in move positions. In a `strict`
-function, passing an `owned` value into a task therefore moves it just like an
-ordinary call. Awaiting a task also consumes its handle in strict code; the
-runtime enforces the same single-join rule in gradual code.
+In a checked function, an owned value is moved when it is passed by value,
+stored in a collection, returned, or used as a `let` initializer. A later use
+reports the move and suggests `ref T` when reuse is intended. Assigning a new
+value to a mutable owned binding makes that binding available again.
+
+Control flow is conservative where repetition is possible:
+
+- moving an owned value inside `loop`, `while`, or `for` is rejected because
+  the body may execute again;
+- after `if` / `else`, the value is considered moved only when both branches
+  move it;
+- `match` arms are checked independently, and matching does not itself move the
+  scrutinee.
 
 ## Borrows
 
-`&x` and `&mut x` borrow without moving.
+`&x` borrows a value and `&mut x` borrows it exclusively.
 
-- A borrow used only in the current statement (a call argument) ends when
-  that statement finishes: `print(&x)` then `print(x)` is allowed.
-- A borrow stored in a binding (`let r = &x`) lasts until the end of the
-  block that declared `r`.
-- `&mut` is exclusive: no other borrow of `x` while it is mutably borrowed.
-- You cannot move or assign `x` while it is borrowed.
+- A temporary borrow used only by the current statement ends with that
+  statement: `print(&x)` followed by `print(x)` is allowed.
+- A borrow stored in a binding (`let view = &x`) lasts to the end of the block
+  that declared the binding.
+- While a mutable borrow exists, no other borrow of the same value is allowed.
+- A borrowed value cannot be moved or assigned until the borrow ends.
+- `ref T` can be reused but not assigned through.
 
-`match` arms are checked independently; the scrutinee is not moved.
-Applying `?` consumes its Result value in a move position: success yields the
-payload, while the error value is returned from the current function.
+```flake
+strict fn inspect(name: owned String) / io {
+    print(&name) // temporary borrow
+    print(name)  // move after the borrow ends
+}
+```
 
-There is no full lifetime checker. Returning a reference to a local is not
-tracked as thoroughly as in Rust. See also [the tour](tour.md).
+## Tasks and recoverable errors
+
+`spawn f(args...)` captures its arguments in move positions. Passing an owned
+value into child work therefore consumes it in strict code just as an ordinary
+call would. Awaiting a `Task[T]` also consumes the handle in strict code; every
+runtime independently enforces the single-join rule in gradual code.
+
+Task handles cannot escape their function through a known static type. This
+ties concurrency lifetime to the spawning scope even though v0.5 does not yet
+have a general lifetime checker. See [concurrency.md](concurrency.md).
+
+Postfix `?` consumes its Result-like value. `Ok(payload)` yields the payload;
+`Err(error)` returns that enum value from the current function. A surrounding
+`match` still checks each branch separately. See [errors.md](errors.md).
+
+## Current boundary
+
+v0.5 ownership is deliberately not Rust's lifetime system. Reference escapes,
+aliasing through gradual `dyn` values, and all cross-task sendability cases are
+not proven with full lifetime precision. True parallel scheduling must add a
+captured-value sendability rule before gradual aliases can run concurrently.
+
+Use strict ownership today to catch local moves, borrow conflicts, loop moves,
+and task-handle reuse while retaining gradual code for areas that do not need
+those guarantees. The [ownership examples](../examples/ownership.flk) show the
+transition, and the [language tour](tour.md) supplies the surrounding syntax.

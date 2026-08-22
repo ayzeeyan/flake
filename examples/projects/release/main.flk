@@ -1,0 +1,25 @@
+// A native-ready multi-file example combining modules, public enums, maps,
+// Result propagation, exhaustive patterns, and structured task scopes.
+
+import domain.checks as checks
+import services.gate as gate
+
+fn render(check: checks.Check, result: gate.GateResult) -> String {
+    match result {
+        gate.GateResult.Ok(score) => "{checks.label(check)}: ready ({score})"
+        gate.GateResult.Err(reason) => "{checks.label(check)}: blocked ({reason})"
+    }
+}
+
+fn main() / conc + io {
+    let scores = { "format": 91, "tests": 88, "package": 79 }
+
+    let format_task = spawn gate.evaluate(checks.Check.Format, scores["format"])
+    let test_task = spawn gate.evaluate(checks.Check.Tests, scores["tests"])
+    let package_task = spawn gate.evaluate(checks.Check.Package, scores["package"])
+
+    print("release checks scheduled")
+    print(render(checks.Check.Format, await format_task))
+    print(render(checks.Check.Tests, await test_task))
+    print(render(checks.Check.Package, await package_task))
+}

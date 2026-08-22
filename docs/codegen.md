@@ -71,7 +71,7 @@ A small hand-written runtime is linked into every image:
 
 Imports are resolved from `KERNEL32.dll` via a standard PE import table.
 
-## What compiles natively (v0.5 development)
+## What compiles natively in v0.5
 
 Integers, bools, floats (SSE2), strings, `if`/`while`/`for`/`match`, enums
 (as tagged lists), functions (including more than four arguments and indirect
@@ -111,3 +111,12 @@ This lets typed `conc` programs compile and produce coherent pure results
 without claiming that the PE runtime has a scheduler. Scheduling-visible
 side-effect order can differ. Interpreter and VM retain real, scope-bound task
 handles; a native task runtime is post-v0.5 work.
+
+The [release gate example](../examples/projects/release/main.flk) is the
+end-to-end native showcase for hierarchical modules, public enums, patterns,
+Result propagation, maps, and pure task results:
+
+```bash
+flake build examples/projects/release/main.flk -o release.exe
+./release.exe
+```

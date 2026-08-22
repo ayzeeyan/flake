@@ -1,0 +1,28 @@
+import domain.checks as checks
+
+// A Result-like public API keeps the recoverable failure path explicit.
+pub enum GateResult {
+    Ok(Int)
+    Err(String)
+}
+
+fn minimum(check: checks.Check) -> Int {
+    match check {
+        checks.Check.Format => 80
+        checks.Check.Tests => 90
+        checks.Check.Package => 75
+    }
+}
+
+fn validate(check: checks.Check, score: Int) -> GateResult {
+    if score >= minimum(check) {
+        GateResult.Ok(score)
+    } else {
+        GateResult.Err("{checks.label(check)} scored {score}")
+    }
+}
+
+pub fn evaluate(check: checks.Check, score: Int) -> GateResult {
+    let accepted = validate(check, score)?
+    GateResult.Ok(checks.weighted_score(check, accepted))
+}

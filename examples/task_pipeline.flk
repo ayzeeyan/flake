@@ -1,0 +1,33 @@
+// Pure child work keeps this structured-task pipeline portable across all
+// three v0.5 execution paths, including the native synchronous fallback.
+
+enum Outcome {
+    Completed(Int)
+    Rejected(String)
+}
+
+fn process(job: String, input: Int) -> Outcome {
+    match input {
+        0 => Outcome.Rejected("{job}: empty input")
+        _ => Outcome.Completed(input * input)
+    }
+}
+
+fn report(job: String, outcome: Outcome) -> String {
+    match outcome {
+        Outcome.Completed(value) => "{job}: completed with {value}"
+        Outcome.Rejected(reason) => "{job}: rejected ({reason})"
+    }
+}
+
+fn main() / conc + io {
+    let inputs = { "compile": 6, "test": 7, "package": 0 }
+    let compile_task = spawn process("compile", inputs["compile"])
+    let test_task = spawn process("test", inputs["test"])
+    let package_task = spawn process("package", inputs["package"])
+
+    print("pipeline scheduled")
+    print(report("compile", await compile_task))
+    print(report("test", await test_task))
+    print(report("package", await package_task))
+}

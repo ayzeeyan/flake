@@ -1,87 +1,116 @@
 # Architecture
 
-Flake is a Cargo workspace of small crates. Every stage of the compiler is
-owned by this repository: there is no LLVM, Cranelift, or C backend.
+Flake is a Cargo workspace of small Rust crates. Every compilation and runtime
+stage is owned by this repository: there is no LLVM, Cranelift, C
+transpilation, or external code-generation framework.
 
+```text
+source files -> lexer -> parser + module graph -> AST -> type/effect/ownership check
+                                                   |-> tree interpreter
+                                                   |-> bytecode compiler -> VM
+                                                   `-> custom CFG IR -> register allocation
+                                                                    -> x86-64 encoder
+                                                                    -> PE32+ writer
 ```
-source → lexer → parser → AST
-                       ↘ type / effect / ownership checker
-                       ↘ IR
-                          ↘ tree-walking interpreter
-                          ↘ bytecode compiler → stack VM
-                          ↘ x86-64 codegen → PE32+ executable
-```
+
+The interpreter and VM consume the language AST independently. The native
+backend alone lowers through the custom IR. This separation keeps the
+tree-walker readable as an executable model while making VM and native drift
+visible in cross-backend tests.
+
+## Workspace
 
 | Crate | Responsibility |
 | --- | --- |
-| `flake-ast` | Spans, AST, pretty-printer, diagnostic rendering |
-| `flake-lexer` | Tokens, comments, string interpolation |
-| `flake-parser` | Recursive-descent + Pratt parser, `import` module loader |
-| `flake-types` | Inference, `dyn`, effects, gradual ownership |
-| `flake-ir` | Control-flow-graph IR (locals + basic blocks) |
-| `flake-interpreter` | Tree-walking runtime and REPL engine |
-| `flake-vm` | Bytecode compiler, stack VM, and cooperative task opcodes |
-| `flake-codegen` | Pure-Rust x86-64 encoder and PE writer |
-| `flake-cli` | `flake` CLI: `run`, `check`, `repl`, `ir`, `build` |
+| `flake-ast` | source spans, AST nodes, and shared source representation |
+| `flake-lexer` | tokens, nested comments, and interpolated strings |
+| `flake-parser` | recursive-descent/Pratt parser and module graph loader |
+| `flake-types` | gradual types, effects, ownership, visibility, and diagnostics |
+| `flake-interpreter` | tree-walking runtime and REPL engine |
+| `flake-vm` | AST-to-bytecode compiler, stack VM, and cooperative tasks |
+| `flake-ir` | typed control-flow-graph IR for native lowering |
+| `flake-codegen` | liveness/register allocation, x86-64 encoding, runtime, and PE writing |
+| `flake-cli` | `run`, `check`, `repl`, `ir`, and `build` commands |
 
-The module loader builds an acyclic graph before checking or execution.
-`import services.checkout` maps to `services/checkout.flk` beneath the entry
-file's directory; single-segment imports first check next to the importer.
-Standard-library lookup then walks ancestor `std/` directories and can use
-`FLAKE_STD`. Resolved paths become canonical dotted identities and import edges
-record the actual target rather than relying on a file stem.
+## Frontend and modules
 
-Only explicit `pub` declarations cross a module boundary. Namespaces always
-work; bare exports are installed only when exactly one import owns the name.
-Qualified types and enum patterns share the same lookup rules. The interpreter
-creates an isolated lexical environment for every module, while VM and IR/native
-lowering qualify functions with the canonical identity. This prevents private
-helpers or equal stems in separate directories from colliding. Duplicate import
-bindings and cycles fail during graph construction. See
-[modules.md](modules.md).
+The module loader resolves the entry file into an acyclic graph before checking
+or execution. `import services.checkout` maps to
+`services/checkout.flk` beneath the entry file's project root;
+single-segment imports first check next to the importer. Standard-library
+lookup walks ancestor `std/` directories and can use `FLAKE_STD`.
 
-Enums lower to tagged lists (`[tag, fields…]`) on the IR, VM, and native
-paths. The interpreter keeps a dedicated enum value for display. Enum and
-scalar `match` patterns become explicit comparisons and CFG branches; Result
-`?` adds a success block plus an early-return error block.
+Resolved paths become canonical dotted identities, and import edges retain the
+actual target rather than relying on a file stem. Only explicit `pub`
+declarations cross module boundaries. Namespaces always work; a bare export is
+available only when exactly one import owns its spelling. Qualified values,
+types, constructors, and enum patterns share these rules.
 
-Maps retain concrete key/value types in IR. Interpreter and VM use typed hash
-keys, while native code selects string or scalar comparison in the in-tree
-linear-map runtime. `contains(map, key)` uses a dedicated presence test so
-stored falsey values remain distinguishable from missing keys; indexing a
-missing native key now reports an explicit runtime error. Display order follows
-the typed key order on every backend; native insertion keeps the linear map
-sorted even while it grows.
+The interpreter creates one lexical environment per module. VM and native
+functions use the same canonical qualification, preventing private helpers or
+equal file stems in different directories from colliding. See
+[modules.md](modules.md) and the
+[release project](../examples/projects/release/main.flk).
 
-Function references lower to typed IR addresses and native code labels.
-Direct and indirect calls share Windows x64 ABI argument staging, including
-arguments beyond the four register positions. Native register allocation uses
-CFG liveness and interference coloring to reuse callee-saved registers across
-non-overlapping locals.
+## Values and control flow
 
-`spawn` captures a callable and its evaluated arguments in a task registered
-to the current function invocation. Interpreter and VM task scopes drive a
-pending child when it is `await`ed and drain remaining children before return.
-The VM represents this directly with `Spawn`, `ReadyTask`, and `Await`
-opcodes. For v0.5 milestone 1, IR/native lowering intentionally erases the
-task wrapper and executes the call synchronously; this keeps native builds
-coherent until a native task runtime exists.
+Enums lower to tagged aggregate values. The interpreter retains a dedicated
+enum representation; VM and native layouts use a tag followed by payload
+fields. Exhaustive enum and scalar `match` expressions become comparisons and
+branches. Result-style `?` inspects the tag, extracts the success payload, or
+returns the unchanged error value early.
 
-The CLI type-checks before running (pass `--skip-check` to bypass) and before
-native builds. `flake build` writes only the executable unless `--emit-asm` is
-requested.
+Maps carry concrete key/value types through checking and IR. Interpreter and
+VM use typed keys; native code selects String or scalar comparison in the
+in-tree linear-map runtime. All paths present entries in typed-key order.
+Native insertion maintains that order while growing, so construction,
+replacement, lookup, assignment, membership, and display remain deterministic.
+
+Function references retain parameter, return, and effect types. Native direct
+and indirect calls share Windows x64 ABI staging, including arguments after the
+four register positions. CFG liveness and interference coloring reuse
+callee-saved registers for non-overlapping locals; remaining locals use frame
+slots.
+
+## Tasks
+
+`spawn` evaluates and captures a callable plus its arguments in a task owned by
+the current function invocation. Interpreter and VM record pending children,
+drive a child at `await`, and drain unawaited children before a successful
+return. The VM represents the protocol with `Spawn`, `ReadyTask`, and `Await`
+bytecode.
+
+IR/native lowering intentionally erases the wrapper: `spawn call()` becomes
+the call result and `await task` becomes that result. This v0.5 synchronous
+fallback preserves pure values and native compilability without claiming that
+the PE runtime has a scheduler. See [concurrency.md](concurrency.md).
+
+## Diagnostics and consistency
+
+The CLI checks source before normal execution and every native build;
+`--skip-check` is an explicit debugging escape hatch for `run`. Diagnostics use
+miette labels and help text for ownership, match coverage, variants, imports,
+visibility, and overloaded builtins. VM bytecode instructions retain their AST
+span, so runtime failures point to the responsible expression.
+
+The tree-walker is the clearest behavioral reference, but no backend is trusted
+by convention alone. Exact-output feature cases and shared failure cases run on
+interpreter, VM, and native. Scheduling behavior is compared between the two
+cooperative backends, with the native fallback documented separately. See
+[testing.md](testing.md).
+
+## CLI paths
 
 ```bash
-flake run file.flk            # interpreter
-flake run --vm file.flk       # bytecode VM
-flake run --native file.flk   # compile + execute native image
+flake check file.flk
+flake run file.flk             # tree-walking interpreter
+flake run --vm file.flk        # stack bytecode VM
+flake run --native file.flk    # temporary native executable
+flake ir file.flk              # dump the custom native IR
 flake build file.flk -o out.exe
 flake build file.flk -o out.exe --emit-asm
-flake ir file.flk             # dump IR
 ```
 
-Diagnostics use miette. Messages may include a `help:` line (ownership,
-non-exhaustive `match`, unknown variants, similar names, missing `pub`).
-Bytecode instructions retain their originating AST span, so VM runtime errors
-point to the failing expression. The cross-backend policy and test layers are
-documented in [testing.md](testing.md).
+`flake build` writes only the PE executable unless `--emit-asm` is requested.
+Output is staged beside its target and installed only after a successful write
+and flush; replacement failures restore the previous executable.

@@ -1,5 +1,27 @@
 use std::process::Command;
 
+const EXAMPLES: &[&str] = &[
+    "hello.flk",
+    "fibonacci.flk",
+    "fizzbuzz.flk",
+    "effects.flk",
+    "lists.flk",
+    "ownership.flk",
+    "config.flk",
+    "modules.flk",
+    "stdlib.flk",
+    "borrow.flk",
+    "enum.flk",
+    "visible.flk",
+    "app.flk",
+    "concurrency.flk",
+    "data.flk",
+    "task_pipeline.flk",
+    "projects/inventory/main.flk",
+    "projects/telemetry/main.flk",
+    "projects/release/main.flk",
+];
+
 fn flake_bin() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flake"));
     cmd.env("NO_COLOR", "1");
@@ -51,25 +73,7 @@ fn check_example(name: &str) {
 
 #[test]
 fn all_examples_typecheck() {
-    for name in [
-        "hello.flk",
-        "fibonacci.flk",
-        "fizzbuzz.flk",
-        "effects.flk",
-        "lists.flk",
-        "ownership.flk",
-        "config.flk",
-        "modules.flk",
-        "stdlib.flk",
-        "borrow.flk",
-        "enum.flk",
-        "visible.flk",
-        "app.flk",
-        "concurrency.flk",
-        "data.flk",
-        "projects/inventory/main.flk",
-        "projects/telemetry/main.flk",
-    ] {
+    for name in EXAMPLES {
         check_example(name);
     }
 }
@@ -178,6 +182,19 @@ fn data_output() {
 }
 
 #[test]
+fn task_pipeline_output() {
+    assert_eq!(
+        run_example("task_pipeline.flk"),
+        concat!(
+            "pipeline scheduled\n",
+            "compile: completed with 36\n",
+            "test: completed with 49\n",
+            "package: rejected (package: empty input)\n",
+        )
+    );
+}
+
+#[test]
 fn hierarchical_inventory_project_output() {
     assert_eq!(
         run_example("projects/inventory/main.flk"),
@@ -194,64 +211,30 @@ fn transitive_telemetry_project_output() {
 }
 
 #[test]
+fn release_project_output() {
+    assert_eq!(
+        run_example("projects/release/main.flk"),
+        concat!(
+            "release checks scheduled\n",
+            "format: ready (92)\n",
+            "tests: blocked (tests scored 88)\n",
+            "package: ready (81)\n",
+        )
+    );
+}
+
+#[test]
 fn native_matches_interpreter_on_all_examples() {
-    for name in [
-        "hello.flk",
-        "fibonacci.flk",
-        "fizzbuzz.flk",
-        "effects.flk",
-        "lists.flk",
-        "ownership.flk",
-        "config.flk",
-        "modules.flk",
-        "stdlib.flk",
-        "borrow.flk",
-        "enum.flk",
-        "visible.flk",
-        "app.flk",
-        "concurrency.flk",
-        "data.flk",
-        "projects/inventory/main.flk",
-        "projects/telemetry/main.flk",
-    ] {
+    for name in EXAMPLES {
         let interp = run_example(name);
-        let output = flake_bin()
-            .arg("run")
-            .arg("--native")
-            .arg(example(name))
-            .output()
-            .expect("native");
-        assert!(
-            output.status.success(),
-            "{name} native failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let native = String::from_utf8_lossy(&output.stdout);
+        let native = run_example_with(name, &["--native"]);
         assert_eq!(interp, native, "{name}: interpreter and native diverged");
     }
 }
 
 #[test]
 fn vm_matches_interpreter_on_all_examples() {
-    for name in [
-        "hello.flk",
-        "fibonacci.flk",
-        "fizzbuzz.flk",
-        "effects.flk",
-        "lists.flk",
-        "ownership.flk",
-        "config.flk",
-        "modules.flk",
-        "stdlib.flk",
-        "borrow.flk",
-        "enum.flk",
-        "visible.flk",
-        "app.flk",
-        "concurrency.flk",
-        "data.flk",
-        "projects/inventory/main.flk",
-        "projects/telemetry/main.flk",
-    ] {
+    for name in EXAMPLES {
         let interp = run_example(name);
         let vm = run_example_vm(name);
         assert_eq!(interp, vm, "{name}: interpreter and VM diverged");

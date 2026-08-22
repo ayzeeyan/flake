@@ -51,7 +51,7 @@ between:
 
 ## Status
 
-**v0.5 is in development.** Milestones 1–5 are complete: typed structured
+**v0.5 is in development.** Milestones 1–6 are complete: typed structured
 tasks, Result-style `?` propagation, scalar and enum patterns, stronger match
 diagnostics, and typed maps now sit alongside a more mature native x86-64
 backend with CFG-aware register reuse, typed indirect calls, better Float/map
@@ -60,17 +60,21 @@ private-by-default APIs, canonical module identities, and deterministic name
 resolution make multi-file projects practical. A feature-level parity and
 failure matrix now locks interpreter, VM, and native behavior together; VM
 runtime diagnostics retain source spans. Native concurrency retains its
-documented synchronous fallback. No LLVM, Cranelift, or transpilation.
+documented synchronous fallback. The runnable examples now include focused
+task/data programs and three non-trivial hierarchical projects. No LLVM,
+Cranelift, or transpilation.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
 for a language tour. Backend consistency policy and test commands live in
-[docs/testing.md](docs/testing.md).
+[docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
+guided example index.
 
 ## Build and run
 
 ```bash
 cargo build
-cargo test
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 
 flake run examples/hello.flk
 flake run --vm examples/hello.flk
@@ -82,7 +86,9 @@ flake run examples/data.flk
 flake run examples/projects/inventory/main.flk
 flake run --native examples/projects/telemetry/main.flk
 flake run --vm examples/concurrency.flk
+flake run --native examples/task_pipeline.flk
 flake run --native examples/app.flk
+flake run --native examples/projects/release/main.flk
 flake build examples/hello.flk -o hello.exe
 flake build examples/hello.flk -o hello.exe --emit-asm
 flake check examples/hello.flk
@@ -146,8 +152,10 @@ fn add_two(result: Result) -> Result {
 | [examples/app.flk](examples/app.flk) | Native-ready mini program |
 | [examples/concurrency.flk](examples/concurrency.flk) | Scope-bound `spawn` / `await` tasks |
 | [examples/data.flk](examples/data.flk) | Result `?`, scalar patterns, and typed maps |
+| [examples/task_pipeline.flk](examples/task_pipeline.flk) | Portable structured tasks, enums, scalar patterns, and maps |
 | [examples/projects/inventory/main.flk](examples/projects/inventory/main.flk) | Hierarchical imports, public enums, and qualified types |
 | [examples/projects/telemetry/main.flk](examples/projects/telemetry/main.flk) | Transitive modules and isolated private helpers |
+| [examples/projects/release/main.flk](examples/projects/release/main.flk) | Native-ready modules, tasks, Result propagation, and exhaustive patterns |
 
 ## Workspace
 
@@ -174,6 +182,8 @@ fn add_two(result: Result) -> Result {
 - [Native codegen](docs/codegen.md)
 - [Grammar sketch](docs/grammar.md)
 - [Architecture](docs/architecture.md)
+- [Examples guide](docs/examples.md)
+- [Testing and backend consistency](docs/testing.md)
 - [Roadmap](ROADMAP.md)
 
 ## License

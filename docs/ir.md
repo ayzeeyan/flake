@@ -3,21 +3,22 @@
 The Flake intermediate representation is a **control-flow graph of basic
 blocks** whose instructions read and write **local slots**.
 
-It is the hand-off between the front end and every back end we own:
+It is the hand-off between the front end and Flake's native backend:
 
 ```
 source → lexer → parser → AST → type/effect check
-                              → IR
-                                 ↘ bytecode VM (optional)
-                                 ↘ x86-64 codegen
+                         ├──→ tree interpreter
+                         ├──→ bytecode compiler → VM
+                         └──→ IR → register allocation → x86-64 codegen
 ```
 
-No LLVM, Cranelift, or foreign IR is involved.
+The tree interpreter and bytecode compiler intentionally consume the AST
+directly. No LLVM, Cranelift, or foreign IR is involved.
 
 ## Design goals
 
 1. **Simple to emit** from the AST (one local per binding or temporary).
-2. **Simple to lower** to stack bytecode and to x86-64 stack/register frames.
+2. **Simple to lower** to x86-64 stack/register frames and runtime calls.
 3. **Explicit control flow.** The last instruction of every block is `Jump`,
    `Branch`, or `Return`.
 4. **Carry language facts** that later passes need: effect sets, `strict` /

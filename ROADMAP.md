@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**v0.5 is in development.** Milestones 1–5 are complete. Typed, scope-bound
+**v0.5 is in development.** Milestones 1–6 are complete. Typed, scope-bound
 tasks make `conc` operational; Result-style `?`, scalar patterns, stronger enum
 checking, and typed maps expand the core language; and the owned x86-64 backend
 now has CFG-aware register reuse, typed indirect calls, stronger native runtime
@@ -9,6 +9,8 @@ imports, strict `pub` APIs, canonical module identities, and isolated module
 environments now support comfortable hierarchical multi-file projects.
 Focused success and failure matrices now hold the interpreter, VM, and native
 paths to one observable contract, with richer builtin and VM diagnostics.
+The documentation set and runnable examples now present that surface as one
+coherent systems-language workflow, including a native-ready release project.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -21,7 +23,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 3 | Native backend maturation | **done** |
 | 4 | Strengthened module system | **done** |
 | 5 | Cross-backend consistency and expanded testing | **done** |
-| 6 | v0.5 polish, documentation, and examples | planned |
+| 6 | v0.5 polish, documentation, and examples | **done** |
 | 7 | Flake v0.5 complete | planned |
 
 ## What v0.5 milestone 1 delivers
@@ -122,6 +124,23 @@ timers, cancellation API, or native task runtime.
 - Source spans attached to VM bytecode so runtime failures highlight the
   responsible expression, plus a clear CLI error for conflicting backend flags
 - Dedicated [testing and consistency documentation](docs/testing.md)
+
+## What v0.5 milestone 6 delivers
+
+- A focused [task pipeline](examples/task_pipeline.flk) that teaches typed,
+  scope-bound child work returning enum values while remaining portable across
+  cooperative and synchronous execution
+- A native-ready hierarchical [release gate](examples/projects/release/main.flk)
+  combining explicit module APIs, public enums, exhaustive patterns, typed
+  maps, Result-style `?`, and structured tasks
+- One canonical example registry in the CLI integration suite; every runnable
+  example is checked and compared across interpreter, VM, and native output
+- A dedicated [examples guide](docs/examples.md) with learning paths, project
+  layouts, native build commands, and the concurrency portability boundary
+- Thoroughly reconciled language tour, architecture, ownership, concurrency,
+  errors, modules, IR, code generation, and testing documentation
+- README and roadmap navigation that distinguish implemented v0.5 behavior
+  from post-v0.5 runtime, platform, package, lifetime, and optimization work
 
 ## v0.4 milestones (complete)
 
@@ -268,12 +287,22 @@ timers, cancellation API, or native task runtime.
 Lexer, parser, AST, gradual types/effects/ownership, interpreter, VM
 foundation, REPL. See git history milestones 0–10.
 
-## Later / outside v0.5
+## Direction after v0.5
 
-1. Full lifetime/borrow checker on the level of Rust
-2. aarch64 and System V ELF objects
-3. Package manager / versioned dependencies / lockfile
-4. Full parallel async runtime, scheduler, I/O reactor, and cancellation API
-5. Self-hosting
-6. Inlining and other optimisations beyond the current CFG-aware register allocator
-7. Inline modules, public re-exports, and package-level dependency aliases
+The next work should extend the foundations without weakening the current
+cross-backend contract:
+
+1. **Concurrency runtime:** task groups and cancellation semantics, captured
+   value sendability, a scheduler, I/O readiness, and eventually a native task
+   runtime. Detached work remains intentionally excluded.
+2. **Targets and artifacts:** aarch64 plus System V x86-64/ELF support while
+   retaining the fully owned code-generation pipeline.
+3. **Packages:** manifests, public re-exports, dependency aliases, versioned
+   resolution, a registry, and lockfiles; no package-manager behavior is
+   implied by v0.5 modules.
+4. **Ownership:** stronger reference escape and lifetime analysis, building on
+   the existing opt-in `strict` model rather than forcing ceremony everywhere.
+5. **Optimization:** inlining and other profile-guided or CFG-level passes
+   beyond the current liveness/interference allocator.
+6. **Long horizon:** self-hosting after the language, package model, and
+   multi-target native pipeline are stable enough to support it.
