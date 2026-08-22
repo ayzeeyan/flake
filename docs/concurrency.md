@@ -94,17 +94,16 @@ compile unchanged on the native backend and have exact output parity tests.
 
 ## Backend status
 
-| Backend | v0.5 behavior |
+| Backend | Implementation status |
 | --- | --- |
 | Tree-walking interpreter | Scope-bound pending tasks, explicit/implicit join, failure propagation |
 | Bytecode VM | Equivalent behavior through task values and `Spawn` / `Await` bytecode |
-| Native x86-64 | Synchronous fallback: `spawn` performs the call and `await` is the identity |
+| Native x86-64 | Real heap Task objects with state tracking and strict single-join runtime verification |
 
-The native fallback means pure task results stay coherent, not that the PE
-runtime schedules tasks. A child that prints runs at `spawn` time natively but
-at `await` or scope exit on the cooperative backends, so output and mutation
-order can differ. The consistency suite tests pure results on all three paths
-and scheduling/single-join behavior directly on interpreter and VM.
+In v0.5.6, all three execution engines enforce the single-join runtime contract:
+attempting to join an already-awaited task raises a runtime error on Interpreter, VM,
+and Native x86-64. Task handles are first-class heap values that can be passed across
+functions and checked for state.
 
 ## Safety boundary and future work
 

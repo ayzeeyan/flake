@@ -904,10 +904,103 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             });
             dest
         }
-        // Milestone 1 native fallback: task creation and joining lower to the
-        // underlying call/value. The interpreter and VM retain real handles.
-        Expr::Spawn { call, .. } => lower_expr(b, call),
-        Expr::Await { task, .. } => lower_expr(b, task),
+        Expr::Spawn { call, .. } => {
+            if let Expr::Call { callee, args, .. } = call.as_ref() {
+                let arg_ids: Vec<_> = args.iter().map(|a| lower_expr(b, a)).collect();
+                if let Expr::Field { target, field, .. } = callee.as_ref() {
+                    let found = enum_variants(b, target).and_then(|(ename, vars)| {
+                        vars.iter()
+                            .position(|(n, _)| n == &field.name)
+                            .map(|tag| (ename, tag))
+                    });
+                    if let Some((ename, tag)) = found {
+                        let mut items = vec![b.const_val(Const::Int(tag as i64), IrType::Int)];
+                        items.extend(arg_ids);
+                        let val_dest = b.alloc(None, IrType::Struct(ename.clone()));
+                        b.emit(Inst::MakeList { dest: val_dest, items });
+                        let dest = b.alloc(None, IrType::Task(Box::new(IrType::Struct(ename))));
+                        b.emit(Inst::Spawn {
+                            dest,
+                            callee: Callee::Local(val_dest),
+                            args: vec![],
+                        });
+                        return dest;
+                    }
+                }
+                let callee_lowered = match callee.as_ref() {
+                    Expr::Ident(id) => {
+                        if lookup(b, &id.name).is_some() {
+                            Callee::Local(lookup(b, &id.name).unwrap())
+                        } else {
+                            Callee::Static(b.names.global(&id.name))
+                        }
+                    }
+                    Expr::Field { target, field, .. } => {
+                        if let Expr::Ident(id) = target.as_ref() {
+                            if let Some(global) = b.names.field_global(&id.name, &field.name) {
+                                Callee::Static(global)
+                            } else {
+                                Callee::Local(lower_expr(b, callee))
+                            }
+                        } else {
+                            Callee::Local(lower_expr(b, callee))
+                        }
+                    }
+                    other => Callee::Local(lower_expr(b, other)),
+                };
+                let ret_ty = match &callee_lowered {
+                    Callee::Static(name) => {
+                        let native = native_call_result_ty(b, name, &arg_ids);
+                        if !matches!(native, IrType::Dyn) || is_native_name(name) {
+                            native
+                        } else {
+                            b.fn_rets.get(name).cloned().unwrap_or(IrType::Dyn)
+                        }
+                    }
+                    Callee::Local(id) => b
+                        .locals
+                        .iter()
+                        .find(|local| local.id == *id)
+                        .and_then(|local| match &local.ty {
+                            IrType::Func(ret) => Some((**ret).clone()),
+                            _ => None,
+                        })
+                        .unwrap_or(IrType::Dyn),
+                };
+                let dest = b.alloc(None, IrType::Task(Box::new(ret_ty)));
+                b.emit(Inst::Spawn {
+                    dest,
+                    callee: callee_lowered,
+                    args: arg_ids,
+                });
+                dest
+            } else {
+                let val = lower_expr(b, call);
+                let val_ty = b
+                    .locals
+                    .iter()
+                    .find(|l| l.id == val)
+                    .map(|l| l.ty.clone())
+                    .unwrap_or(IrType::Dyn);
+                let dest = b.alloc(None, IrType::Task(Box::new(val_ty)));
+                b.emit(Inst::Spawn {
+                    dest,
+                    callee: Callee::Local(val),
+                    args: vec![],
+                });
+                dest
+            }
+        }
+        Expr::Await { task, .. } => {
+            let task_id = lower_expr(b, task);
+            let ret_ty = match b.locals.iter().find(|l| l.id == task_id).map(|l| &l.ty) {
+                Some(IrType::Task(ret)) => (**ret).clone(),
+                _ => IrType::Dyn,
+            };
+            let dest = b.alloc(None, ret_ty);
+            b.emit(Inst::Await { dest, task: task_id });
+            dest
+        }
         Expr::Try { expr, .. } => lower_try(b, expr),
         Expr::Index { target, index, .. } => {
             let obj = lower_expr(b, target);

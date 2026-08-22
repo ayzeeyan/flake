@@ -123,6 +123,15 @@ pub enum Inst {
         callee: Callee,
         args: Vec<LocalId>,
     },
+    Spawn {
+        dest: LocalId,
+        callee: Callee,
+        args: Vec<LocalId>,
+    },
+    Await {
+        dest: LocalId,
+        task: LocalId,
+    },
     GetIndex {
         dest: LocalId,
         obj: LocalId,

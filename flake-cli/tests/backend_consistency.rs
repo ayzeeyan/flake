@@ -475,7 +475,7 @@ fn skip_check_still_rejects_invalid_builtin_arity_on_every_backend() {
 }
 
 #[test]
-fn cooperative_backends_reject_a_second_task_join() {
+fn all_backends_reject_a_second_task_join() {
     let source = TempSource::new(
         "double-await",
         r#"
@@ -487,7 +487,7 @@ fn main() / conc {
 }
 "#,
     );
-    for backend in [Backend::Interpreter, Backend::Vm] {
+    for backend in [Backend::Interpreter, Backend::Vm, Backend::Native] {
         let output = run(&source, backend, false);
         assert!(
             !output.status.success(),

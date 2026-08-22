@@ -99,6 +99,21 @@ fn format_inst(inst: &Inst) -> String {
                 None => call,
             }
         }
+        Inst::Spawn { dest, callee, args } => {
+            let args = args
+                .iter()
+                .map(|a| format!("%{}", a.0))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let call = match callee {
+                crate::ir::Callee::Static(n) => format!("spawn {n}({args})"),
+                crate::ir::Callee::Local(id) => format!("spawn %{}({args})", id.0),
+            };
+            format!("%{} = {call}", dest.0)
+        }
+        Inst::Await { dest, task } => {
+            format!("%{} = await %{}", dest.0, task.0)
+        }
         Inst::GetIndex { dest, obj, index } => {
             format!("%{} = %{}[%{}]", dest.0, obj.0, index.0)
         }

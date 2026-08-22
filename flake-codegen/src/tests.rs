@@ -824,7 +824,25 @@ fn main() {
 }
 
 #[test]
+fn native_task_single_await_enforced() {
+    let err = run_native(&src(r#"
+fn work(x: Int) -> Int { x * 2 }
+fn main() / conc {
+    let t = spawn work(21)
+    let a = await t
+    let b = await t
+}
+"#))
+    .unwrap_err();
+    assert!(
+        err.0.contains("task was already awaited"),
+        "expected double await error, got: {err}"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+
 

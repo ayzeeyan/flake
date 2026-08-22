@@ -450,6 +450,34 @@ fn emit_inst(
                 uniq,
             )?;
         }
+        Inst::Spawn { dest, callee, args } => {
+            let spill = frame.spill;
+            emit_call(func, frame, None, callee, args, asm, strings, strs, uniq)?;
+            asm.mov_mr_rbp(spill, Reg::Rax);
+            asm.mov_ri(Reg::Rcx, 16);
+            asm.call_label("rt_alloc");
+            asm.mov_ri(Reg::R10, 0);
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.mov_rm_rbp(Reg::R10, spill);
+            asm.mov_mr(Reg::Rax, 8, Reg::R10);
+            frame.store(asm, *dest, Reg::Rax);
+        }
+        Inst::Await { dest, task } => {
+            let id = next_id(uniq);
+            let ok = format!(".task_ok_{id}");
+            let err = format!(".task_err_{id}");
+            frame.load(asm, *task, Reg::Rax);
+            asm.mov_rm(Reg::R10, Reg::Rax, 0);
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::Z, &ok);
+            asm.label(&err);
+            emit_runtime_failure(asm, strings, strs, "task was already awaited");
+            asm.label(&ok);
+            asm.mov_ri(Reg::R10, 1);
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 8);
+            frame.store(asm, *dest, Reg::Rax);
+        }
         Inst::Concat { dest, parts } => {
             if parts.is_empty() {
                 let idx = intern_cstring(strings, "");
@@ -1068,6 +1096,11 @@ fn emit_native_print(
                 strs.push((at, intern_cstring(strings, "<struct>")));
                 asm.call_label("rt_print_cstr");
             }
+            IrType::Task(_) => {
+                let at = asm.lea_rip(Reg::Rcx);
+                strs.push((at, intern_cstring(strings, "<task>")));
+                asm.call_label("rt_print_cstr");
+            }
             _ => asm.call_label("rt_print_i64"),
         }
     }
@@ -1651,6 +1684,7 @@ fn ir_type_name(ty: &IrType) -> &'static str {
         IrType::List(_) => "List",
         IrType::Map(_, _) => "Map",
         IrType::Struct(_) => "Struct",
+        IrType::Task(_) => "Task",
         IrType::Range => "Range",
         IrType::Iter => "Iter",
         IrType::Func(_) => "Function",

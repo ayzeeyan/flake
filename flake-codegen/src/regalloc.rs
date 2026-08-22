@@ -347,6 +347,17 @@ fn defs_uses(inst: &Inst) -> (Vec<LocalId>, Vec<LocalId>) {
             }
             uses.extend(args.iter().copied());
         }
+        Inst::Spawn { dest, callee, args } => {
+            defs.push(*dest);
+            if let Callee::Local(local) = callee {
+                uses.push(*local);
+            }
+            uses.extend(args.iter().copied());
+        }
+        Inst::Await { dest, task } => {
+            defs.push(*dest);
+            uses.push(*task);
+        }
         Inst::GetIndex { dest, obj, index } => {
             defs.push(*dest);
             uses.push(*obj);

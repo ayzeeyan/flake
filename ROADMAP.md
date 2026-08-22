@@ -1,8 +1,27 @@
 # Flake Roadmap
 
-**Flake v0.5.5 is complete.** Theme: **Meaningful language expansion + deeper reliability**.
+**Flake v0.5.6 development is in progress.** Theme: **Strengthen concurrency, introduce package foundations, and add real optimizations**.
 
 There is no LLVM, Cranelift, or C transpilation.
+
+## v0.5.6 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Strengthened concurrency (conc effect improvements) | **done** |
+| 2 | Package manager foundations (local packages + manifests) | in progress |
+| 3 | IR and native backend optimizations | planned |
+| 4 | Integration, examples and expanded testing | planned |
+| 5 | Flake v0.5.6 complete | planned |
+
+## What v0.5.6 milestone 1 delivers
+
+- Real typed heap Task objects and single-join verification on Native x86-64 backend:
+  - Added `IrType::Task(Box<IrType>)`, `Inst::Spawn`, and `Inst::Await` to Flake custom IR.
+  - Native x86-64 backend now allocates heap Task representations with explicit state tracking (`Pending`, `Joined`, `Running`, `Cancelled`).
+  - Strict single-join runtime verification on Native x86-64: attempting to await an already-joined task raises a runtime error (`"task was already awaited"`), achieving 100% parity across Interpreter, VM, and Native backends.
+  - Updated `backend_consistency.rs` and `flake-codegen` test suites verifying task errors on all three backends.
+  - Updated `docs/concurrency.md` to reflect the strengthened native task runtime contract.
 
 ## v0.5.5 milestones (complete)
 

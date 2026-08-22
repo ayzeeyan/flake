@@ -118,7 +118,7 @@ fn f(c: Color) -> Int {
 }
 
 #[test]
-fn lowers_concurrency_to_native_fallback_shape() {
+fn lowers_concurrency_to_native_shape() {
     let dump = ir(r#"
 fn work(n: Int) -> Int { n + 1 }
 fn main() / conc + io {
@@ -130,9 +130,9 @@ fn main() / conc + io {
         dump.contains("/ conc + io") || dump.contains("/ io + conc"),
         "{dump}"
     );
-    assert!(dump.contains("call work"), "{dump}");
-    assert!(!dump.contains("spawn"), "{dump}");
-    assert!(!dump.contains("await"), "{dump}");
+    assert!(dump.contains("spawn work"), "{dump}");
+    assert!(dump.contains("await"), "{dump}");
+    assert!(dump.contains("Task[Int]"), "{dump}");
 }
 
 #[test]
