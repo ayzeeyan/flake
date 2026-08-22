@@ -262,6 +262,8 @@ len(xs)
 let m = { "a": 1, "b": 2 }
 m["a"]
 contains(m, "a")
+keys(m)      // ["a", "b"]
+values(m)    // [1, 2]
 m["c"] = 3
 
 print("Hello, {name}!")   // interpolation
@@ -269,7 +271,8 @@ print("Hello, {name}!")   // interpolation
 
 Map keys are typed and must be `String`, `Int`, or `Bool`. Key identity keeps
 types distinct at runtime, and `contains(map, key)` probes without raising a
-missing-key error. Lookup, assignment, membership, and concrete key types work
+missing-key error. `keys(map)` and `values(map)` return keys and values in
+deterministic sorted order. Lookup, assignment, membership, and concrete key types work
 on all three execution paths. Display is deterministic in typed-key order;
 indexing a missing key is a runtime error.
 
@@ -291,9 +294,10 @@ Prelude natives (no `import`):
 | `file_exists`, `remove_file` | path checks / delete | `io` |
 | `env(name)`, `cwd()` | environment | `io` |
 | `trim`, `upper`, `lower` | ASCII/Unicode string case and trim | `alloc` |
-| `contains`, `starts_with`, `ends_with` | list/string/map search | pure |
+| `contains`, `starts_with`, `ends_with` | list/string/map/range search | pure |
 | `abs`, `min`, `max` | Int/Float helpers; `min`/`max` require one homogeneous numeric type | pure |
 | `range(n)` / `range(a, b)` | integer range | pure |
+| `keys(map)` / `values(map)` | map key/value extraction in sorted order | `alloc` |
 | `join(list, sep)` | concatenate | `alloc` |
 | `split(s, sep)` | split a string | `alloc` |
 
@@ -301,11 +305,11 @@ Flake modules under `std/` (walk up from the importer):
 
 | Module | Contents |
 | --- | --- |
-| `list` | `is_empty`, `rest`, `reverse`, `concat`, `take`, `drop`, `sum` |
-| `string` | `is_blank`, `surround`, `replace`, `repeat` |
-| `math` | `clamp`, `pow`, `sign` (sibling `math.flk` wins if present) |
-| `option` | `enum Option { Some(dyn) None }`, `is_some`, `unwrap_or` |
-| `result` | `Result`, `is_ok`, `is_err`, `unwrap_or`, `error_or`, `unwrap` |
+| `list` | `is_empty`, `rest`, `reverse`, `concat`, `take`, `drop`, `sum`, `index_of`, `contains_item`, `map`, `filter`, `fold`, `any`, `all`, `flatten`, `min_item`, `max_item` |
+| `string` | `is_blank`, `surround`, `replace`, `repeat`, `lines`, `words`, `pad_left`, `pad_right`, `slice`, `char_at`, `to_upper`, `to_lower`, `trim_str` |
+| `math` | `clamp`, `pow`, `sign`, `gcd`, `lcm`, `factorial`, `is_even`, `is_odd` |
+| `option` | `enum Option { Some(dyn) None }`, `is_some`, `is_none`, `unwrap_or`, `map_option` |
+| `result` | `Result`, `is_ok`, `is_err`, `unwrap_or`, `error_or`, `unwrap`, `map_result`, `map_err`, `and_then` |
 
 ## Back ends
 

@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**Flake v0.5.1 development is in progress.** Theme: **Solid incremental improvements and stability**.
+**Flake v0.5.1 is complete.** All five milestones are done. Theme: **Solid incremental improvements and stability**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Module system polish | **done** |
 | 3 | Standard library expansion | **done** |
 | 4 | Language polish and expanded testing | **done** |
-| 5 | Flake v0.5.1 complete | in progress |
+| 5 | Flake v0.5.1 complete | **done** |
 
 ## What v0.5.1 milestone 1 delivers
 
@@ -46,6 +46,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - `keys(map)` and `values(map)` builtins returning sorted keys and corresponding values across AST type checking, Interpreter, VM, and native x86-64 backend (`rt_map_keys` and `rt_map_values`).
   - Extended `contains(range, n)` to support forward and reverse ranges consistently across all execution backends (`rt_range_contains`).
   - Broadly expanded cross-backend regression test matrix in `flake-cli/tests/backend_consistency.rs` and `flake-codegen/src/tests.rs`.
+
+## What v0.5.1 milestone 5 delivers
+
+- Final documentation, version bump, and release verification:
+  - Version bumped to `0.5.1` across the workspace `Cargo.toml`.
+  - Updated `README.md`, `ROADMAP.md`, `docs/tour.md`, and `docs/examples.md`.
+  - Added dedicated [v0.5.1 release notes](docs/release-notes-v0.5.1.md).
+  - All workspace tests and example suites fully green across all three backends.
 
 ## v0.5 milestones (complete)
 

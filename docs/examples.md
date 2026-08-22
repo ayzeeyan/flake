@@ -77,6 +77,28 @@ release/
 - A typed map supplies the scores, and the same source runs unchanged on all
   three backends.
 
+### Batch processing pipeline
+
+[`projects/pipeline/main.flk`](../examples/projects/pipeline/main.flk) demonstrates
+a clean data processing pipeline across domain models, service transformations,
+and output formatting:
+
+```text
+pipeline/
+├── main.flk
+├── domain/
+│   └── record.flk
+├── services/
+│   └── transform.flk
+└── utils/
+    └── format.flk
+```
+
+- `domain.record` declares the `Record` entity and `Status` enum.
+- `services.transform` processes records and produces `PipelineResult`.
+- `utils.format` formats record summaries with pattern matching.
+- Runs with identical results across Interpreter, Bytecode VM, and Native x86-64.
+
 ## Adding an example
 
 Keep an example deterministic, give it a short comment explaining its teaching

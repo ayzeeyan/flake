@@ -43,6 +43,13 @@ between:
 
 1. Clarity above cleverness.
 2. Progressive complexity — easy things should be easy, hard things should be possible.
+- **Progressive complexity.** Write a script. Drop down to fine-grained control
+  when you need it.
+
+## Philosophy
+
+1. Clarity above cleverness.
+2. Progressive complexity — easy things should be easy, hard things should be possible.
 3. Safety by default, without forcing full ownership ceremony on every program.
 4. Effects are part of the type system and should be explicit.
 5. Performance matters. Zero-cost abstractions are a goal.
@@ -51,25 +58,26 @@ between:
 
 ## Status
 
-**Flake v0.5 is complete.** Typed structured
-tasks, Result-style `?` propagation, scalar and enum patterns, stronger match
-diagnostics, and typed maps now sit alongside a more mature native x86-64
-backend with CFG-aware register reuse, typed indirect calls, better Float/map
-runtime behavior, and hardened PE production. Hierarchical dotted imports,
-private-by-default APIs, canonical module identities, and deterministic name
-resolution make multi-file projects practical. A feature-level parity and
-failure matrix now locks interpreter, VM, and native behavior together; VM
-runtime diagnostics retain source spans. Native concurrency retains its
-documented synchronous fallback. The runnable examples now include focused
-task/data programs and three non-trivial hierarchical projects. No LLVM,
-Cranelift, or transpilation.
+**Flake v0.5.1 is complete.** Building on v0.5's structured concurrency,
+Result-style errors, and pure-Rust x86-64 code generator, v0.5.1 adds solid
+incremental improvements and stability:
+- **Native backend reliability**: resilient struct field initialization order,
+  safe bounds checking for list and string indexing, and robust string comparisons.
+- **Module system polish**: importer-relative and project-root-relative module
+  resolution, full IR struct field type propagation, and a new multi-file
+  [pipeline project](examples/projects/pipeline/main.flk).
+- **Expanded standard library**: practical helpers across `std/list.flk`,
+  `std/string.flk`, `std/math.flk`, `std/option.flk`, and `std/result.flk`.
+- **Language additions**: built-in `keys(map)` and `values(map)` reflection,
+  along with `contains(range, n)` for forward and reverse integer ranges.
+- **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
 
 See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
 for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.5 release notes](docs/release-notes-v0.5.md) for the complete
+See the [v0.5.1 release notes](docs/release-notes-v0.5.1.md) for the complete
 feature and compatibility summary.
 
 ## Build and run
@@ -86,6 +94,8 @@ flake run examples/modules.flk
 flake run examples/stdlib.flk
 flake run examples/enum.flk
 flake run examples/data.flk
+flake run examples/projects/pipeline/main.flk
+flake run --native examples/projects/pipeline/main.flk
 flake run examples/projects/inventory/main.flk
 flake run --native examples/projects/telemetry/main.flk
 flake run --vm examples/concurrency.flk

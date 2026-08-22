@@ -1426,6 +1426,7 @@ fn finish_call_args(space: i32, asm: &mut Asm) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_get_index(
     func: &Function,
     frame: &Frame,
@@ -1488,6 +1489,7 @@ fn emit_get_index(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_set_index(
     func: &Function,
     frame: &Frame,
