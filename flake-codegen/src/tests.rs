@@ -665,6 +665,51 @@ fn main() {
 }
 
 #[test]
+fn native_struct_fields_reordered_initialization() {
+    let out = run_native(&src(r#"
+struct Point {
+    x: Int
+    y: Int
+    name: String
+}
+
+fn main() {
+    let p = Point { name: "target", y: 20, x: 10 }
+    print(p.x, p.y, p.name)
+}
+"#))
+    .expect("struct reordered initialization native");
+    assert_eq!(out, "10 20 target\n");
+}
+
+#[test]
+fn native_string_indexing_and_bounds() {
+    let out = run_native(&src(r#"
+fn main() {
+    let s = "flake"
+    print(s[0], s[4], s[-1], s[-5])
+    print(first(""), last(""))
+    print(first("snow"), last("flake"))
+}
+"#))
+    .expect("string indexing native");
+    assert_eq!(out, "f e e f\n \ns e\n");
+}
+
+#[test]
+fn native_list_out_of_bounds_error() {
+    let err = run_native(&src(r#"
+fn main() {
+    let xs = [1, 2, 3]
+    print(xs[10])
+}
+"#))
+    .expect_err("out of bounds list index should fail")
+    .to_string();
+    assert!(err.contains("index out of bounds"), "{err}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

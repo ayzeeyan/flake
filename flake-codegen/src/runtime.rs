@@ -1225,7 +1225,7 @@ fn emit_split(asm: &mut Asm) {
 }
 
 fn emit_str_index(asm: &mut Asm) {
-    // rcx = s, rdx = index → rax = 1-character heap string.
+    // rcx = s, rdx = index → rax = 1-character heap string (or empty string if out of bounds).
     asm.label("rt_str_index");
     prologue(asm, 48);
     asm.mov_mr_rbp(-8, Reg::Rcx);
@@ -1238,6 +1238,11 @@ fn emit_str_index(asm: &mut Asm) {
     asm.add_rr(Reg::R10, Reg::Rax);
     asm.mov_mr_rbp(-16, Reg::R10);
     asm.label(".si_pos");
+    asm.test_rr(Reg::R10, Reg::R10);
+    asm.jcc_label(Cc::L, ".si_empty");
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    asm.cmp_rr(Reg::R10, Reg::Rax);
+    asm.jcc_label(Cc::Ge, ".si_empty");
     asm.mov_ri(Reg::Rcx, 2);
     asm.call_label("rt_alloc");
     asm.mov_rm_rbp(Reg::Rdx, -8);
@@ -1246,6 +1251,11 @@ fn emit_str_index(asm: &mut Asm) {
     asm.bytes.extend_from_slice(&[0x44, 0x8A, 0x02]); // mov r8b, [rdx]
     asm.bytes.extend_from_slice(&[0x44, 0x88, 0x00]); // [rax] = r8b
     asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x01, 0x00]);
+    epilogue(asm);
+    asm.label(".si_empty");
+    asm.mov_ri(Reg::Rcx, 1);
+    asm.call_label("rt_alloc");
+    asm.bytes.extend_from_slice(&[0xC6, 0x00, 0x00]);
     epilogue(asm);
 }
 

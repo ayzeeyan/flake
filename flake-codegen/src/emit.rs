@@ -492,18 +492,29 @@ fn emit_inst(
             frame.store(asm, *dest, Reg::Rax);
         }
         Inst::GetIndex { dest, obj, index } => {
-            emit_get_index(func, frame, dest, obj, index, asm, uniq);
+            emit_get_index(func, frame, dest, obj, index, asm, strings, strs, uniq);
         }
         Inst::SetIndex { obj, index, value } => {
-            emit_set_index(func, frame, obj, index, value, asm, uniq);
+            emit_set_index(func, frame, obj, index, value, asm, strings, strs, uniq);
         }
-        Inst::MakeStruct { dest, fields, .. } => {
-            let n = fields.len() as i64;
-            asm.mov_ri(Reg::Rcx, 8 * n.max(1));
+        Inst::MakeStruct { dest, name, fields } => {
+            let st_def = module.structs.iter().find(|s| s.name == *name);
+            let total_fields = st_def.map(|s| s.fields.len()).unwrap_or(fields.len());
+            let n = total_fields.max(1) as i64;
+            asm.mov_ri(Reg::Rcx, 8 * n);
             asm.call_label("rt_alloc");
-            for (i, (_, val)) in fields.iter().enumerate() {
-                frame.load(asm, *val, Reg::R10);
-                asm.mov_mr(Reg::Rax, 8 * i as i32, Reg::R10);
+            if let Some(st) = st_def {
+                for (f_name, val) in fields {
+                    if let Some(i) = st.fields.iter().position(|(n, _)| n == f_name) {
+                        frame.load(asm, *val, Reg::R10);
+                        asm.mov_mr(Reg::Rax, 8 * i as i32, Reg::R10);
+                    }
+                }
+            } else {
+                for (i, (_, val)) in fields.iter().enumerate() {
+                    frame.load(asm, *val, Reg::R10);
+                    asm.mov_mr(Reg::Rax, 8 * i as i32, Reg::R10);
+                }
             }
             frame.store(asm, *dest, Reg::Rax);
         }
@@ -1410,6 +1421,8 @@ fn emit_get_index(
     obj: &LocalId,
     index: &LocalId,
     asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
     uniq: &mut u32,
 ) {
     let obj_ty = local_ty(func, *obj);
@@ -1444,6 +1457,17 @@ fn emit_get_index(
             asm.mov_rm(Reg::R11, Reg::Rax, 0);
             asm.add_rr(Reg::R10, Reg::R11);
             asm.label(format!(".idxpos{id}"));
+            let oob = format!(".idx_oob{id}");
+            let ok = format!(".idx_ok{id}");
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::L, &oob);
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::Ge, &oob);
+            asm.jmp_label(&ok);
+            asm.label(oob);
+            emit_runtime_failure(asm, strings, strs, "index out of bounds");
+            asm.label(ok);
             asm.shl_ri(Reg::R10, 3);
             asm.add_rr(Reg::Rax, Reg::R10);
             asm.mov_rm(Reg::Rax, Reg::Rax, 16);
@@ -1459,6 +1483,8 @@ fn emit_set_index(
     index: &LocalId,
     value: &LocalId,
     asm: &mut Asm,
+    strings: &mut Vec<Vec<u8>>,
+    strs: &mut Vec<(usize, usize)>,
     uniq: &mut u32,
 ) {
     let obj_ty = local_ty(func, *obj);
@@ -1489,6 +1515,17 @@ fn emit_set_index(
             asm.mov_rm(Reg::R11, Reg::Rax, 0);
             asm.add_rr(Reg::R10, Reg::R11);
             asm.label(format!(".sidxpos{id}"));
+            let oob = format!(".sidx_oob{id}");
+            let ok = format!(".sidx_ok{id}");
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::L, &oob);
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::Ge, &oob);
+            asm.jmp_label(&ok);
+            asm.label(oob);
+            emit_runtime_failure(asm, strings, strs, "index out of bounds");
+            asm.label(ok);
             asm.shl_ri(Reg::R10, 3);
             asm.add_rr(Reg::Rax, Reg::R10);
             frame.load(asm, *value, Reg::R10);

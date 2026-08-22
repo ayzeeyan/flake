@@ -1,20 +1,28 @@
 # Flake Roadmap
 
-**Flake v0.5 is complete.** All seven milestones are done. Typed, scope-bound
-tasks make `conc` operational; Result-style `?`, scalar patterns, stronger enum
-checking, and typed maps expand the core language; and the owned x86-64 backend
-now has CFG-aware register reuse, typed indirect calls, stronger native runtime
-coverage, and more reliable executable production. Project-rooted dotted
-imports, strict `pub` APIs, canonical module identities, and isolated module
-environments now support comfortable hierarchical multi-file projects.
-Focused success and failure matrices now hold the interpreter, VM, and native
-paths to one observable contract, with richer builtin and VM diagnostics.
-The documentation set and runnable examples now present that surface as one
-coherent systems-language workflow, including a native-ready release project.
+**Flake v0.5.1 development is in progress.** Theme: **Solid incremental improvements and stability**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.5 milestones
+## v0.5.1 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Native backend reliability improvements | **done** |
+| 2 | Module system polish | in progress |
+| 3 | Standard library expansion | planned |
+| 4 | Language polish and expanded testing | planned |
+| 5 | Flake v0.5.1 complete | planned |
+
+## What v0.5.1 milestone 1 delivers
+
+- Native x86-64 backend reliability improvements:
+  - Struct initialization layout resilience: fields in `MakeStruct` are mapped to the canonical struct definition offsets regardless of declaration order in initializers.
+  - Bounds-checked list indexing in `emit_get_index` and `emit_set_index`, safely asserting on out-of-bounds access rather than reading/writing arbitrary memory.
+  - Bounds validation in `rt_str_index` for string indexing and safe handling of empty strings for `first("")` / `last("")`.
+  - Regression coverage in `flake-codegen` unit tests and cross-backend test suite.
+
+## v0.5 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
