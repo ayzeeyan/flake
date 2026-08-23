@@ -8,12 +8,19 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::ir::{BasicBlock, BinOp, BlockId, Callee, Const, Function, Inst, LocalId, Module, UnOp};
+use crate::ir::{BasicBlock, BinOp, BlockId, Callee, Const, Function, Inst, Local, LocalId, Module, UnOp};
 
 /// Run all IR optimization passes on the module.
 pub fn optimize(module: &mut Module) {
     for func in &mut module.functions {
         optimize_function(func);
+    }
+
+    let inlined = inline_functions(module);
+    if inlined {
+        for func in &mut module.functions {
+            optimize_function(func);
+        }
     }
 }
 
@@ -475,6 +482,232 @@ fn collect_uses(inst: &Inst, uses: &mut HashSet<LocalId>) {
     }
 }
 
+fn remap_local(local: &mut LocalId, map: &HashMap<LocalId, LocalId>) {
+    if let Some(new_id) = map.get(local) {
+        *local = *new_id;
+    }
+}
+
+fn remap_inst_locals(inst: &mut Inst, map: &HashMap<LocalId, LocalId>) {
+    match inst {
+        Inst::LoadConst { dest, .. } | Inst::LoadFunction { dest, .. } => {
+            remap_local(dest, map);
+        }
+        Inst::Move { dest, src } => {
+            remap_local(dest, map);
+            remap_local(src, map);
+        }
+        Inst::Binary { dest, lhs, rhs, .. } => {
+            remap_local(dest, map);
+            remap_local(lhs, map);
+            remap_local(rhs, map);
+        }
+        Inst::Unary { dest, src, .. } => {
+            remap_local(dest, map);
+            remap_local(src, map);
+        }
+        Inst::Call { dest, callee, args } => {
+            if let Some(d) = dest {
+                remap_local(d, map);
+            }
+            if let Callee::Local(l) = callee {
+                remap_local(l, map);
+            }
+            for a in args {
+                remap_local(a, map);
+            }
+        }
+        Inst::Spawn { dest, callee, args } => {
+            remap_local(dest, map);
+            if let Callee::Local(l) = callee {
+                remap_local(l, map);
+            }
+            for a in args {
+                remap_local(a, map);
+            }
+        }
+        Inst::Await { dest, task } => {
+            remap_local(dest, map);
+            remap_local(task, map);
+        }
+        Inst::GetIndex { dest, obj, index } => {
+            remap_local(dest, map);
+            remap_local(obj, map);
+            remap_local(index, map);
+        }
+        Inst::SetIndex { obj, index, value } => {
+            remap_local(obj, map);
+            remap_local(index, map);
+            remap_local(value, map);
+        }
+        Inst::GetField { dest, obj, .. } => {
+            remap_local(dest, map);
+            remap_local(obj, map);
+        }
+        Inst::SetField { obj, value, .. } => {
+            remap_local(obj, map);
+            remap_local(value, map);
+        }
+        Inst::MakeList { dest, items } => {
+            remap_local(dest, map);
+            for it in items {
+                remap_local(it, map);
+            }
+        }
+        Inst::MakeMap { dest, keys, values } => {
+            remap_local(dest, map);
+            for k in keys {
+                remap_local(k, map);
+            }
+            for v in values {
+                remap_local(v, map);
+            }
+        }
+        Inst::MakeStruct { dest, fields, .. } => {
+            remap_local(dest, map);
+            for (_, f) in fields {
+                remap_local(f, map);
+            }
+        }
+        Inst::MakeRange { dest, start, end } => {
+            remap_local(dest, map);
+            remap_local(start, map);
+            remap_local(end, map);
+        }
+        Inst::MakeIter { dest, src } => {
+            remap_local(dest, map);
+            remap_local(src, map);
+        }
+        Inst::IterNext { value, more, iter } => {
+            remap_local(value, map);
+            remap_local(more, map);
+            remap_local(iter, map);
+        }
+        Inst::Concat { dest, parts } => {
+            remap_local(dest, map);
+            for p in parts {
+                remap_local(p, map);
+            }
+        }
+        Inst::Branch { cond, .. } => {
+            remap_local(cond, map);
+        }
+        Inst::Return { value } => {
+            if let Some(v) = value {
+                remap_local(v, map);
+            }
+        }
+        Inst::Jump { .. } => {}
+    }
+}
+
+/// Inline single-block, non-recursive leaf functions into call sites.
+pub fn inline_functions(module: &mut Module) -> bool {
+    let mut inlinable: HashMap<String, Function> = HashMap::new();
+    for func in &module.functions {
+        if func.name == "main" || func.blocks.len() != 1 {
+            continue;
+        }
+        let block = &func.blocks[0];
+        let Some(last) = block.insts.last() else {
+            continue;
+        };
+        if !matches!(last, Inst::Return { .. }) {
+            continue;
+        }
+        if block.insts.len() > 12 {
+            continue;
+        }
+        let mut is_leaf = true;
+        for inst in &block.insts {
+            if let Inst::Call { callee: Callee::Static(target), .. } = inst {
+                if target == &func.name {
+                    is_leaf = false;
+                    break;
+                }
+            }
+        }
+        if is_leaf {
+            inlinable.insert(func.name.clone(), func.clone());
+        }
+    }
+
+    if inlinable.is_empty() {
+        return false;
+    }
+
+    let mut any_inlined = false;
+
+    for func in &mut module.functions {
+        let mut new_blocks = Vec::with_capacity(func.blocks.len());
+        let mut func_changed = false;
+
+        for block in &func.blocks {
+            let mut new_insts = Vec::with_capacity(block.insts.len());
+            for inst in &block.insts {
+                if let Inst::Call { dest, callee: Callee::Static(target), args } = inst {
+                    if let Some(target_func) = inlinable.get(target) {
+                        if target_func.name != func.name && target_func.params.len() == args.len() {
+                            func_changed = true;
+                            any_inlined = true;
+
+                            let mut local_map: HashMap<LocalId, LocalId> = HashMap::new();
+                            for (param_id, arg_id) in target_func.params.iter().zip(args.iter()) {
+                                local_map.insert(*param_id, *arg_id);
+                            }
+
+                            for target_local in &target_func.locals {
+                                if let std::collections::hash_map::Entry::Vacant(e) = local_map.entry(target_local.id) {
+                                    let new_id = LocalId(func.locals.len() as u32);
+                                    func.locals.push(Local {
+                                        id: new_id,
+                                        name: target_local.name.clone().map(|n| format!("inline_{n}")),
+                                        ty: target_local.ty.clone(),
+                                    });
+                                    e.insert(new_id);
+                                }
+                            }
+
+                            let target_block = &target_func.blocks[0];
+                            let last_idx = target_block.insts.len() - 1;
+                            for (idx, target_inst) in target_block.insts.iter().enumerate() {
+                                if idx == last_idx {
+                                    if let Inst::Return { value: Some(ret_local) } = target_inst {
+                                        if let Some(caller_dest) = dest {
+                                            let mapped_ret = local_map.get(ret_local).copied().unwrap_or(*ret_local);
+                                            new_insts.push(Inst::Move {
+                                                dest: *caller_dest,
+                                                src: mapped_ret,
+                                            });
+                                        }
+                                    }
+                                } else {
+                                    let mut cloned_inst = target_inst.clone();
+                                    remap_inst_locals(&mut cloned_inst, &local_map);
+                                    new_insts.push(cloned_inst);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
+                new_insts.push(inst.clone());
+            }
+            new_blocks.push(BasicBlock {
+                id: block.id,
+                insts: new_insts,
+            });
+        }
+
+        if func_changed {
+            func.blocks = new_blocks;
+            optimize_function(func);
+        }
+    }
+
+    any_inlined
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,5 +754,74 @@ mod tests {
                 value: Const::Int(30),
             }
         );
+    }
+
+    #[test]
+    fn inlines_simple_leaf_function() {
+        let helper = Function {
+            name: "square".into(),
+            params: vec![LocalId(0)],
+            ret: IrType::Int,
+            effects: vec![],
+            effects_specified: false,
+            strict: false,
+            owned: false,
+            locals: vec![
+                Local { id: LocalId(0), name: Some("x".into()), ty: IrType::Int },
+                Local { id: LocalId(1), name: None, ty: IrType::Int },
+            ],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                insts: vec![
+                    Inst::Binary { dest: LocalId(1), op: BinOp::Mul, lhs: LocalId(0), rhs: LocalId(0) },
+                    Inst::Return { value: Some(LocalId(1)) },
+                ],
+            }],
+            entry: BlockId(0),
+        };
+
+        let caller = Function {
+            name: "main".into(),
+            params: vec![],
+            ret: IrType::Int,
+            effects: vec![],
+            effects_specified: false,
+            strict: false,
+            owned: false,
+            locals: vec![
+                Local { id: LocalId(0), name: None, ty: IrType::Int },
+                Local { id: LocalId(1), name: None, ty: IrType::Int },
+            ],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                insts: vec![
+                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(5) },
+                    Inst::Call {
+                        dest: Some(LocalId(1)),
+                        callee: Callee::Static("square".into()),
+                        args: vec![LocalId(0)],
+                    },
+                    Inst::Return { value: Some(LocalId(1)) },
+                ],
+            }],
+            entry: BlockId(0),
+        };
+
+        let mut module = Module {
+            name: "test".into(),
+            functions: vec![helper, caller],
+            structs: vec![],
+        };
+
+        optimize(&mut module);
+
+        let main_func = module.functions.iter().find(|f| f.name == "main").unwrap();
+        // After inlining square(5) -> 5 * 5 -> constant-folded to 25!
+        let has_call = main_func.blocks[0].insts.iter().any(|i| matches!(i, Inst::Call { .. }));
+        assert!(!has_call, "call instruction should have been inlined");
+        let has_const_25 = main_func.blocks[0].insts.iter().any(|i| {
+            matches!(i, Inst::LoadConst { value: Const::Int(25), .. })
+        });
+        assert!(has_const_25, "inlined 5 * 5 should be folded to Const::Int(25)");
     }
 }

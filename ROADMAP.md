@@ -10,8 +10,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Package system expansion | **done** |
 | 2 | Concurrency maturity improvements | **done** |
-| 3 | Further IR and native optimizations | in progress |
-| 4 | Integration, examples and expanded testing | planned |
+| 3 | Further IR and native optimizations | **done** |
+| 4 | Integration, examples and expanded testing | in progress |
 | 5 | Flake v0.5.7 complete | planned |
 
 ## What v0.5.7 milestone 1 delivers
@@ -28,6 +28,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - Task handles safely passed across intra-function boundaries (`fn join_both(t1: Task[Int], t2: Task[Int]) -> Int / conc`).
   - Strengthened task lifetime, error propagation, and ownership interactions (`strict owned` moved values into spawned tasks).
   - Cross-backend integration tests verifying concurrent tasks returning algebraic data types (`Result[T, E]`), multi-task join order, and single-await enforcement across Interpreter, Bytecode VM, and Native x86-64 backend.
+
+## What v0.5.7 milestone 3 delivers
+
+- Function inlining and native codegen optimizations:
+  - Added module-level function inlining pass (`flake_ir::opt::inline_functions`): inlines non-recursive single-block leaf functions into call sites, unlocking subsequent constant folding and dead code elimination.
+  - Added instruction-level local remapping (`remap_inst_locals`) preserving types and single-assignment invariants.
+  - Optimized zero-immediate register loading on Native x86-64 (`mov_ri` with `imm == 0` generates compact, fast `xor reg, reg`).
+  - Added optimization unit tests in `flake-ir`.
 
 ## v0.5.6 milestones (complete)
 

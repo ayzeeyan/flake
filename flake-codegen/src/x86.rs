@@ -112,6 +112,10 @@ impl Asm {
     }
 
     pub fn mov_ri(&mut self, dst: Reg, imm: i64) {
+        if imm == 0 {
+            self.xor_rr(dst, dst);
+            return;
+        }
         self.rex_wb(dst);
         self.bytes.push(0xB8 + (dst.id() & 7));
         self.bytes.extend_from_slice(&imm.to_le_bytes());
