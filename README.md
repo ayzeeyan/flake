@@ -43,13 +43,6 @@ between:
 
 1. Clarity above cleverness.
 2. Progressive complexity — easy things should be easy, hard things should be possible.
-- **Progressive complexity.** Write a script. Drop down to fine-grained control
-  when you need it.
-
-## Philosophy
-
-1. Clarity above cleverness.
-2. Progressive complexity — easy things should be easy, hard things should be possible.
 3. Safety by default, without forcing full ownership ceremony on every program.
 4. Effects are part of the type system and should be explicit.
 5. Performance matters. Zero-cost abstractions are a goal.
