@@ -1,0 +1,9 @@
+[package]
+name = "hub_app"
+version = "0.5.7"
+entry = "main.flk"
+authors = ["Flake Team"]
+description = "Service Hub worker application"
+
+[dependencies]
+core_api = { path = "../core_api" }

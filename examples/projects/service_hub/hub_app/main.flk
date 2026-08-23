@@ -1,0 +1,21 @@
+import core_api
+
+fn worker_a(base: Int) -> Int {
+    core_api.compute_throughput(base * 100, 4)
+}
+
+fn worker_b(base: Int) -> Int {
+    core_api.compute_throughput(base * 50, 2)
+}
+
+fn main() / io + conc {
+    print(core_api.greet("Production"))
+    let t1 = spawn worker_a(10)
+    let t2 = spawn worker_b(10)
+    let a = await t1
+    let b = await t2
+    print(a + b)
+
+    let m = core_api.Metric { name: "Throughput", score: a + b }
+    print(core_api.format_metric(m))
+}

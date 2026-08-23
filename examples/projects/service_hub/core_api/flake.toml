@@ -1,0 +1,6 @@
+[package]
+name = "core_api"
+version = "0.5.7"
+entry = "main.flk"
+authors = ["Flake Team"]
+description = "Core service API library with public re-exports"

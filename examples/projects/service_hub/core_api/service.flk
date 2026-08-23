@@ -1,0 +1,19 @@
+import math
+
+pub enum Status {
+    Active
+    Paused
+}
+
+pub struct Metric {
+    name: String,
+    score: Int,
+}
+
+pub fn compute_throughput(requests: Int, seconds: Int) -> Int {
+    math.div_ceil(requests, seconds)
+}
+
+pub fn format_metric(m: Metric) -> String {
+    m.name + ": " + str(m.score)
+}

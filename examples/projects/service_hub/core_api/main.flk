@@ -1,0 +1,9 @@
+pub import service
+
+pub fn version() -> String {
+    "0.5.7"
+}
+
+pub fn greet(name: String) -> String {
+    "Service Hub initialized for " + name
+}

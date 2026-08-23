@@ -25,6 +25,7 @@ const EXAMPLES: &[&str] = &[
     "projects/analytics/main.flk",
     "projects/query_engine/main.flk",
     "projects/pkg_workspace/app/main.flk",
+    "projects/service_hub/hub_app/main.flk",
 ];
 
 fn flake_bin() -> Command {
@@ -300,6 +301,18 @@ fn query_engine_project_output() {
             "Matched 2 record(s):\n",
             "#1: Task Alpha [active]\n",
             "#4: Task Delta [active]\n",
+        )
+    );
+}
+
+#[test]
+fn service_hub_project_output() {
+    assert_eq!(
+        run_example("projects/service_hub/hub_app/main.flk"),
+        concat!(
+            "Service Hub initialized for Production\n",
+            "500\n",
+            "Throughput: 500\n",
         )
     );
 }

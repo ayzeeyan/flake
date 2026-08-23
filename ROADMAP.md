@@ -11,8 +11,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Package system expansion | **done** |
 | 2 | Concurrency maturity improvements | **done** |
 | 3 | Further IR and native optimizations | **done** |
-| 4 | Integration, examples and expanded testing | in progress |
-| 5 | Flake v0.5.7 complete | planned |
+| 4 | Integration, examples and expanded testing | **done** |
+| 5 | Flake v0.5.7 complete | in progress |
 
 ## What v0.5.7 milestone 1 delivers
 
@@ -36,6 +36,12 @@ There is no LLVM, Cranelift, or C transpilation.
   - Added instruction-level local remapping (`remap_inst_locals`) preserving types and single-assignment invariants.
   - Optimized zero-immediate register loading on Native x86-64 (`mov_ri` with `imm == 0` generates compact, fast `xor reg, reg`).
   - Added optimization unit tests in `flake-ir`.
+
+## What v0.5.7 milestone 4 delivers
+
+- Multi-package showcase projects and end-to-end integration tests:
+  - Added `service_hub` multi-package workspace example (`examples/projects/service_hub/`): multi-package project featuring public re-exports (`pub import service`), concurrent worker tasks (`spawn`/`await`), ADTs, and stdlib integration.
+  - Verified 100% cross-backend parity across Interpreter, Bytecode VM, and Native x86-64 executable emission across all examples and test suites.
 
 ## v0.5.6 milestones (complete)
 
