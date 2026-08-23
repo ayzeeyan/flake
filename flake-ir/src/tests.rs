@@ -141,12 +141,11 @@ fn lowers_result_try_to_early_return_cfg() {
         "result.flk",
         r#"
 enum Result { Ok(Int) Err(String) }
-fn source() -> Result { Result.Ok(42) }
-fn use_it() -> Result {
-    let value = source()?
+fn use_it(r: Result) -> Result {
+    let value = r?
     Result.Ok(value)
 }
-fn main() { use_it() }
+fn main() { use_it(Result.Ok(42)) }
 "#,
     );
     let module = lower(&source).expect("lower result try");

@@ -37,6 +37,7 @@ pub fn optimize_function(func: &mut Function) {
 fn run_optimization_round(func: &mut Function) -> bool {
     let mut changed = false;
     changed |= fold_constants_and_propagate(func);
+    changed |= thread_jumps(func);
     changed |= eliminate_unreachable_blocks(func);
     changed |= propagate_moves(func);
     changed |= eliminate_dead_instructions(func);
@@ -86,6 +87,8 @@ fn count_defs(func: &Function) -> HashMap<LocalId, usize> {
 fn fold_constants_and_propagate(func: &mut Function) -> bool {
     let defs = count_defs(func);
     let mut constants: HashMap<LocalId, Const> = HashMap::new();
+    let mut struct_fields: HashMap<LocalId, HashMap<String, LocalId>> = HashMap::new();
+    let mut list_items: HashMap<LocalId, Vec<LocalId>> = HashMap::new();
     let mut changed = false;
 
     for block in &mut func.blocks {
@@ -100,6 +103,65 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                     if defs.get(&dest) == Some(&1) {
                         if let Some(c) = constants.get(&src) {
                             constants.insert(dest, c.clone());
+                        }
+                    }
+                }
+                Inst::MakeStruct { dest, ref fields, .. } => {
+                    if defs.get(&dest) == Some(&1) {
+                        let mut map = HashMap::new();
+                        for (f, val_id) in fields {
+                            map.insert(f.clone(), *val_id);
+                        }
+                        struct_fields.insert(dest, map);
+                    }
+                }
+                Inst::MakeList { dest, ref items } => {
+                    if defs.get(&dest) == Some(&1) {
+                        list_items.insert(dest, items.clone());
+                    }
+                }
+                Inst::GetField { dest, obj, ref field } => {
+                    if let Some(map) = struct_fields.get(&obj) {
+                        if let Some(&field_val_id) = map.get(field) {
+                            if let Some(c) = constants.get(&field_val_id) {
+                                *inst = Inst::LoadConst {
+                                    dest,
+                                    value: c.clone(),
+                                };
+                                if defs.get(&dest) == Some(&1) {
+                                    constants.insert(dest, c.clone());
+                                }
+                            } else {
+                                *inst = Inst::Move {
+                                    dest,
+                                    src: field_val_id,
+                                };
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+                Inst::GetIndex { dest, obj, index } => {
+                    if let Some(items) = list_items.get(&obj) {
+                        if let Some(Const::Int(idx)) = constants.get(&index) {
+                            if *idx >= 0 && (*idx as usize) < items.len() {
+                                let item_id = items[*idx as usize];
+                                if let Some(c) = constants.get(&item_id) {
+                                    *inst = Inst::LoadConst {
+                                        dest,
+                                        value: c.clone(),
+                                    };
+                                    if defs.get(&dest) == Some(&1) {
+                                        constants.insert(dest, c.clone());
+                                    }
+                                } else {
+                                    *inst = Inst::Move {
+                                        dest,
+                                        src: item_id,
+                                    };
+                                }
+                                changed = true;
+                            }
                         }
                     }
                 }
@@ -211,6 +273,83 @@ fn fold_binary(op: BinOp, l: &Const, r: &Const) -> Option<Const> {
 
         _ => None,
     }
+}
+
+/// Thread jumps through empty blocks that only contain an unconditional jump.
+fn thread_jumps(func: &mut Function) -> bool {
+    let mut jump_targets: HashMap<BlockId, BlockId> = HashMap::new();
+    for block in &func.blocks {
+        if block.insts.len() == 1 {
+            if let Some(Inst::Jump { target }) = block.insts.first() {
+                if *target != block.id {
+                    jump_targets.insert(block.id, *target);
+                }
+            }
+        }
+    }
+
+    if jump_targets.is_empty() {
+        return false;
+    }
+
+    // Resolve chained jumps
+    let mut resolved_targets = HashMap::new();
+    for (from, to) in &jump_targets {
+        let mut cur = *to;
+        let mut visited = HashSet::new();
+        visited.insert(*from);
+        while let Some(&next) = jump_targets.get(&cur) {
+            if !visited.insert(cur) {
+                break;
+            }
+            cur = next;
+        }
+        if cur != *from {
+            resolved_targets.insert(*from, cur);
+        }
+    }
+
+    let mut changed = false;
+    for block in &mut func.blocks {
+        for inst in &mut block.insts {
+            match inst {
+                Inst::Jump { target } => {
+                    if let Some(&new_target) = resolved_targets.get(target) {
+                        if *target != new_target {
+                            *target = new_target;
+                            changed = true;
+                        }
+                    }
+                }
+                Inst::Branch {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    if let Some(&new_then) = resolved_targets.get(then_block) {
+                        if *then_block != new_then {
+                            *then_block = new_then;
+                            changed = true;
+                        }
+                    }
+                    if let Some(&new_else) = resolved_targets.get(else_block) {
+                        if *else_block != new_else {
+                            *else_block = new_else;
+                            changed = true;
+                        }
+                    }
+                    if *then_block == *else_block {
+                        *inst = Inst::Jump {
+                            target: *then_block,
+                        };
+                        changed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    changed
 }
 
 /// 2. Eliminate unreachable basic blocks.
@@ -401,7 +540,12 @@ fn pure_dest(inst: &Inst) -> Option<LocalId> {
         | Inst::LoadFunction { dest, .. }
         | Inst::Move { dest, .. }
         | Inst::Binary { dest, .. }
-        | Inst::Unary { dest, .. } => Some(*dest),
+        | Inst::Unary { dest, .. }
+        | Inst::MakeStruct { dest, .. }
+        | Inst::MakeList { dest, .. }
+        | Inst::GetField { dest, .. }
+        | Inst::GetIndex { dest, .. }
+        | Inst::MakeRange { dest, .. } => Some(*dest),
         _ => None,
     }
 }
@@ -823,5 +967,59 @@ mod tests {
             matches!(i, Inst::LoadConst { value: Const::Int(25), .. })
         });
         assert!(has_const_25, "inlined 5 * 5 should be folded to Const::Int(25)");
+    }
+
+    #[test]
+    fn folds_struct_field_projection_to_constant() {
+        let func = Function {
+            name: "test_proj".into(),
+            params: vec![],
+            ret: IrType::Int,
+            effects: vec![],
+            effects_specified: false,
+            strict: false,
+            owned: false,
+            locals: vec![
+                Local { id: LocalId(0), name: None, ty: IrType::Int },
+                Local { id: LocalId(1), name: None, ty: IrType::Int },
+                Local { id: LocalId(2), name: None, ty: IrType::Struct("Point".into()) },
+                Local { id: LocalId(3), name: None, ty: IrType::Int },
+            ],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                insts: vec![
+                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(10) },
+                    Inst::LoadConst { dest: LocalId(1), value: Const::Int(20) },
+                    Inst::MakeStruct {
+                        dest: LocalId(2),
+                        name: "Point".into(),
+                        fields: vec![("x".into(), LocalId(0)), ("y".into(), LocalId(1))],
+                    },
+                    Inst::GetField {
+                        dest: LocalId(3),
+                        obj: LocalId(2),
+                        field: "y".into(),
+                    },
+                    Inst::Return { value: Some(LocalId(3)) },
+                ],
+            }],
+            entry: BlockId(0),
+        };
+
+        let mut module = Module {
+            name: "test".into(),
+            functions: vec![func],
+            structs: vec![],
+        };
+
+        optimize(&mut module);
+
+        let opt_func = &module.functions[0];
+        let has_get_field = opt_func.blocks[0].insts.iter().any(|i| matches!(i, Inst::GetField { .. }));
+        assert!(!has_get_field, "GetField should be eliminated");
+        let has_const_20 = opt_func.blocks[0].insts.iter().any(|i| {
+            matches!(i, Inst::LoadConst { value: Const::Int(20), .. })
+        });
+        assert!(has_const_20, "Point.y projection should fold to Const::Int(20)");
     }
 }

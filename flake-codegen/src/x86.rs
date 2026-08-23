@@ -116,6 +116,14 @@ impl Asm {
             self.xor_rr(dst, dst);
             return;
         }
+        if (0..=0x7FFF_FFFF).contains(&imm) {
+            if dst.id() >= 8 {
+                self.bytes.push(0x41); // REX.B
+            }
+            self.bytes.push(0xB8 + (dst.id() & 7));
+            self.bytes.extend_from_slice(&(imm as u32).to_le_bytes());
+            return;
+        }
         self.rex_wb(dst);
         self.bytes.push(0xB8 + (dst.id() & 7));
         self.bytes.extend_from_slice(&imm.to_le_bytes());

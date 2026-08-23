@@ -11,8 +11,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Concurrency maturity (task groups, cancellation, stronger model) | **done** |
 | 2 | Practical package system (resolution, lockfile foundations, re-exports) | **done** |
 | 3 | Stronger ownership and language improvements | **done** |
-| 4 | Advanced optimizations and native quality | in progress |
-| 5 | Integration, examples, testing and hardening | planned |
+| 4 | Advanced optimizations and native quality | **done** |
+| 5 | Integration, examples, testing and hardening | in progress |
 | 6 | Flake v0.6 complete | planned |
 
 ## What v0.6 milestone 1 delivers
@@ -47,6 +47,16 @@ There is no LLVM, Cranelift, or C transpilation.
 - Branch-aware ownership state propagation:
   - Snapshot isolation and branch state merging across all match arms in `match` expressions.
   - Precise move tracking ensuring variables moved in all branches are recognized as moved afterwards.
+
+## What v0.6 milestone 4 delivers
+
+- Constructor projection constant propagation:
+  - In `flake-ir`, tracks struct and list constructors (`MakeStruct`, `MakeList`) and directly folds subsequent `GetField` and `GetIndex` into constant loads or register moves.
+  - Extends dead code elimination (`eliminate_dead_instructions`) across pure struct/list constructors and projections when results are unused.
+- CFG jump threading and block merging:
+  - Added `thread_jumps` optimization pass resolving chained jump targets through intermediate empty basic blocks and converting identical-target branches into direct jumps.
+- Native x86-64 code density optimizations:
+  - Optimized immediate moves (`mov_ri`) to emit 32-bit zero-extending movs for positive 32-bit immediate values, saving 4-5 bytes per immediate load.
 
 ## v0.5.7 milestones (complete)
 
