@@ -1,0 +1,525 @@
+//! Flake IR Optimization Passes.
+//!
+//! Includes:
+//! 1. Constant folding and propagation for single-assignment locals.
+//! 2. Unreachable basic block elimination.
+//! 3. Dead pure instruction elimination.
+//! 4. Copy propagation for immutable locals.
+
+use std::collections::{HashMap, HashSet, VecDeque};
+
+use crate::ir::{BasicBlock, BinOp, BlockId, Callee, Const, Function, Inst, LocalId, Module, UnOp};
+
+/// Run all IR optimization passes on the module.
+pub fn optimize(module: &mut Module) {
+    for func in &mut module.functions {
+        optimize_function(func);
+    }
+}
+
+/// Optimize a single function to a fixed point.
+pub fn optimize_function(func: &mut Function) {
+    for _ in 0..5 {
+        let changed = run_optimization_round(func);
+        if !changed {
+            break;
+        }
+    }
+}
+
+fn run_optimization_round(func: &mut Function) -> bool {
+    let mut changed = false;
+    changed |= fold_constants_and_propagate(func);
+    changed |= eliminate_unreachable_blocks(func);
+    changed |= propagate_moves(func);
+    changed |= eliminate_dead_instructions(func);
+    changed
+}
+
+fn count_defs(func: &Function) -> HashMap<LocalId, usize> {
+    let mut defs = HashMap::new();
+    for param in &func.params {
+        *defs.entry(*param).or_insert(0) += 1;
+    }
+    for block in &func.blocks {
+        for inst in &block.insts {
+            match inst {
+                Inst::LoadConst { dest, .. }
+                | Inst::LoadFunction { dest, .. }
+                | Inst::Move { dest, .. }
+                | Inst::Binary { dest, .. }
+                | Inst::Unary { dest, .. }
+                | Inst::GetIndex { dest, .. }
+                | Inst::GetField { dest, .. }
+                | Inst::MakeList { dest, .. }
+                | Inst::MakeMap { dest, .. }
+                | Inst::MakeStruct { dest, .. }
+                | Inst::MakeRange { dest, .. }
+                | Inst::MakeIter { dest, .. }
+                | Inst::Concat { dest, .. }
+                | Inst::Spawn { dest, .. }
+                | Inst::Await { dest, .. } => {
+                    *defs.entry(*dest).or_insert(0) += 1;
+                }
+                Inst::Call { dest: Some(d), .. } => {
+                    *defs.entry(*d).or_insert(0) += 1;
+                }
+                Inst::IterNext { value, more, .. } => {
+                    *defs.entry(*value).or_insert(0) += 1;
+                    *defs.entry(*more).or_insert(0) += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    defs
+}
+
+/// 1. Constant folding & branch simplification for single-assignment locals.
+fn fold_constants_and_propagate(func: &mut Function) -> bool {
+    let defs = count_defs(func);
+    let mut constants: HashMap<LocalId, Const> = HashMap::new();
+    let mut changed = false;
+
+    for block in &mut func.blocks {
+        for inst in &mut block.insts {
+            match *inst {
+                Inst::LoadConst { dest, ref value } => {
+                    if defs.get(&dest) == Some(&1) {
+                        constants.insert(dest, value.clone());
+                    }
+                }
+                Inst::Move { dest, src } => {
+                    if defs.get(&dest) == Some(&1) {
+                        if let Some(c) = constants.get(&src) {
+                            constants.insert(dest, c.clone());
+                        }
+                    }
+                }
+                Inst::Unary { dest, op, src } => {
+                    if let Some(c) = constants.get(&src) {
+                        if let Some(folded) = fold_unary(op, c) {
+                            *inst = Inst::LoadConst {
+                                dest,
+                                value: folded.clone(),
+                            };
+                            if defs.get(&dest) == Some(&1) {
+                                constants.insert(dest, folded);
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+                Inst::Binary {
+                    dest,
+                    op,
+                    lhs,
+                    rhs,
+                } => {
+                    if let (Some(l), Some(r)) = (constants.get(&lhs), constants.get(&rhs)) {
+                        if let Some(folded) = fold_binary(op, l, r) {
+                            *inst = Inst::LoadConst {
+                                dest,
+                                value: folded.clone(),
+                            };
+                            if defs.get(&dest) == Some(&1) {
+                                constants.insert(dest, folded);
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+                Inst::Branch {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
+                    if let Some(Const::Bool(b)) = constants.get(&cond) {
+                        let target = if *b { then_block } else { else_block };
+                        *inst = Inst::Jump { target };
+                        changed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    changed
+}
+
+fn fold_unary(op: UnOp, c: &Const) -> Option<Const> {
+    match (op, c) {
+        (UnOp::Neg, Const::Int(n)) => n.checked_neg().map(Const::Int),
+        (UnOp::Neg, Const::Float(f)) => Some(Const::Float(-f)),
+        (UnOp::Not, Const::Bool(b)) => Some(Const::Bool(!b)),
+        _ => None,
+    }
+}
+
+fn fold_binary(op: BinOp, l: &Const, r: &Const) -> Option<Const> {
+    match (op, l, r) {
+        // Int arithmetic with runtime overflow safety
+        (BinOp::Add, Const::Int(a), Const::Int(b)) => a.checked_add(*b).map(Const::Int),
+        (BinOp::Sub, Const::Int(a), Const::Int(b)) => a.checked_sub(*b).map(Const::Int),
+        (BinOp::Mul, Const::Int(a), Const::Int(b)) => a.checked_mul(*b).map(Const::Int),
+        (BinOp::Div, Const::Int(a), Const::Int(b)) => a.checked_div(*b).map(Const::Int),
+        (BinOp::Rem, Const::Int(a), Const::Int(b)) => a.checked_rem(*b).map(Const::Int),
+
+        // Int comparisons
+        (BinOp::Eq, Const::Int(a), Const::Int(b)) => Some(Const::Bool(a == b)),
+        (BinOp::Ne, Const::Int(a), Const::Int(b)) => Some(Const::Bool(a != b)),
+        (BinOp::Lt, Const::Int(a), Const::Int(b)) => Some(Const::Bool(a < b)),
+        (BinOp::Le, Const::Int(a), Const::Int(b)) => Some(Const::Bool(a <= b)),
+        (BinOp::Gt, Const::Int(a), Const::Int(b)) => Some(Const::Bool(a > b)),
+        (BinOp::Ge, Const::Int(a), Const::Int(b)) => Some(Const::Bool(a >= b)),
+
+        // Float arithmetic
+        (BinOp::Add, Const::Float(a), Const::Float(b)) => Some(Const::Float(a + b)),
+        (BinOp::Sub, Const::Float(a), Const::Float(b)) => Some(Const::Float(a - b)),
+        (BinOp::Mul, Const::Float(a), Const::Float(b)) => Some(Const::Float(a * b)),
+        (BinOp::Div, Const::Float(a), Const::Float(b)) if *b != 0.0 => Some(Const::Float(a / b)),
+
+        // Float comparisons
+        (BinOp::Eq, Const::Float(a), Const::Float(b)) => Some(Const::Bool(a == b)),
+        (BinOp::Ne, Const::Float(a), Const::Float(b)) => Some(Const::Bool(a != b)),
+        (BinOp::Lt, Const::Float(a), Const::Float(b)) => Some(Const::Bool(a < b)),
+        (BinOp::Le, Const::Float(a), Const::Float(b)) => Some(Const::Bool(a <= b)),
+        (BinOp::Gt, Const::Float(a), Const::Float(b)) => Some(Const::Bool(a > b)),
+        (BinOp::Ge, Const::Float(a), Const::Float(b)) => Some(Const::Bool(a >= b)),
+
+        // Bool logic
+        (BinOp::And, Const::Bool(a), Const::Bool(b)) => Some(Const::Bool(*a && *b)),
+        (BinOp::Or, Const::Bool(a), Const::Bool(b)) => Some(Const::Bool(*a || *b)),
+        (BinOp::Eq, Const::Bool(a), Const::Bool(b)) => Some(Const::Bool(a == b)),
+        (BinOp::Ne, Const::Bool(a), Const::Bool(b)) => Some(Const::Bool(a != b)),
+
+        // String operations
+        (BinOp::Add, Const::String(a), Const::String(b)) => Some(Const::String(format!("{a}{b}"))),
+        (BinOp::Eq, Const::String(a), Const::String(b)) => Some(Const::Bool(a == b)),
+        (BinOp::Ne, Const::String(a), Const::String(b)) => Some(Const::Bool(a != b)),
+
+        // Nil equality
+        (BinOp::Eq, Const::Nil, Const::Nil) => Some(Const::Bool(true)),
+        (BinOp::Ne, Const::Nil, Const::Nil) => Some(Const::Bool(false)),
+
+        _ => None,
+    }
+}
+
+/// 2. Eliminate unreachable basic blocks.
+fn eliminate_unreachable_blocks(func: &mut Function) -> bool {
+    let mut reachable = HashSet::new();
+    let mut queue = VecDeque::new();
+
+    reachable.insert(func.entry);
+    queue.push_back(func.entry);
+
+    let block_map: HashMap<BlockId, &BasicBlock> = func.blocks.iter().map(|b| (b.id, b)).collect();
+
+    while let Some(bid) = queue.pop_front() {
+        if let Some(b) = block_map.get(&bid) {
+            for inst in &b.insts {
+                match inst {
+                    Inst::Jump { target } => {
+                        if reachable.insert(*target) {
+                            queue.push_back(*target);
+                        }
+                    }
+                    Inst::Branch {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
+                        if reachable.insert(*then_block) {
+                            queue.push_back(*then_block);
+                        }
+                        if reachable.insert(*else_block) {
+                            queue.push_back(*else_block);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let original_len = func.blocks.len();
+    func.blocks.retain(|b| reachable.contains(&b.id));
+    func.blocks.len() != original_len
+}
+
+/// 3. Propagate simple local copies (%d = %s) for single-assignment locals.
+fn propagate_moves(func: &mut Function) -> bool {
+    let defs = count_defs(func);
+    let mut changed = false;
+    for block in &mut func.blocks {
+        let mut copies: HashMap<LocalId, LocalId> = HashMap::new();
+        for inst in &mut block.insts {
+            // Apply known copies to uses
+            changed |= replace_uses(inst, &copies);
+
+            if let Inst::Move { dest, src } = inst {
+                if dest != src && defs.get(dest) == Some(&1) && defs.get(src) == Some(&1) {
+                    let actual_src = copies.get(src).copied().unwrap_or(*src);
+                    copies.insert(*dest, actual_src);
+                }
+            }
+        }
+    }
+    changed
+}
+
+fn replace_uses(inst: &mut Inst, copies: &HashMap<LocalId, LocalId>) -> bool {
+    let mut changed = false;
+    let mut resolve = |l: &mut LocalId| {
+        if let Some(target) = copies.get(l) {
+            if l != target {
+                *l = *target;
+                changed = true;
+            }
+        }
+    };
+
+    match inst {
+        Inst::Move { src, .. } => resolve(src),
+        Inst::Binary { lhs, rhs, .. } => {
+            resolve(lhs);
+            resolve(rhs);
+        }
+        Inst::Unary { src, .. } => resolve(src),
+        Inst::Call { callee, args, .. } => {
+            if let Callee::Local(id) = callee {
+                resolve(id);
+            }
+            for a in args {
+                resolve(a);
+            }
+        }
+        Inst::Spawn { callee, args, .. } => {
+            if let Callee::Local(id) = callee {
+                resolve(id);
+            }
+            for a in args {
+                resolve(a);
+            }
+        }
+        Inst::Await { task, .. } => resolve(task),
+        Inst::GetIndex { obj, index, .. } => {
+            resolve(obj);
+            resolve(index);
+        }
+        Inst::SetIndex { obj, index, value } => {
+            resolve(obj);
+            resolve(index);
+            resolve(value);
+        }
+        Inst::GetField { obj, .. } => resolve(obj),
+        Inst::SetField { obj, value, .. } => {
+            resolve(obj);
+            resolve(value);
+        }
+        Inst::MakeList { items, .. } => {
+            for i in items {
+                resolve(i);
+            }
+        }
+        Inst::MakeMap { keys, values, .. } => {
+            for k in keys {
+                resolve(k);
+            }
+            for v in values {
+                resolve(v);
+            }
+        }
+        Inst::MakeStruct { fields, .. } => {
+            for (_, v) in fields {
+                resolve(v);
+            }
+        }
+        Inst::MakeRange { start, end, .. } => {
+            resolve(start);
+            resolve(end);
+        }
+        Inst::MakeIter { src, .. } => resolve(src),
+        Inst::IterNext { iter, .. } => resolve(iter),
+        Inst::Concat { parts, .. } => {
+            for p in parts {
+                resolve(p);
+            }
+        }
+        Inst::Branch { cond, .. } => {
+            resolve(cond);
+        }
+        Inst::Return { value: Some(v) } => {
+            resolve(v);
+        }
+        _ => {}
+    }
+    changed
+}
+
+/// 4. Eliminate dead pure instructions whose results are never read.
+fn eliminate_dead_instructions(func: &mut Function) -> bool {
+    let defs = count_defs(func);
+    let mut used_locals = HashSet::new();
+
+    // Count all uses
+    for block in &func.blocks {
+        for inst in &block.insts {
+            collect_uses(inst, &mut used_locals);
+        }
+    }
+
+    let mut changed = false;
+    for block in &mut func.blocks {
+        let original_len = block.insts.len();
+        block.insts.retain(|inst| {
+            if let Some(dest) = pure_dest(inst) {
+                if defs.get(&dest) == Some(&1) && !used_locals.contains(&dest) {
+                    return false;
+                }
+            }
+            true
+        });
+        if block.insts.len() != original_len {
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn pure_dest(inst: &Inst) -> Option<LocalId> {
+    match inst {
+        Inst::LoadConst { dest, .. }
+        | Inst::LoadFunction { dest, .. }
+        | Inst::Move { dest, .. }
+        | Inst::Binary { dest, .. }
+        | Inst::Unary { dest, .. } => Some(*dest),
+        _ => None,
+    }
+}
+
+fn collect_uses(inst: &Inst, uses: &mut HashSet<LocalId>) {
+    match inst {
+        Inst::Move { src, .. } | Inst::Unary { src, .. } | Inst::MakeIter { src, .. } => {
+            uses.insert(*src);
+        }
+        Inst::Binary { lhs, rhs, .. } => {
+            uses.insert(*lhs);
+            uses.insert(*rhs);
+        }
+        Inst::Call { callee, args, .. } | Inst::Spawn { callee, args, .. } => {
+            if let Callee::Local(id) = callee {
+                uses.insert(*id);
+            }
+            for a in args {
+                uses.insert(*a);
+            }
+        }
+        Inst::Await { task, .. } => {
+            uses.insert(*task);
+        }
+        Inst::GetIndex { obj, index, .. } => {
+            uses.insert(*obj);
+            uses.insert(*index);
+        }
+        Inst::SetIndex { obj, index, value } => {
+            uses.insert(*obj);
+            uses.insert(*index);
+            uses.insert(*value);
+        }
+        Inst::GetField { obj, .. } => {
+            uses.insert(*obj);
+        }
+        Inst::SetField { obj, value, .. } => {
+            uses.insert(*obj);
+            uses.insert(*value);
+        }
+        Inst::MakeList { items, .. } => {
+            for i in items {
+                uses.insert(*i);
+            }
+        }
+        Inst::MakeMap { keys, values, .. } => {
+            for k in keys {
+                uses.insert(*k);
+            }
+            for v in values {
+                uses.insert(*v);
+            }
+        }
+        Inst::MakeStruct { fields, .. } => {
+            for (_, v) in fields {
+                uses.insert(*v);
+            }
+        }
+        Inst::MakeRange { start, end, .. } => {
+            uses.insert(*start);
+            uses.insert(*end);
+        }
+        Inst::IterNext { iter, .. } => {
+            uses.insert(*iter);
+        }
+        Inst::Concat { parts, .. } => {
+            for p in parts {
+                uses.insert(*p);
+            }
+        }
+        Inst::Branch { cond, .. } => {
+            uses.insert(*cond);
+        }
+        Inst::Return { value: Some(v) } => {
+            uses.insert(*v);
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::Local;
+    use crate::ty::IrType;
+
+    #[test]
+    fn folds_constant_arithmetic() {
+        let mut func = Function {
+            name: "main".into(),
+            params: vec![],
+            ret: IrType::Int,
+            effects: vec![],
+            effects_specified: false,
+            strict: false,
+            owned: false,
+            locals: vec![
+                Local { id: LocalId(0), name: None, ty: IrType::Int },
+                Local { id: LocalId(1), name: None, ty: IrType::Int },
+                Local { id: LocalId(2), name: None, ty: IrType::Int },
+            ],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                insts: vec![
+                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(10) },
+                    Inst::LoadConst { dest: LocalId(1), value: Const::Int(20) },
+                    Inst::Binary { dest: LocalId(2), op: BinOp::Add, lhs: LocalId(0), rhs: LocalId(1) },
+                    Inst::Return { value: Some(LocalId(2)) },
+                ],
+            }],
+            entry: BlockId(0),
+        };
+
+        optimize_function(&mut func);
+
+        let return_inst = &func.blocks[0].insts.last().unwrap();
+        assert!(matches!(return_inst, Inst::Return { value: Some(LocalId(2)) }));
+
+        let const_inst = &func.blocks[0].insts[0];
+        assert_eq!(
+            const_inst,
+            &Inst::LoadConst {
+                dest: LocalId(2),
+                value: Const::Int(30),
+            }
+        );
+    }
+}

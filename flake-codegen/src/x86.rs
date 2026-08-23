@@ -102,6 +102,9 @@ impl Asm {
     }
 
     pub fn mov_rr(&mut self, dst: Reg, src: Reg) {
+        if dst == src {
+            return;
+        }
         // mov dst, src  (89 /r)  dst = r/m, src = reg
         self.rex_wr(src, dst);
         self.bytes.push(0x89);

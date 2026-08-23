@@ -138,14 +138,16 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
             );
         }
     }
-    lower_program_with(
+    let mut module = lower_program_with(
         name,
         program,
         &names,
         &fn_rets,
         &enums_of(program),
         &structs_of(program),
-    )
+    );
+    crate::opt::optimize(&mut module);
+    module
 }
 
 pub fn lower_graph(graph: &ModuleGraph) -> Module {
@@ -168,11 +170,13 @@ pub fn lower_graph(graph: &ModuleGraph) -> Module {
         structs.extend(part.structs);
         functions.extend(part.functions);
     }
-    Module {
+    let mut module = Module {
         name: graph.entry().name.clone(),
         functions,
         structs,
-    }
+    };
+    crate::opt::optimize(&mut module);
+    module
 }
 
 #[derive(Clone)]

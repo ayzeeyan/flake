@@ -55,7 +55,7 @@ pub struct BasicBlock {
     pub insts: Vec<Inst>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Callee {
     Static(String),
     Local(LocalId),
@@ -93,7 +93,7 @@ pub enum Const {
     String(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Inst {
     LoadConst {
         dest: LocalId,

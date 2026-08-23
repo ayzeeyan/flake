@@ -10,8 +10,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Strengthened concurrency (conc effect improvements) | **done** |
 | 2 | Package manager foundations (local packages + manifests) | **done** |
-| 3 | IR and native backend optimizations | in progress |
-| 4 | Integration, examples and expanded testing | planned |
+| 3 | IR and native backend optimizations | **done** |
+| 4 | Integration, examples and expanded testing | in progress |
 | 5 | Flake v0.5.6 complete | planned |
 
 ## What v0.5.6 milestone 1 delivers
@@ -33,6 +33,22 @@ There is no LLVM, Cranelift, or C transpilation.
     - `flake new <path>`: creates a new package project structure with `flake.toml` and entry file.
     - `flake run`, `flake check`, `flake build`, `flake ir`: automatic discovery and execution of `flake.toml` root packages or targeted package directories.
   - Integration tests in `flake-parser` and `flake-cli` verifying multi-package resolution.
+
+## What v0.5.6 milestone 3 delivers
+
+- Comprehensive IR optimization passes and Native code generation improvements:
+  - **Constant Folding & Propagation (`flake-ir::opt`)**:
+    - Evaluates constant integer, float, boolean, string arithmetic and comparisons at compile time with checked overflow safety.
+    - Simplifies constant condition branches to unconditional jumps.
+    - Propagates single-assignment constants across basic blocks.
+  - **Dead Code & Block Elimination**:
+    - Prunes unreachable basic blocks via CFG reachability analysis from function entries.
+    - Eliminates unused pure instructions (`LoadConst`, `Unary`, `Binary`, `Move`, `LoadFunction`).
+  - **Copy Propagation**:
+    - Eliminates redundant local copies (`%dest = %src`) for immutable variables.
+  - **Native x86-64 Assembler Peephole Optimizations**:
+    - Redundant self-move elimination (`mov reg, reg` skipped).
+  - All optimizations preserve runtime error contracts and full concurrency semantics across all 3 execution engines.
 
 ## v0.5.5 milestones (complete)
 

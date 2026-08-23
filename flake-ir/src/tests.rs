@@ -278,6 +278,25 @@ fn describe_list(xs: [Int]) -> Int {
 }
 
 #[test]
+fn ir_constant_folding_and_dce_optimizations() {
+    let dump = ir(r#"
+fn compute() -> Int {
+    let x = 10 + 20 * 2
+    let dead = 999
+    if 2 > 1 {
+        x + 2
+    } else {
+        100
+    }
+}
+"#);
+    // 10 + 40 + 2 = 52
+    assert!(dump.contains("const 52"), "{dump}");
+    assert!(!dump.contains("const 999"), "dead code was not eliminated: {dump}");
+    assert!(!dump.contains("100"), "unreachable else block was not eliminated: {dump}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
