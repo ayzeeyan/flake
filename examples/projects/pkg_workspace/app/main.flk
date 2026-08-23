@@ -1,0 +1,8 @@
+import core_lib
+import core_lib.service
+
+fn main() / io {
+    print(core_lib.format_greeting("Flake User"))
+    print(core_lib.add_numbers(100, 200))
+    print(service.compute_metrics(10, 5))
+}

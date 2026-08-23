@@ -24,6 +24,7 @@ const EXAMPLES: &[&str] = &[
     "projects/pipeline/main.flk",
     "projects/analytics/main.flk",
     "projects/query_engine/main.flk",
+    "projects/pkg_workspace/app/main.flk",
 ];
 
 fn flake_bin() -> Command {
@@ -254,6 +255,18 @@ fn analytics_project_output() {
             "[network] dns_lookup: 15\n",
             "=== System & Network Metrics ===\n",
             "Samples: 5 | Total: 285 | Min: 15 | Max: 120 | Avg: 57\n",
+        )
+    );
+}
+
+#[test]
+fn pkg_workspace_project_output() {
+    assert_eq!(
+        run_example("projects/pkg_workspace/app/main.flk"),
+        concat!(
+            "Hello, Flake User from core_lib!\n",
+            "300\n",
+            "92\n",
         )
     );
 }

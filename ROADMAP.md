@@ -11,8 +11,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Strengthened concurrency (conc effect improvements) | **done** |
 | 2 | Package manager foundations (local packages + manifests) | **done** |
 | 3 | IR and native backend optimizations | **done** |
-| 4 | Integration, examples and expanded testing | in progress |
-| 5 | Flake v0.5.6 complete | planned |
+| 4 | Integration, examples and expanded testing | **done** |
+| 5 | Flake v0.5.6 complete | in progress |
 
 ## What v0.5.6 milestone 1 delivers
 
@@ -49,6 +49,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - **Native x86-64 Assembler Peephole Optimizations**:
     - Redundant self-move elimination (`mov reg, reg` skipped).
   - All optimizations preserve runtime error contracts and full concurrency semantics across all 3 execution engines.
+
+## What v0.5.6 milestone 4 delivers
+
+- Multi-package project workspace example and expanded end-to-end testing:
+  - Added `examples/projects/pkg_workspace` containing multiple interoperating local packages (`core_lib` with nested submodules and `app` manifest consumer).
+  - Expanded `examples.rs` integration suite verifying typechecking and runtime parity on all 3 backends (Interpreter, Bytecode VM, and Native x86-64 executable emission).
+  - Validated 100% backend parity across entire consistency test matrix.
 
 ## v0.5.5 milestones (complete)
 

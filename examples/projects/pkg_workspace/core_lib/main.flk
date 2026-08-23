@@ -1,0 +1,7 @@
+pub fn format_greeting(name: String) -> String {
+    "Hello, " + name + " from core_lib!"
+}
+
+pub fn add_numbers(a: Int, b: Int) -> Int {
+    a + b
+}

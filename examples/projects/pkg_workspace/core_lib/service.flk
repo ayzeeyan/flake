@@ -1,0 +1,3 @@
+pub fn compute_metrics(base: Int, factor: Int) -> Int {
+    base * factor + 42
+}
