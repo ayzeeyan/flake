@@ -6,7 +6,7 @@ use flake_ast::{
     AssignOp, BinOp as AstBin, Block as AstBlock, Expr, FnDecl, InterpPart, Item, Literal, Program,
     Source, Stmt, TypeExpr, UnOp as AstUn,
 };
-use flake_parser::{ModuleGraph, import_alias, is_exported, load_graph, qualify};
+use flake_parser::{ModuleGraph, import_alias, load_graph, qualify};
 
 use crate::error::IrError;
 use crate::ir::{
@@ -204,6 +204,9 @@ impl Names {
     }
 
     fn field_global(&self, alias: &str, field: &str) -> Option<String> {
+        if let Some(q) = self.imported_fns.get(&format!("{alias}.{field}")) {
+            return Some(q.clone());
+        }
         let module = self.imports.get(alias)?;
         if let Some(exports) = self.exported.get(alias) {
             if !exports.contains(field) {
@@ -288,17 +291,20 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
             if let Some(imported) = graph.imported(module, import) {
                 let module_name = imported.name.clone();
                 imports.insert(alias.clone(), module_name.clone());
-                for item in &imported.program.items {
-                    if !is_exported(item, &imported.program) {
-                        continue;
-                    }
+                for (item, origin) in graph.exported_items(imported) {
+                    let origin_name = origin.name.clone();
                     if let Item::Fn(func) = item {
+                        let canonical = qualify(&origin_name, &func.name.name);
                         if graph.unqualified_import_is_unambiguous(module, &func.name.name) {
                             imported_fns.insert(
                                 func.name.name.clone(),
-                                qualify(&module_name, &func.name.name),
+                                canonical.clone(),
                             );
                         }
+                        imported_fns.insert(
+                            format!("{alias}.{}", func.name.name),
+                            canonical,
+                        );
                         exported
                             .get_mut(&alias)
                             .unwrap()
@@ -310,8 +316,10 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
                         _ => None,
                     };
                     if let Some(name) = imported_type {
+                        imported_types.insert(format!("{alias}.{name}"), qualify(&origin_name, name));
+                        imported_types.insert(qualify(&origin_name, name), qualify(&origin_name, name));
                         if graph.unqualified_import_is_unambiguous(module, name) {
-                            imported_types.insert(name.clone(), qualify(&module_name, name));
+                            imported_types.insert(name.clone(), qualify(&origin_name, name));
                         }
                     }
                 }
@@ -425,23 +433,20 @@ fn structs_for(
         if let Item::Import(import) = item {
             if let Some(imported) = graph.imported(module, import) {
                 let alias = import_alias(import);
-                for item in &imported.program.items {
-                    if !is_exported(item, &imported.program) {
-                        continue;
-                    }
+                for (item, origin) in graph.exported_items(imported) {
                     if let Item::Struct(st) = item {
                         let fields: Vec<_> = st
                             .fields
                             .iter()
                             .map(|f| {
                                 (
-                                    f.name.name.clone(),
-                                    names.resolve_type(lower_type(Some(&f.ty))),
+                                     f.name.name.clone(),
+                                     names.resolve_type(lower_type(Some(&f.ty))),
                                 )
                             })
                             .collect();
                         structs.insert(format!("{alias}.{}", st.name.name), fields.clone());
-                        structs.insert(qualify(&imported.name, &st.name.name), fields.clone());
+                        structs.insert(qualify(&origin.name, &st.name.name), fields.clone());
                         if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
                             structs.insert(st.name.name.clone(), fields);
                         }
@@ -490,10 +495,7 @@ fn enums_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, names: &N
         if let Item::Import(import) = item {
             if let Some(imported) = graph.imported(module, import) {
                 let alias = import_alias(import);
-                for item in &imported.program.items {
-                    if !is_exported(item, &imported.program) {
-                        continue;
-                    }
+                for (item, origin) in graph.exported_items(imported) {
                     if let Item::Enum(en) = item {
                         let variants: EnumVariants = en
                             .variants
@@ -509,7 +511,7 @@ fn enums_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, names: &N
                             })
                             .collect();
                         enums.insert(format!("{alias}.{}", en.name.name), variants.clone());
-                        enums.insert(qualify(&imported.name, &en.name.name), variants.clone());
+                        enums.insert(qualify(&origin.name, &en.name.name), variants.clone());
                         if graph.unqualified_import_is_unambiguous(module, &en.name.name) {
                             enums.insert(en.name.name.clone(), variants);
                         }

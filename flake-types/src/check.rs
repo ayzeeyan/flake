@@ -6,7 +6,7 @@ use flake_ast::{
     AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, Source, Span, Stmt,
     TypeExpr, UnOp,
 };
-use flake_parser::{ModuleGraph, import_alias, is_exported, load_graph};
+use flake_parser::{ModuleGraph, import_alias, load_graph};
 
 use crate::effects::{Effect, EffectSet};
 use crate::error::{CheckError, TypeError};
@@ -348,14 +348,11 @@ impl Checker {
 
             // Predeclare nominal types from every import before lowering any
             // public signature. Import order must not affect name resolution.
-            for item in &imported.program.items {
-                if !is_exported(item, &imported.program) {
-                    continue;
-                }
+            for (item, origin) in graph.exported_items(imported) {
                 match item {
                     Item::Struct(st) => {
                         let ty = Type::Struct {
-                            name: flake_parser::qualify(&imported.name, &st.name.name),
+                            name: flake_parser::qualify(&origin.name, &st.name.name),
                             fields: Vec::new(),
                         };
                         self.structs
@@ -366,7 +363,7 @@ impl Checker {
                     }
                     Item::Enum(en) => {
                         let ty = Type::Enum {
-                            name: flake_parser::qualify(&imported.name, &en.name.name),
+                            name: flake_parser::qualify(&origin.name, &en.name.name),
                             variants: Vec::new(),
                         };
                         self.enums
@@ -383,10 +380,7 @@ impl Checker {
         let mut module_members: HashMap<String, Vec<(String, Type)>> = HashMap::new();
         for (alias, imported) in &resolved_imports {
             self.type_context = Some(alias.clone());
-            for item in &imported.program.items {
-                if !is_exported(item, &imported.program) {
-                    continue;
-                }
+            for (item, origin) in graph.exported_items(imported) {
                 match item {
                     Item::Type(alias_item) => {
                         let ty = self.lower_type(&alias_item.ty)?;
@@ -403,7 +397,7 @@ impl Checker {
                             .map(|field| Ok((field.name.name.clone(), self.lower_type(&field.ty)?)))
                             .collect::<Result<Vec<_>, TypeError>>()?;
                         let ty = Type::Struct {
-                            name: flake_parser::qualify(&imported.name, &st.name.name),
+                            name: flake_parser::qualify(&origin.name, &st.name.name),
                             fields,
                         };
                         self.structs
@@ -430,7 +424,7 @@ impl Checker {
                             })
                             .collect::<Result<Vec<_>, TypeError>>()?;
                         let ty = Type::Enum {
-                            name: flake_parser::qualify(&imported.name, &en.name.name),
+                            name: flake_parser::qualify(&origin.name, &en.name.name),
                             variants,
                         };
                         self.enums
@@ -450,13 +444,10 @@ impl Checker {
 
         for (alias, imported) in &resolved_imports {
             self.type_context = Some(alias.clone());
-            for item in &imported.program.items {
+            for (item, _origin) in graph.exported_items(imported) {
                 let Item::Fn(func) = item else {
                     continue;
                 };
-                if !is_exported(item, &imported.program) {
-                    continue;
-                }
                 let ty = self.lower_fn_type(func)?;
                 if graph.unqualified_import_is_unambiguous(module, &func.name.name)
                     && !self.functions.contains_key(&func.name.name)

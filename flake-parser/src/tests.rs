@@ -403,6 +403,21 @@ fn use_it() -> Result {
 }
 
 #[test]
+fn pub_import_parses() {
+    let program = parse_ok("pub import utils.math as m\npub import service");
+    assert_eq!(program.items.len(), 2);
+    let Item::Import(ref i1) = program.items[0] else { panic!("expected import"); };
+    assert!(i1.is_pub);
+    assert_eq!(i1.path.name, "utils.math");
+    assert_eq!(i1.alias.as_ref().map(|a| a.name.as_str()), Some("m"));
+
+    let Item::Import(ref i2) = program.items[1] else { panic!("expected import"); };
+    assert!(i2.is_pub);
+    assert_eq!(i2.path.name, "service");
+    assert_eq!(i2.alias, None);
+}
+
+#[test]
 fn repl_recognizes_enum_items() {
     let src = flake_ast::Source::new("<repl>", "enum Flag { On Off }");
     assert!(matches!(parse_repl(&src).unwrap(), ReplInput::Program(_)));

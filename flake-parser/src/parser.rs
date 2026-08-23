@@ -138,11 +138,11 @@ impl<'src> Parser<'src> {
         if matches!(self.kind(), TokenKind::Type) {
             return Ok(Item::Type(self.parse_type_alias(start, is_pub)?));
         }
-        if is_pub {
-            return Err(self.error("expected `fn`, `struct`, `enum`, or `type` after `pub`"));
-        }
         if matches!(self.kind(), TokenKind::Import) {
-            return Ok(Item::Import(self.parse_import()?));
+            return Ok(Item::Import(self.parse_import(start, is_pub)?));
+        }
+        if is_pub {
+            return Err(self.error("expected `fn`, `struct`, `enum`, `type`, or `import` after `pub`"));
         }
         Err(self.unexpected("top-level item (`fn`, `struct`, `enum`, `type`, or `import`)"))
     }
@@ -349,8 +349,7 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_import(&mut self) -> Result<ImportDecl, ParseError> {
-        let start = self.current().span;
+    fn parse_import(&mut self, start: Span, is_pub: bool) -> Result<ImportDecl, ParseError> {
         self.expect(&TokenKind::Import, "`import`")?;
         let path = self.parse_dotted_ident()?;
         let mut span = start.merge(path.span);
@@ -361,7 +360,12 @@ impl<'src> Parser<'src> {
         } else {
             None
         };
-        Ok(ImportDecl { path, alias, span })
+        Ok(ImportDecl {
+            is_pub,
+            path,
+            alias,
+            span,
+        })
     }
 
     fn parse_block(&mut self) -> Result<Block, ParseError> {

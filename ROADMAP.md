@@ -1,8 +1,26 @@
 # Flake Roadmap
 
-**Flake v0.5.6 is complete.** Theme: **Strengthen concurrency, introduce package foundations, and add real optimizations**.
+**Flake v0.5.7 development is in progress.** Theme: **Deeper packages, more mature concurrency, and further performance work**.
 
 There is no LLVM, Cranelift, or C transpilation.
+
+## v0.5.7 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Package system expansion | **done** |
+| 2 | Concurrency maturity improvements | in progress |
+| 3 | Further IR and native optimizations | planned |
+| 4 | Integration, examples and expanded testing | planned |
+| 5 | Flake v0.5.7 complete | planned |
+
+## What v0.5.7 milestone 1 delivers
+
+- Public re-exports and package system expansion:
+  - Added `pub import` (`pub import path as alias`) to Flake language grammar, AST, parser, and type checker.
+  - Implemented transitive re-export resolution in `ModuleGraph::exported_items`: package façade entrypoints can re-export submodules and functions.
+  - Enhanced `flake.toml` manifest support: `[workspace]` declaration (`members = [...]`), dependency package/version specification (`core = { path = "...", package = "..." }`), and improved syntax diagnostics.
+  - 100% parity across Interpreter, Bytecode VM, and Native x86-64 executable emission for re-exported package modules and functions.
 
 ## v0.5.6 milestones (complete)
 

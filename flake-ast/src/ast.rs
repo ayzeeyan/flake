@@ -39,7 +39,7 @@ impl Item {
             Self::Struct(s) => s.is_pub,
             Self::Enum(e) => e.is_pub,
             Self::Type(t) => t.is_pub,
-            Self::Import(_) => false,
+            Self::Import(i) => i.is_pub,
         }
     }
 }
@@ -132,6 +132,7 @@ pub struct TypeAlias {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportDecl {
+    pub is_pub: bool,
     pub path: Ident,
     pub alias: Option<Ident>,
     pub span: Span,

@@ -46,6 +46,36 @@ impl ModuleGraph {
         self.imports.get(&key).and_then(|name| self.get(name))
     }
 
+    /// Collect all exported items of a module, including transitive re-exports through `pub import`.
+    #[must_use]
+    pub fn exported_items<'a>(&'a self, module: &'a LoadedModule) -> Vec<(&'a Item, &'a LoadedModule)> {
+        let mut result = Vec::new();
+        let mut visited = HashSet::new();
+        self.collect_exported_items(module, &mut visited, &mut result);
+        result
+    }
+
+    fn collect_exported_items<'a>(
+        &'a self,
+        module: &'a LoadedModule,
+        visited: &mut HashSet<String>,
+        result: &mut Vec<(&'a Item, &'a LoadedModule)>,
+    ) {
+        if !visited.insert(module.name.clone()) {
+            return;
+        }
+        for item in &module.program.items {
+            if is_exported(item, &module.program) {
+                result.push((item, module));
+                if let Item::Import(pub_import) = item {
+                    if let Some(sub) = self.imported(module, pub_import) {
+                        self.collect_exported_items(sub, visited, result);
+                    }
+                }
+            }
+        }
+    }
+
     /// Whether an exported declaration can also be used as an unqualified
     /// name in `module`. Qualified `alias.name` access is always available.
     #[must_use]
@@ -66,13 +96,10 @@ impl ModuleGraph {
             })
             .filter_map(|import| {
                 let imported = self.imported(module, import)?;
-                imported
-                    .program
-                    .items
+                let exports = self.exported_items(imported);
+                exports
                     .iter()
-                    .any(|item| {
-                        is_exported(item, &imported.program) && item_name(item) == Some(export)
-                    })
+                    .any(|(item, _origin)| item_name(item) == Some(export))
                     .then(|| import_alias(import).to_string())
             })
             .collect()
@@ -91,10 +118,8 @@ impl ModuleGraph {
                 continue;
             };
             let alias = import_alias(import).to_string();
-            for item in &imported.program.items {
-                if !is_exported(item, &imported.program) {
-                    continue;
-                }
+            let exports = self.exported_items(imported);
+            for (item, _origin) in exports {
                 if let Some(name) = item_name(item) {
                     let aliases = owners.entry(name.to_string()).or_default();
                     if !aliases.contains(&alias) {
@@ -204,7 +229,7 @@ fn item_name(item: &Item) -> Option<&str> {
         Item::Struct(item) => Some(&item.name.name),
         Item::Enum(item) => Some(&item.name.name),
         Item::Type(item) => Some(&item.name.name),
-        Item::Import(_) => None,
+        Item::Import(item) => item.is_pub.then(|| import_alias(item)),
     }
 }
 
@@ -282,8 +307,18 @@ fn load_one(
     Ok(())
 }
 
+fn decl_name(item: &Item) -> Option<&str> {
+    match item {
+        Item::Fn(item) => Some(&item.name.name),
+        Item::Struct(item) => Some(&item.name.name),
+        Item::Enum(item) => Some(&item.name.name),
+        Item::Type(item) => Some(&item.name.name),
+        Item::Import(_) => None,
+    }
+}
+
 fn validate_import_bindings(source: &Source, program: &Program) -> Result<(), ResolveError> {
-    let declarations: HashSet<_> = program.items.iter().filter_map(item_name).collect();
+    let declarations: HashSet<_> = program.items.iter().filter_map(decl_name).collect();
     let mut aliases = HashSet::new();
     let mut paths = HashSet::new();
     for item in &program.items {

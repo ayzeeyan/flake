@@ -23,6 +23,7 @@ impl ManifestError {
 pub struct Manifest {
     pub package: PackageInfo,
     pub dependencies: HashMap<String, Dependency>,
+    pub workspace: Option<WorkspaceInfo>,
     pub path: PathBuf,
 }
 
@@ -36,11 +37,19 @@ pub struct PackageInfo {
     pub description: Option<String>,
 }
 
+/// Metadata declared in the `[workspace]` section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceInfo {
+    pub members: Vec<String>,
+}
+
 /// A dependency specification in `[dependencies]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dependency {
     pub name: String,
     pub path: PathBuf,
+    pub package: Option<String>,
+    pub version: Option<String>,
 }
 
 impl Manifest {
@@ -52,11 +61,12 @@ impl Manifest {
         let mut package_authors = Vec::new();
         let mut package_desc = None;
         let mut dependencies = HashMap::new();
+        let mut workspace_members = None;
 
         let mut current_section = "";
         let mut current_dep_table: Option<String> = None;
 
-        for line in content.lines() {
+        for (line_no, line) in content.lines().enumerate() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
@@ -70,6 +80,9 @@ impl Manifest {
                 } else if section == "dependencies" {
                     current_section = "dependencies";
                     current_dep_table = None;
+                } else if section == "workspace" {
+                    current_section = "workspace";
+                    current_dep_table = None;
                 } else if let Some(dep_name) = section.strip_prefix("dependencies.") {
                     current_section = "dep_table";
                     current_dep_table = Some(dep_name.trim().to_string());
@@ -81,7 +94,11 @@ impl Manifest {
             }
 
             let Some((key, val)) = line.split_once('=') else {
-                continue;
+                return Err(ManifestError::new(format!(
+                    "syntax error at line {}: expected `key = value` in {}",
+                    line_no + 1,
+                    manifest_path.display()
+                )));
             };
             let key = key.trim();
             let val = val.trim();
@@ -97,27 +114,39 @@ impl Manifest {
                     }
                     _ => {}
                 },
+                "workspace" => {
+                    if key == "members" {
+                        workspace_members = Some(parse_string_array(val));
+                    }
+                }
                 "dependencies" => {
-                    let dep_path = parse_dep_spec(val);
+                    let (dep_path, dep_pkg, dep_ver) = parse_dep_spec(val);
                     dependencies.insert(
                         key.to_string(),
                         Dependency {
                             name: key.to_string(),
                             path: PathBuf::from(dep_path),
+                            package: dep_pkg,
+                            version: dep_ver,
                         },
                     );
                 }
                 "dep_table" => {
                     if let Some(ref dep_name) = current_dep_table {
+                        let entry = dependencies
+                            .entry(dep_name.clone())
+                            .or_insert_with(|| Dependency {
+                                name: dep_name.clone(),
+                                path: PathBuf::new(),
+                                package: None,
+                                version: None,
+                            });
                         if key == "path" {
-                            let dep_path = unquote(val);
-                            dependencies.insert(
-                                dep_name.clone(),
-                                Dependency {
-                                    name: dep_name.clone(),
-                                    path: PathBuf::from(dep_path),
-                                },
-                            );
+                            entry.path = PathBuf::from(unquote(val));
+                        } else if key == "package" {
+                            entry.package = Some(unquote(val));
+                        } else if key == "version" {
+                            entry.version = Some(unquote(val));
                         }
                     }
                 }
@@ -125,12 +154,14 @@ impl Manifest {
             }
         }
 
-        let name = package_name.ok_or_else(|| {
-            ManifestError::new(format!(
-                "missing required field `name` in [package] section of {}",
-                manifest_path.display()
-            ))
-        })?;
+        let name = package_name.unwrap_or_else(|| {
+            manifest_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|f| f.to_str())
+                .unwrap_or("package")
+                .to_string()
+        });
 
         let version = package_version.unwrap_or_else(|| "0.1.0".to_string());
         let entry = package_entry.unwrap_or_else(|| PathBuf::from("main.flk"));
@@ -144,6 +175,7 @@ impl Manifest {
                 description: package_desc,
             },
             dependencies,
+            workspace: workspace_members.map(|members| WorkspaceInfo { members }),
             path: manifest_path.to_path_buf(),
         })
     }
@@ -210,19 +242,30 @@ fn parse_string_array(s: &str) -> Vec<String> {
         .collect()
 }
 
-fn parse_dep_spec(val: &str) -> String {
+fn parse_dep_spec(val: &str) -> (String, Option<String>, Option<String>) {
     let val = val.trim();
     if val.starts_with('{') && val.ends_with('}') {
         let inner = &val[1..val.len() - 1];
+        let mut path = String::new();
+        let mut package = None;
+        let mut version = None;
         for pair in inner.split(',') {
             if let Some((k, v)) = pair.split_once('=') {
-                if k.trim() == "path" {
-                    return unquote(v.trim());
+                let k = k.trim();
+                let v = unquote(v.trim());
+                if k == "path" {
+                    path = v;
+                } else if k == "package" {
+                    package = Some(v);
+                } else if k == "version" {
+                    version = Some(v);
                 }
             }
         }
+        (path, package, version)
+    } else {
+        (unquote(val), None, None)
     }
-    unquote(val)
 }
 
 #[cfg(test)]
@@ -239,9 +282,13 @@ entry = "src/main.flk"
 authors = ["Alice", "Bob"]
 description = "A Flake package"
 
+[workspace]
+members = ["pkg_a", "pkg_b"]
+
 [dependencies]
-math = { path = "../math_lib" }
+math = { path = "../math_lib", version = "0.5.0" }
 utils = "../utils_lib"
+core = { path = "../core_lib", package = "core_lib" }
 
 [dependencies.logger]
 path = "../logger"
@@ -255,15 +302,33 @@ path = "../logger"
             manifest.package.description.as_deref(),
             Some("A Flake package")
         );
+        assert_eq!(
+            manifest.workspace,
+            Some(WorkspaceInfo {
+                members: vec!["pkg_a".to_string(), "pkg_b".to_string()]
+            })
+        );
 
-        assert_eq!(manifest.dependencies.len(), 3);
+        assert_eq!(manifest.dependencies.len(), 4);
         assert_eq!(
             manifest.dependencies["math"].path,
             PathBuf::from("../math_lib")
         );
         assert_eq!(
+            manifest.dependencies["math"].version.as_deref(),
+            Some("0.5.0")
+        );
+        assert_eq!(
             manifest.dependencies["utils"].path,
             PathBuf::from("../utils_lib")
+        );
+        assert_eq!(
+            manifest.dependencies["core"].path,
+            PathBuf::from("../core_lib")
+        );
+        assert_eq!(
+            manifest.dependencies["core"].package.as_deref(),
+            Some("core_lib")
         );
         assert_eq!(
             manifest.dependencies["logger"].path,

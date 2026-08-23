@@ -337,3 +337,70 @@ fn package_new_and_run() {
     // Cleanup
     let _ = std::fs::remove_dir_all(&pkg_dir);
 }
+
+#[test]
+fn package_pub_reexport_and_workspace() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("flake-reexport-test-{nonce}"));
+    let lib_dir = root.join("core_lib");
+    let app_dir = root.join("app");
+
+    std::fs::create_dir_all(&lib_dir).expect("create lib dir");
+    std::fs::create_dir_all(&app_dir).expect("create app dir");
+
+    // Write core_lib/service.flk
+    std::fs::write(
+        lib_dir.join("service.flk"),
+        "pub fn calculate(x: Int, y: Int) -> Int { x * 10 + y }\n",
+    )
+    .expect("write service.flk");
+
+    // Write core_lib/main.flk with pub import
+    std::fs::write(
+        lib_dir.join("main.flk"),
+        "pub import service\npub fn greeting() -> String { \"hello from core\" }\n",
+    )
+    .expect("write core_lib main.flk");
+
+    // Write core_lib/flake.toml
+    std::fs::write(
+        lib_dir.join("flake.toml"),
+        "[package]\nname = \"core_lib\"\nversion = \"0.1.0\"\nentry = \"main.flk\"\n",
+    )
+    .expect("write core_lib flake.toml");
+
+    // Write app/flake.toml
+    std::fs::write(
+        app_dir.join("flake.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nentry = \"main.flk\"\n\n[dependencies]\ncore_lib = { path = \"../core_lib\" }\n",
+    )
+    .expect("write app flake.toml");
+
+    // Write app/main.flk calling re-exported service.calculate via core_lib
+    std::fs::write(
+        app_dir.join("main.flk"),
+        "import core_lib\nfn main() / io {\n    print(core_lib.greeting())\n    print(core_lib.calculate(4, 2))\n}\n",
+    )
+    .expect("write app main.flk");
+
+    // 1. Run tree interpreter
+    let out_interp = flake_bin().arg("run").arg(&app_dir).output().expect("run interp");
+    assert!(out_interp.status.success(), "interp err: {}", String::from_utf8_lossy(&out_interp.stderr));
+    assert_eq!(String::from_utf8_lossy(&out_interp.stdout), "hello from core\n42\n");
+
+    // 2. Run bytecode VM
+    let out_vm = flake_bin().arg("run").arg("--vm").arg(&app_dir).output().expect("run vm");
+    assert!(out_vm.status.success(), "vm err: {}", String::from_utf8_lossy(&out_vm.stderr));
+    assert_eq!(String::from_utf8_lossy(&out_vm.stdout), "hello from core\n42\n");
+
+    // 3. Run Native x86-64
+    let out_native = flake_bin().arg("run").arg("--native").arg(&app_dir).output().expect("run native");
+    assert!(out_native.status.success(), "native err: {}", String::from_utf8_lossy(&out_native.stderr));
+    assert_eq!(String::from_utf8_lossy(&out_native.stdout), "hello from core\n42\n");
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&root);
+}

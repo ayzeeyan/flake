@@ -251,14 +251,12 @@ impl<'io> Interpreter<'io> {
                             }
                         }
                     }
-                    for item in &imported.program.items {
+                    for (item, origin) in graph.exported_items(imported) {
                         if let Item::Struct(st) = item {
-                            if flake_parser::is_exported(item, &imported.program)
-                                && graph.unqualified_import_is_unambiguous(module, &st.name.name)
-                            {
+                            if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
                                 module_env.define_type(
                                     &st.name.name,
-                                    flake_parser::qualify(&imported.name, &st.name.name),
+                                    flake_parser::qualify(&origin.name, &st.name.name),
                                 );
                             }
                         }
@@ -269,10 +267,7 @@ impl<'io> Interpreter<'io> {
         let type_prefix = (module.name != graph.entry().name).then_some(module.name.as_str());
         Self::collect_items_in(&module_env, &module.program, type_prefix)?;
         let mut members = HashMap::new();
-        for item in &module.program.items {
-            if !flake_parser::is_exported(item, &module.program) {
-                continue;
-            }
+        for (item, _origin) in graph.exported_items(module) {
             match item {
                 Item::Fn(func) => {
                     if let Some(value) = module_env.get(&func.name.name) {
@@ -282,6 +277,12 @@ impl<'io> Interpreter<'io> {
                 Item::Enum(en) => {
                     if let Some(value) = module_env.get(&en.name.name) {
                         members.insert(en.name.name.clone(), value);
+                    }
+                }
+                Item::Import(imp) if imp.is_pub => {
+                    let alias = import_alias(imp);
+                    if let Some(value) = module_env.get(alias) {
+                        members.insert(alias.to_string(), value);
                     }
                 }
                 _ => {}
