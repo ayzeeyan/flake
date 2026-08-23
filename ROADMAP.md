@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**Flake v0.6 development is in progress.** Theme: **Make Flake feel like a real systems language**.
+**Flake v0.6 is complete.** Theme: **Make Flake feel like a real systems language**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
@@ -13,7 +13,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 3 | Stronger ownership and language improvements | **done** |
 | 4 | Advanced optimizations and native quality | **done** |
 | 5 | Integration, examples, testing and hardening | **done** |
-| 6 | Flake v0.6 complete | in progress |
+| 6 | Flake v0.6 complete | **done** |
 
 ## What v0.6 milestone 1 delivers
 
@@ -65,6 +65,16 @@ There is no LLVM, Cranelift, or C transpilation.
 - Full-matrix integration testing:
   - Added `nursery_output` and cross-backend execution verification for structured task group ordering and cancellation.
   - Validated package lockfile resolution, verification, and update across CLI subcommands.
+
+## What v0.6 milestone 6 delivers
+
+- Version bump across workspace:
+  - Updated workspace version in `Cargo.toml` to `0.6.0`.
+- Documentation & Release Notes:
+  - Authored comprehensive [v0.6.0 Release Notes](docs/release-notes-v0.6.md) detailing concurrency nurseries, deterministic lockfiles, structural borrow checking, and compiler optimizations.
+  - Updated `README.md`, `docs/concurrency.md`, `docs/packages.md`, and `docs/ownership.md`.
+- Final validation:
+  - 100% test passing across the entire workspace (`cargo test --workspace`) and zero warnings under strict clippy (`cargo clippy --workspace --all-targets -- -D warnings`).
 
 ## v0.5.7 milestones (complete)
 

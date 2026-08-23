@@ -51,11 +51,11 @@ between:
 
 ## Status
 
-**Flake v0.5.7 is complete.** Theme: **Deeper packages, more mature concurrency, and further performance work**.
-- **Package system expansion**: public re-exports (`pub import path as alias`), multi-package workspaces (`[workspace]`), dependency aliasing, and 100% backend parity for re-exported modules and functions.
-- **Mature concurrency**: task handles passed cleanly across intra-function boundaries (`fn join_both(t1: Task[Int], t2: Task[Int]) -> Int / conc`), strengthened task lifetimes, ownership move interactions, and typed `Result[T, E]` tasks.
-- **IR & Backend optimizations**: module-level function inlining pass (`inline_functions`) for small non-recursive leaf functions, instruction-level local remapping, and compact `xor reg, reg` zeroing on Native x86-64.
-- **Showcase projects**: added [`projects/service_hub`](examples/projects/service_hub) multi-package workspace demonstrating public re-exports, concurrent workers, and ADTs.
+**Flake v0.6.0 is complete.** Theme: **Make Flake feel like a real systems language**.
+- **Concurrency maturity**: lexical task nurseries (`nursery { ... }`), automatic sibling cancellation on failure, explicit cancellation primitives (`cancel(task)`, `is_cancelled(task)`), and consistent cancellation semantics across all three backends.
+- **Deterministic package management**: reproducible lockfiles (`flake.lock`) with pure-Rust FNV-1a checksums, plus CLI subcommands (`flake lock [--check]`, `flake update`) and automatic verification.
+- **Stronger ownership**: structural borrow conflict detection preventing moves of containers/aggregates with active field/element borrows, and branch-aware ownership tracking.
+- **Advanced compiler optimizations**: constructor projection constant propagation across structs and lists in `flake-ir`, CFG jump threading (`thread_jumps`), and 32-bit zero-extended immediate encoding on Native x86-64.
 - **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
 
 See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
@@ -63,7 +63,7 @@ for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.5.7 release notes](docs/release-notes-v0.5.7.md) for the complete
+See the [v0.6.0 release notes](docs/release-notes-v0.6.md) for the complete
 feature and compatibility summary.
 
 ## Build and run
@@ -152,6 +152,7 @@ fn add_two(result: Result) -> Result {
 | [examples/borrow.flk](examples/borrow.flk) | Borrows |
 | [examples/app.flk](examples/app.flk) | Native-ready mini program |
 | [examples/concurrency.flk](examples/concurrency.flk) | Scope-bound `spawn` / `await` tasks |
+| [examples/nursery.flk](examples/nursery.flk) | Lexical task nurseries and explicit cancellation |
 | [examples/data.flk](examples/data.flk) | Result `?`, scalar patterns, and typed maps |
 | [examples/task_pipeline.flk](examples/task_pipeline.flk) | Portable structured tasks, enums, scalar patterns, and maps |
 | [examples/projects/inventory/main.flk](examples/projects/inventory/main.flk) | Hierarchical imports, public enums, and qualified types |

@@ -43,7 +43,7 @@ Control flow is conservative where repetition is possible:
 - `match` arms are checked independently, and matching does not itself move the
   scrutinee.
 
-## Borrows
+## Borrows and Structural Borrow Checking
 
 `&x` borrows a value and `&mut x` borrows it exclusively.
 
@@ -54,6 +54,12 @@ Control flow is conservative where repetition is possible:
 - While a mutable borrow exists, no other borrow of the same value is allowed.
 - A borrowed value cannot be moved or assigned until the borrow ends.
 - `ref T` can be reused but not assigned through.
+
+### Structural borrow conflict detection
+
+Borrowing an interior field or element (`&p.field` or `&list[idx]`) tracks the root container binding. While an interior borrow is active:
+- The parent container cannot be moved (`cannot move \`p\` while it is borrowed`).
+- Conflicting mutable borrows to the same container are rejected.
 
 ```flake
 strict fn inspect(name: owned String) / io {
