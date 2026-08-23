@@ -334,6 +334,10 @@ fn print_expr(expr: &Expr, indent: usize, out: &mut String) {
             }
         }
         Expr::Block(b) => print_block(b, indent, out),
+        Expr::Nursery { body, .. } => {
+            out.push_str("nursery ");
+            print_block(body, indent, out);
+        }
         Expr::Match {
             scrutinee, arms, ..
         } => {

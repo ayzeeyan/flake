@@ -1076,7 +1076,7 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             else_block,
             ..
         } => lower_if(b, cond, then_block, else_block.as_deref()),
-        Expr::Block(block) => lower_block_value(b, block),
+        Expr::Block(block) | Expr::Nursery { body: block, .. } => lower_block_value(b, block),
         Expr::Match {
             scrutinee, arms, ..
         } => lower_match(b, scrutinee, arms),
@@ -1666,19 +1666,25 @@ fn is_native_name(name: &str) -> bool {
             | "entries"
             | "is_empty"
             | "has_key"
+            | "cancel"
+            | "is_cancelled"
     )
 }
 
 fn native_result_ty(name: &str) -> IrType {
     match name {
-        "print" | "push" | "assert" | "write_file" | "remove_file" => IrType::Nil,
+        "print" | "push" | "assert" | "write_file" | "remove_file" | "cancel" => IrType::Nil,
         "len" | "int" => IrType::Int,
         "str" | "join" | "type_of" | "read_file" | "trim" | "upper" | "lower" | "env" | "cwd" => {
             IrType::String
         }
-        "contains" | "starts_with" | "ends_with" | "file_exists" | "is_empty" | "has_key" => {
-            IrType::Bool
-        }
+        "contains"
+        | "starts_with"
+        | "ends_with"
+        | "file_exists"
+        | "is_empty"
+        | "has_key"
+        | "is_cancelled" => IrType::Bool,
         "range" => IrType::Range,
         "split" => IrType::List(Box::new(IrType::String)),
         "keys" | "values" => IrType::List(Box::new(IrType::Dyn)),

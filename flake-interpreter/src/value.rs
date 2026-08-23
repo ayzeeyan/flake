@@ -136,6 +136,8 @@ pub enum NativeFn {
     Entries,
     IsEmpty,
     HasKey,
+    Cancel,
+    IsCancelled,
 }
 
 impl NativeFn {
@@ -176,6 +178,8 @@ impl NativeFn {
             Self::Entries => "entries",
             Self::IsEmpty => "is_empty",
             Self::HasKey => "has_key",
+            Self::Cancel => "cancel",
+            Self::IsCancelled => "is_cancelled",
         }
     }
 }

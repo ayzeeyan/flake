@@ -1,8 +1,30 @@
 # Flake Roadmap
 
-**Flake v0.5.7 is complete.** Theme: **Deeper packages, more mature concurrency, and further performance work**.
+**Flake v0.6 development is in progress.** Theme: **Make Flake feel like a real systems language**.
 
 There is no LLVM, Cranelift, or C transpilation.
+
+## v0.6 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Concurrency maturity (task groups, cancellation, stronger model) | **done** |
+| 2 | Practical package system (resolution, lockfile foundations, re-exports) | in progress |
+| 3 | Stronger ownership and language improvements | planned |
+| 4 | Advanced optimizations and native quality | planned |
+| 5 | Integration, examples, testing and hardening | planned |
+| 6 | Flake v0.6 complete | planned |
+
+## What v0.6 milestone 1 delivers
+
+- Structured task nurseries & task groups:
+  - Added lexical `nursery { ... }` block expression to grammar, AST, lexer, parser, type checker, interpreter, VM (`Op::EnterNursery`/`Op::ExitNursery`), and IR lowering.
+  - Tasks spawned inside a nursery are registered to the nursery's scope and automatically awaited upon normal block completion in spawn order.
+  - Escaping task handles from nurseries is caught and prevented by type analysis (`contains_task`).
+  - Child failure or early exception immediately cancels remaining tasks in the nursery.
+- Task cancellation primitives:
+  - Added `cancel(task)` and `is_cancelled(task)` built-ins across all backends.
+  - Consistent error propagation: awaiting a cancelled task produces `"task was cancelled"` runtime error across Tree-walking Interpreter, Bytecode VM, and pure-Rust Native x86-64 executable backend.
 
 ## v0.5.7 milestones (complete)
 

@@ -427,6 +427,20 @@ fn main() / conc + panic { spawn fail() }
         &["child failure sentinel"],
     );
 
+    assert_all_backends_fail(
+        "await-cancelled-task",
+        r#"
+fn work() -> Int { 42 }
+fn main() / conc {
+    let t = spawn work()
+    cancel(t)
+    let _ = await t
+}
+"#,
+        false,
+        &["cancelled"],
+    );
+
     for (label, expression, marker) in [
         ("division-by-zero", "42 / 0", "division by zero"),
         (
@@ -873,6 +887,38 @@ fn main() / io + conc {
     let expected = "45\n";
     assert_all_backends("concurrency-task-passing", source, expected);
 }
+
+#[test]
+fn concurrency_nursery_and_cancellation() {
+    let source = r#"
+fn worker(n: Int) -> Int {
+    n * 10
+}
+
+fn main() / io + conc {
+    let res = nursery {
+        let t1 = spawn worker(3)
+        let t2 = spawn worker(4)
+        let a = await t1
+        let b = await t2
+        a + b
+    }
+    print(res)
+
+    let t3 = spawn worker(5)
+    print(is_cancelled(t3))
+    cancel(t3)
+    print(is_cancelled(t3))
+}
+"#;
+    let expected = concat!(
+        "70\n",
+        "false\n",
+        "true\n",
+    );
+    assert_all_backends("concurrency-nursery-cancellation", source, expected);
+}
+
 
 
 

@@ -8,7 +8,7 @@ use std::rc::Rc;
 use flake_ast::Span;
 
 use crate::error::VmError;
-use crate::value::{MapKey, Native, Value};
+use crate::value::{MapKey, Native, TaskState, Value};
 
 pub fn call_native(
     native: Native,
@@ -473,6 +473,35 @@ pub fn call_native(
                 other => Err(VmError::new(
                     span,
                     format!("has_key() expected Map, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::Cancel => {
+            expect_arity("cancel", args, 1)?;
+            match &args[0] {
+                Value::Task(task) => {
+                    let mut state = task.borrow_mut();
+                    if matches!(&*state, TaskState::Pending { .. } | TaskState::Ready(_)) {
+                        *state = TaskState::Cancelled;
+                    }
+                    Ok(Value::Nil)
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("cancel() expected Task, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::IsCancelled => {
+            expect_arity("is_cancelled", args, 1)?;
+            match &args[0] {
+                Value::Task(task) => {
+                    let cancelled = matches!(&*task.borrow(), TaskState::Cancelled);
+                    Ok(Value::Bool(cancelled))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("is_cancelled() expected Task, found {}", other.type_name()),
                 )),
             }
         }

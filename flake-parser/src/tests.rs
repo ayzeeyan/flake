@@ -424,6 +424,20 @@ fn repl_recognizes_enum_items() {
 }
 
 #[test]
+fn nursery_block_parses() {
+    let program = parse_ok("fn main() / conc { nursery { let t = spawn work() await t } }");
+    let Item::Fn(f) = &program.items[0] else { panic!("expected function"); };
+    assert_eq!(f.body.stmts.len(), 0);
+    let Some(Expr::Nursery { body, .. }) = f.body.tail.as_deref() else {
+        panic!("expected nursery expression");
+    };
+    assert_eq!(body.stmts.len(), 1);
+    assert!(body.tail.is_some());
+    let pretty = print_program(&program);
+    assert!(pretty.contains("nursery {"), "{pretty}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

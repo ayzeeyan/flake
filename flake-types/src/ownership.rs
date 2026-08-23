@@ -352,7 +352,7 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             }
             Ok(())
         }
-        Expr::Block(b) => check_block(cx, b),
+        Expr::Block(b) | Expr::Nursery { body: b, .. } => check_block(cx, b),
         Expr::StructInit { fields, .. } => {
             for (_, v) in fields {
                 check_expr(cx, v, true)?;

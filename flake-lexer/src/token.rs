@@ -75,6 +75,7 @@ pub enum TokenKind {
     Match,
     Spawn,
     Await,
+    Nursery,
 
     // Operators
     Plus,
@@ -154,6 +155,7 @@ impl TokenKind {
             "match" => Self::Match,
             "spawn" => Self::Spawn,
             "await" => Self::Await,
+            "nursery" => Self::Nursery,
             _ => return None,
         })
     }
@@ -192,6 +194,7 @@ impl TokenKind {
                 | Self::Match
                 | Self::Spawn
                 | Self::Await
+                | Self::Nursery
         )
     }
 
@@ -236,6 +239,7 @@ impl TokenKind {
             Self::Match => "`match`",
             Self::Spawn => "`spawn`",
             Self::Await => "`await`",
+            Self::Nursery => "`nursery`",
             Self::Plus => "`+`",
             Self::Minus => "`-`",
             Self::Star => "`*`",

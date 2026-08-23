@@ -189,10 +189,30 @@ impl Checker {
             "has_key".into(),
             mk(vec![Type::Dyn, Type::Dyn], Type::Bool, &[]),
         );
+        self.functions.insert(
+            "cancel".into(),
+            mk(vec![Type::Task(Box::new(Type::Dyn))], Type::Nil, &["conc"]),
+        );
+        self.functions.insert(
+            "is_cancelled".into(),
+            mk(vec![Type::Task(Box::new(Type::Dyn))], Type::Bool, &[]),
+        );
         self.overloaded_builtins.extend(
-            ["print", "assert", "abs", "min", "max", "range", "keys", "values", "entries"]
-                .into_iter()
-                .map(str::to_string),
+            [
+                "print",
+                "assert",
+                "abs",
+                "min",
+                "max",
+                "range",
+                "keys",
+                "values",
+                "entries",
+                "cancel",
+                "is_cancelled",
+            ]
+            .into_iter()
+            .map(str::to_string),
         );
     }
 
@@ -1449,6 +1469,18 @@ impl Checker {
                 }
             }
             Expr::Block(b) => self.check_block(b),
+            Expr::Nursery { body, span } => {
+                let res = self.check_block(body)?;
+                let resolved = self.resolve(&res).without_ownership();
+                if contains_task(&resolved) {
+                    return Err(TypeError::with_help(
+                        *span,
+                        "task handle cannot escape its nursery",
+                        "await or drop the task before leaving the nursery block",
+                    ));
+                }
+                Ok(res)
+            }
             Expr::Match {
                 scrutinee,
                 arms,
@@ -1594,6 +1626,30 @@ impl Checker {
                         args[0].span(),
                         format!("entries() expected Map, found {other}"),
                         "pass a Map[K, V] to entries()",
+                    )),
+                }
+            }
+            "cancel" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                let task_ty = self.check_expr(&args[0])?;
+                match self.resolve(&task_ty).without_ownership() {
+                    Type::Task(_) | Type::Dyn | Type::Var(_) => Ok(Type::Nil),
+                    other => Err(TypeError::with_help(
+                        args[0].span(),
+                        format!("cancel() expected Task, found {other}"),
+                        "pass a Task handle to cancel()",
+                    )),
+                }
+            }
+            "is_cancelled" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                let task_ty = self.check_expr(&args[0])?;
+                match self.resolve(&task_ty).without_ownership() {
+                    Type::Task(_) | Type::Dyn | Type::Var(_) => Ok(Type::Bool),
+                    other => Err(TypeError::with_help(
+                        args[0].span(),
+                        format!("is_cancelled() expected Task, found {other}"),
+                        "pass a Task handle to is_cancelled()",
                     )),
                 }
             }
@@ -1933,6 +1989,10 @@ impl Checker {
                 Ok(())
             }
             Expr::Block(b) => self.collect_block_effects(b, fns, visiting, done, used),
+            Expr::Nursery { body, .. } => {
+                used.insert(Effect::Conc);
+                self.collect_block_effects(body, fns, visiting, done, used)
+            }
             Expr::StructInit { fields, .. } => {
                 for (_, v) in fields {
                     self.collect_expr_effects(v, fns, visiting, done, used)?;
@@ -2245,7 +2305,7 @@ fn stmt_definitely_returns(stmt: &Stmt) -> bool {
 
 fn expr_definitely_returns(expr: &Expr) -> bool {
     match expr {
-        Expr::Block(block) => block_definitely_returns(block),
+        Expr::Block(block) | Expr::Nursery { body: block, .. } => block_definitely_returns(block),
         Expr::If {
             then_block,
             else_block: Some(else_expr),

@@ -702,6 +702,7 @@ impl<'src> Parser<'src> {
                     task: Box::new(task),
                 })
             }
+            TokenKind::Nursery => self.parse_nursery(),
             _ => Err(self.unexpected("expression")),
         }
     }
@@ -732,6 +733,17 @@ impl<'src> Parser<'src> {
             then_block,
             else_block,
             span: start.merge(end),
+        })
+    }
+
+    fn parse_nursery(&mut self) -> Result<Expr, ParseError> {
+        let start = self.current().span;
+        self.expect(&TokenKind::Nursery, "`nursery`")?;
+        self.skip_nl();
+        let body = self.parse_block()?;
+        Ok(Expr::Nursery {
+            span: start.merge(body.span),
+            body,
         })
     }
 

@@ -431,4 +431,40 @@ fn main() {
     assert!(source.slice(span).contains("numerator / 0"), "{span:?}");
 }
 
+#[test]
+fn nursery_block_executes_in_vm() {
+    let src = r#"
+fn work(n: Int) -> Int {
+    print("vm work {n}")
+    n * 10
+}
+
+fn main() / io + conc {
+    let res = nursery {
+        let t1 = spawn work(3)
+        let t2 = spawn work(4)
+        print("in vm nursery")
+        await t1 + 100
+    }
+    print("res: {res}")
+}
+"#;
+    assert_eq!(run(src), "in vm nursery\nvm work 3\nvm work 4\nres: 130\n");
+}
+
+#[test]
+fn cancel_task_in_vm() {
+    let src = r#"
+fn work() -> Int { 42 }
+fn main() / io + conc {
+    let t = spawn work()
+    print(is_cancelled(t))
+    cancel(t)
+    print(is_cancelled(t))
+}
+"#;
+    assert_eq!(run(src), "false\ntrue\n");
+}
+
+
 

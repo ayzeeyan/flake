@@ -517,6 +517,45 @@ fn main() {
 }
 
 #[test]
+fn nursery_joins_unawaited_tasks() {
+    let (_, out) = run(r#"
+fn work(n: Int) -> Int {
+    print("work {n}")
+    n * 10
+}
+
+fn main() / io + conc {
+    let result = nursery {
+        let t1 = spawn work(1)
+        let t2 = spawn work(2)
+        print("in nursery")
+        await t1 + 5
+    }
+    print("result: {result}")
+}
+"#);
+    assert_eq!(out, "in nursery\nwork 1\nwork 2\nresult: 15\n");
+}
+
+#[test]
+fn explicit_cancel_task() {
+    let (_, out) = run(r#"
+fn work() -> Int {
+    print("should not run")
+    42
+}
+
+fn main() / io + conc {
+    let t = spawn work()
+    print("cancelled: {is_cancelled(t)}")
+    cancel(t)
+    print("cancelled: {is_cancelled(t)}")
+}
+"#);
+    assert_eq!(out, "cancelled: false\ncancelled: true\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

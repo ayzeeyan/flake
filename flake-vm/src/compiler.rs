@@ -556,6 +556,12 @@ impl<'a> FnCompiler<'a> {
                 scrutinee, arms, ..
             } => self.compile_match(scrutinee, arms),
             Expr::Block(b) => self.compile_block_value(b, true),
+            Expr::Nursery { body, .. } => {
+                self.chunk.emit(Op::EnterNursery);
+                self.compile_block_value(body, true)?;
+                self.chunk.emit(Op::ExitNursery);
+                Ok(())
+            }
         }
     }
 

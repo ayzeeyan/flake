@@ -465,13 +465,24 @@ fn emit_inst(
         Inst::Await { dest, task } => {
             let id = next_id(uniq);
             let ok = format!(".task_ok_{id}");
-            let err = format!(".task_err_{id}");
+            let already_awaited = format!(".task_already_{id}");
+            let cancelled = format!(".task_cancelled_{id}");
+
             frame.load(asm, *task, Reg::Rax);
             asm.mov_rm(Reg::R10, Reg::Rax, 0);
             asm.test_rr(Reg::R10, Reg::R10);
             asm.jcc_label(Cc::Z, &ok);
-            asm.label(&err);
+
+            asm.mov_ri(Reg::R11, 2);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::E, &cancelled);
+
+            asm.label(&already_awaited);
             emit_runtime_failure(asm, strings, strs, "task was already awaited");
+
+            asm.label(&cancelled);
+            emit_runtime_failure(asm, strings, strs, "task was cancelled");
+
             asm.label(&ok);
             asm.mov_ri(Reg::R10, 1);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
@@ -973,6 +984,30 @@ fn emit_call(
         }
         Callee::Static(name) if name == "has_key" => {
             emit_native_contains(func, frame, dest, args, asm)
+        }
+        Callee::Static(name) if name == "cancel" => {
+            let id = next_id(uniq);
+            let done = format!(".cancel_done_{id}");
+            frame.load(asm, args[0], Reg::Rax);
+            asm.mov_rm(Reg::R10, Reg::Rax, 0);
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::NZ, &done);
+            asm.mov_ri(Reg::R10, 2);
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
+            asm.label(&done);
+            asm.mov_ri(Reg::Rax, 0);
+            store_rax(frame, dest, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "is_cancelled" => {
+            frame.load(asm, args[0], Reg::Rax);
+            asm.mov_rm(Reg::R10, Reg::Rax, 0);
+            asm.mov_ri(Reg::R11, 2);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.setcc(Cc::E, Reg::Rax);
+            asm.movzx_rax_al();
+            store_rax(frame, dest, asm);
+            Ok(())
         }
         Callee::Static(name) => emit_user_call(frame, name, dest, args, asm),
         Callee::Local(id) => {

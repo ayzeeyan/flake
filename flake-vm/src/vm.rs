@@ -19,6 +19,7 @@ struct Frame {
     ip: usize,
     slots: usize,
     tasks: Vec<TaskRef>,
+    nursery_offsets: Vec<usize>,
 }
 
 pub struct Vm<'io> {
@@ -259,6 +260,14 @@ impl<'io> Vm<'io> {
                     let result = self.join_task(&task)?;
                     self.stack.push(result);
                 }
+                Op::EnterNursery => {
+                    let task_count = self.frames[frame_index].tasks.len();
+                    self.frames[frame_index].nursery_offsets.push(task_count);
+                }
+                Op::ExitNursery => {
+                    let start_idx = self.frames[frame_index].nursery_offsets.pop().unwrap_or(0);
+                    self.finish_nursery_tasks(frame_index, start_idx)?;
+                }
                 Op::Return => {
                     let result = self.pop();
                     self.finish_frame_tasks(frame_index)?;
@@ -404,6 +413,7 @@ impl<'io> Vm<'io> {
             ip: 0,
             slots,
             tasks: Vec::new(),
+            nursery_offsets: Vec::new(),
         });
         Ok(())
     }
@@ -446,6 +456,30 @@ impl<'io> Vm<'io> {
         };
         *task.borrow_mut() = TaskState::Joined;
         result
+    }
+
+    fn finish_nursery_tasks(&mut self, frame_index: usize, start_idx: usize) -> Result<(), VmError> {
+        let tasks = self.frames[frame_index].tasks[start_idx..].to_vec();
+        for (index, task) in tasks.iter().enumerate() {
+            let joinable = matches!(
+                &*task.borrow(),
+                TaskState::Pending { .. } | TaskState::Ready(_)
+            );
+            if joinable {
+                if let Err(error) = self.join_task(task) {
+                    for remaining in &tasks[index + 1..] {
+                        if matches!(
+                            &*remaining.borrow(),
+                            TaskState::Pending { .. } | TaskState::Ready(_)
+                        ) {
+                            *remaining.borrow_mut() = TaskState::Cancelled;
+                        }
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn finish_frame_tasks(&mut self, frame_index: usize) -> Result<(), VmError> {

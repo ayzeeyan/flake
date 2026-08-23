@@ -302,6 +302,11 @@ pub enum Expr {
         span: Span,
     },
     Block(Block),
+    /// A scoped nursery block. All tasks spawned inside are scope-bound to the nursery.
+    Nursery {
+        body: Block,
+        span: Span,
+    },
     StructInit {
         name: Ident,
         fields: Vec<(Ident, Expr)>,
@@ -375,6 +380,7 @@ impl Expr {
             | Self::Field { span, .. }
             | Self::Range { span, .. }
             | Self::If { span, .. }
+            | Self::Nursery { span, .. }
             | Self::StructInit { span, .. }
             | Self::Match { span, .. } => *span,
             Self::Ident(id) => id.span,

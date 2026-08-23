@@ -196,6 +196,8 @@ fn install_builtins(env: &Env) {
         NativeFn::Entries,
         NativeFn::IsEmpty,
         NativeFn::HasKey,
+        NativeFn::Cancel,
+        NativeFn::IsCancelled,
     ] {
         env.define(native.name(), Value::Native(native), false);
     }
@@ -730,6 +732,20 @@ impl<'io> Interpreter<'io> {
                 }
             }
             Expr::Block(block) => self.eval_block(block),
+            Expr::Nursery { body, .. } => {
+                self.task_scopes.push(Vec::new());
+                let result = self.eval_block(body);
+                match result {
+                    Ok(val) => {
+                        self.finish_task_scope()?;
+                        Ok(val)
+                    }
+                    Err(error) => {
+                        self.cancel_task_scope();
+                        Err(error)
+                    }
+                }
+            }
             Expr::Match {
                 scrutinee,
                 arms,
@@ -1430,6 +1446,34 @@ impl<'io> Interpreter<'io> {
                     other => Err(RuntimeError::new(
                         span,
                         format!("has_key() expected Map, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Cancel => {
+                expect_arity("cancel", args, 1, span)?;
+                match &args[0] {
+                    Value::Task(task) => {
+                        Self::cancel_task(task);
+                        Ok(Value::Nil)
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("cancel() expected Task, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::IsCancelled => {
+                expect_arity("is_cancelled", args, 1, span)?;
+                match &args[0] {
+                    Value::Task(task) => {
+                        let cancelled = matches!(&*task.borrow(), TaskState::Cancelled);
+                        Ok(Value::Bool(cancelled))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("is_cancelled() expected Task, found {}", other.type_name()),
                     )
                     .into()),
                 }

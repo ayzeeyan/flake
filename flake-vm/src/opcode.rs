@@ -106,6 +106,10 @@ pub enum Op {
     ReadyTask,
     /// Join a task and replace it with its result.
     Await,
+    /// Enter a scoped nursery block.
+    EnterNursery,
+    /// Exit a scoped nursery block and join any unawaited tasks.
+    ExitNursery,
     Return,
     Print,
     BuildList(u16),

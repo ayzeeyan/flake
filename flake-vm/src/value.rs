@@ -145,10 +145,12 @@ pub enum Native {
     Entries,
     IsEmpty,
     HasKey,
+    Cancel,
+    IsCancelled,
 }
 
 impl Native {
-    pub fn all() -> [Native; 34] {
+    pub fn all() -> [Native; 36] {
         [
             Native::Print,
             Native::Len,
@@ -184,6 +186,8 @@ impl Native {
             Native::Entries,
             Native::IsEmpty,
             Native::HasKey,
+            Native::Cancel,
+            Native::IsCancelled,
         ]
     }
 
@@ -224,6 +228,8 @@ impl Native {
             Self::Entries => "entries",
             Self::IsEmpty => "is_empty",
             Self::HasKey => "has_key",
+            Self::Cancel => "cancel",
+            Self::IsCancelled => "is_cancelled",
         }
     }
 }
