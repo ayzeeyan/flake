@@ -80,10 +80,20 @@ drive a child at `await`, and drain unawaited children before a successful
 return. The VM represents the protocol with `Spawn`, `ReadyTask`, and `Await`
 bytecode.
 
-IR/native lowering intentionally erases the wrapper: `spawn call()` becomes
-the call result and `await task` becomes that result. This v0.5 synchronous
-fallback preserves pure values and native compilability without claiming that
-the PE runtime has a scheduler. See [concurrency.md](concurrency.md).
+Flake IR represents tasks with `IrType::Task`, `Inst::Spawn`, and `Inst::Await`.
+On the native x86-64 backend, tasks are represented as heap-allocated task descriptors
+with state tracking (`Pending = 0`, `Joined = 1`, `Running = 2`, `Cancelled = 3`).
+Awaiting an already-joined task triggers a runtime error on all three backends, providing
+100% single-join consistency. See [concurrency.md](concurrency.md).
+
+## Optimizations
+
+Flake IR passes (`flake-ir::opt`) optimize functions before code emission:
+- **Constant folding and propagation**: evaluates pure compile-time expressions with checked arithmetic overflow protection.
+- **Unreachable block elimination**: removes unreachable basic blocks via CFG reachability analysis.
+- **Dead code elimination**: prunes unused pure instructions.
+- **Copy propagation**: eliminates redundant moves between immutable locals.
+- **Assembler peephole optimizations**: redundant self-move elimination (`mov reg, reg`).
 
 ## Diagnostics and consistency
 
@@ -102,13 +112,15 @@ cooperative backends, with the native fallback documented separately. See
 ## CLI paths
 
 ```bash
-flake check file.flk
-flake run file.flk             # tree-walking interpreter
-flake run --vm file.flk        # stack bytecode VM
-flake run --native file.flk    # temporary native executable
-flake ir file.flk              # dump the custom native IR
-flake build file.flk -o out.exe
-flake build file.flk -o out.exe --emit-asm
+flake init [--name name]       # initialize flake.toml package in current dir
+flake new path/to/pkg          # create new package directory
+flake check [path]             # type check file or package
+flake run [path]               # run on tree-walking interpreter
+flake run --vm [path]          # run on stack bytecode VM
+flake run --native [path]      # compile and run native executable
+flake ir [path]                # dump optimized custom IR
+flake build [path] -o out.exe  # build PE executable
+flake build [path] -o out.exe --emit-asm
 ```
 
 `flake build` writes only the PE executable unless `--emit-asm` is requested.

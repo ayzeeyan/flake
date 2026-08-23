@@ -317,6 +317,32 @@ Flake modules under `std/` (walk up from the importer):
 | `option` | `enum Option { Some(dyn) None }`, `is_some`, `is_none`, `unwrap_or`, `map_option`, `filter_option`, `zip_option`, `expect_some` |
 | `result` | `Result`, `is_ok`, `is_err`, `unwrap_or`, `error_or`, `unwrap`, `map_result`, `map_err`, `and_then`, `is_ok_and`, `is_err_and`, `expect_ok` |
 
+## Packages and Manifests
+
+Flake packages are declared with `flake.toml`:
+
+```toml
+[package]
+name = "my_app"
+version = "0.1.0"
+entry = "main.flk"
+
+[dependencies]
+core_lib = { path = "../core_lib" }
+```
+
+Use the CLI to create and run packages directly:
+
+```bash
+flake init                  # initialize in current directory
+flake new my_pkg            # create a new package directory
+flake run                   # run the package in current directory
+flake check                 # type-check current package
+flake build -o app.exe      # build native binary for current package
+```
+
+See [packages.md](packages.md) for full manifest details and multi-package layouts.
+
 ## Back ends
 
 ```bash
@@ -325,7 +351,7 @@ flake run --vm examples/hello.flk       # bytecode VM (full language)
 flake run --native examples/hello.flk   # x86-64 PE (Windows)
 flake build examples/hello.flk -o hello.exe
 flake build examples/hello.flk -o hello.exe --emit-asm
-flake ir examples/hello.flk             # dump the custom IR
+flake ir examples/hello.flk             # dump the custom IR (with optimization passes)
 ```
 
 The VM and native backend match the interpreter on all examples. Native code

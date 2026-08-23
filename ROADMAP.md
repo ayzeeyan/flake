@@ -1,10 +1,10 @@
 # Flake Roadmap
 
-**Flake v0.5.6 development is in progress.** Theme: **Strengthen concurrency, introduce package foundations, and add real optimizations**.
+**Flake v0.5.6 is complete.** Theme: **Strengthen concurrency, introduce package foundations, and add real optimizations**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.5.6 milestones
+## v0.5.6 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Package manager foundations (local packages + manifests) | **done** |
 | 3 | IR and native backend optimizations | **done** |
 | 4 | Integration, examples and expanded testing | **done** |
-| 5 | Flake v0.5.6 complete | in progress |
+| 5 | Flake v0.5.6 complete | **done** |
 
 ## What v0.5.6 milestone 1 delivers
 
@@ -56,6 +56,15 @@ There is no LLVM, Cranelift, or C transpilation.
   - Added `examples/projects/pkg_workspace` containing multiple interoperating local packages (`core_lib` with nested submodules and `app` manifest consumer).
   - Expanded `examples.rs` integration suite verifying typechecking and runtime parity on all 3 backends (Interpreter, Bytecode VM, and Native x86-64 executable emission).
   - Validated 100% backend parity across entire consistency test matrix.
+
+## What v0.5.6 milestone 5 delivers
+
+- Documentation, versioning, and release finalization:
+  - Bumped workspace version to `0.5.6` across all workspace crates and `Cargo.toml`.
+  - Added [docs/packages.md](docs/packages.md) detailing manifest specifications, multi-package layouts, and CLI commands.
+  - Added [docs/release-notes-v0.5.6.md](docs/release-notes-v0.5.6.md) documenting all new capabilities and optimizations.
+  - Updated `README.md`, `docs/tour.md`, and `docs/architecture.md`.
+  - Verified 100% test pass rate and clean clippy lints across the workspace.
 
 ## v0.5.5 milestones (complete)
 

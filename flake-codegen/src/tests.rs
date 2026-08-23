@@ -92,13 +92,16 @@ fn main() {
 fn cfg_allocator_reuses_registers_for_disjoint_locals() {
     let source = src(r#"
 fn main() {
-    let first = 10
+    var first = 10
+    first = first + 1
     print(first)
     print(first)
-    let second = 20
+    var second = 20
+    second = second + 1
     print(second)
     print(second)
-    let third = 30
+    var third = 30
+    third = third + 1
     print(third)
     print(third)
 }

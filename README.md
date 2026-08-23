@@ -58,25 +58,20 @@ between:
 
 ## Status
 
-**Flake v0.5.5 is complete.** Building on previous stability and native backend achievements,
-v0.5.5 delivers algebraic data types, rich pattern matching, and expanded standard library capabilities:
-- **Algebraic data types (enums)**: full support for unit and payload variants across frontend, bytecode VM, and pure-Rust x86-64 native backend.
-- **Rich pattern matching**: nested variant destructuring, list pattern matching, wildcard bindings, and static exhaustiveness verification.
-- **Richer standard library & error handling**: new functional combinators in `std/option.flk` (`and_then_option`, `or_else_option`, `is_some_and`, `unwrap_or_else`, `flatten_option`),
-  `std/result.flk` (`flatten_result`, `or_else_result`, `unwrap_or_else`, `inspect_ok`, `inspect_err`),
-  `std/list.flk` (`head`, `last`, `intersperse`, `partition`, `flat_map`),
-  `std/string.flk` (`contains_str`, `count_occurrences`, `truncate`),
-  `std/map.flk` (`from_entries`, `invert_map`, `keys_list`, `values_list`), and
-  `std/math.flk` (`square`, `cube`, `div_ceil`, `in_range`).
-- **New examples & multi-file projects**: standalone [`pattern_matching.flk`](examples/pattern_matching.flk) and multi-file [`projects/query_engine/`](examples/projects/query_engine/main.flk).
+**Flake v0.5.6 is complete.** Building on previous stability and language expansion achievements,
+v0.5.6 delivers strengthened concurrency, package manager foundations, and comprehensive optimizations:
+- **Strengthened concurrency**: typed heap Task objects on native x86-64 backend, preserving `IrType::Task`, `Inst::Spawn`, and `Inst::Await` in IR, and 100% single-join parity across Interpreter, Bytecode VM, and Native execution.
+- **Package manager foundations**: `flake.toml` manifests, local file dependency resolution (`[dependencies]`), and new CLI commands (`flake init`, `flake new`, and directory-targeted `flake run` / `check` / `build`).
+- **IR & Backend optimizations**: constant folding and propagation with checked overflow safety, unreachable basic block elimination, dead code pruning, copy propagation, and assembler peephole reductions.
+- **Multi-package project examples**: added [`projects/pkg_workspace`](examples/projects/pkg_workspace) demonstrating local dependency graphs and nested submodule imports.
 - **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
 
-See [ROADMAP.md](ROADMAP.md) for milestone status and [docs/tour.md](docs/tour.md)
+See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
 for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.5.5 release notes](docs/release-notes-v0.5.5.md) for the complete
+See the [v0.5.6 release notes](docs/release-notes-v0.5.6.md) for the complete
 feature and compatibility summary.
 
 ## Build and run
@@ -190,6 +185,7 @@ fn add_two(result: Result) -> Result {
 - [Language tour](docs/tour.md)
 - [Ownership](docs/ownership.md)
 - [Structured concurrency](docs/concurrency.md)
+- [Packages and manifests](docs/packages.md)
 - [Errors and Result propagation](docs/errors.md)
 - [Modules and multi-file projects](docs/modules.md)
 - [IR](docs/ir.md)
