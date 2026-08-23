@@ -89,6 +89,28 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
     let mut constants: HashMap<LocalId, Const> = HashMap::new();
     let mut struct_fields: HashMap<LocalId, HashMap<String, LocalId>> = HashMap::new();
     let mut list_items: HashMap<LocalId, Vec<LocalId>> = HashMap::new();
+    let mut escaped_or_mutated: HashSet<LocalId> = HashSet::new();
+
+    // Find any locals that are passed to functions/tasks or mutated in place
+    for block in &func.blocks {
+        for inst in &block.insts {
+            match inst {
+                Inst::Call { args, .. } | Inst::Spawn { args, .. } => {
+                    for a in args {
+                        escaped_or_mutated.insert(*a);
+                    }
+                }
+                Inst::SetField { obj, .. } => {
+                    escaped_or_mutated.insert(*obj);
+                }
+                Inst::SetIndex { obj, .. } => {
+                    escaped_or_mutated.insert(*obj);
+                }
+                _ => {}
+            }
+        }
+    }
+
     let mut changed = false;
 
     for block in &mut func.blocks {
@@ -107,7 +129,7 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                     }
                 }
                 Inst::MakeStruct { dest, ref fields, .. } => {
-                    if defs.get(&dest) == Some(&1) {
+                    if defs.get(&dest) == Some(&1) && !escaped_or_mutated.contains(&dest) {
                         let mut map = HashMap::new();
                         for (f, val_id) in fields {
                             map.insert(f.clone(), *val_id);
@@ -116,7 +138,7 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                     }
                 }
                 Inst::MakeList { dest, ref items } => {
-                    if defs.get(&dest) == Some(&1) {
+                    if defs.get(&dest) == Some(&1) && !escaped_or_mutated.contains(&dest) {
                         list_items.insert(dest, items.clone());
                     }
                 }

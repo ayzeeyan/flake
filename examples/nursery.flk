@@ -1,0 +1,32 @@
+// Structured concurrency with nurseries and explicit cancellation.
+
+fn compute(id: String, x: Int) -> Int {
+    x * 2
+}
+
+fn slow_work(x: Int) -> Int {
+    x + 100
+}
+
+fn main() / conc + io {
+    print("starting nursery showcase")
+
+    let result = nursery {
+        let t1 = spawn compute("task-1", 21)
+        let t2 = spawn compute("task-2", 42)
+        let val1 = await t1
+        let val2 = await t2
+        val1 + val2
+    }
+    print("nursery result = {result}")
+
+    let cancel_check = nursery {
+        let t_cancel = spawn slow_work(10)
+        let pre_cancel = is_cancelled(t_cancel)
+        cancel(t_cancel)
+        let post_cancel = is_cancelled(t_cancel)
+        print("cancelled before = {pre_cancel}, after = {post_cancel}")
+        0
+    }
+    print("completed nursery showcase")
+}

@@ -12,8 +12,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Practical package system (resolution, lockfile foundations, re-exports) | **done** |
 | 3 | Stronger ownership and language improvements | **done** |
 | 4 | Advanced optimizations and native quality | **done** |
-| 5 | Integration, examples, testing and hardening | in progress |
-| 6 | Flake v0.6 complete | planned |
+| 5 | Integration, examples, testing and hardening | **done** |
+| 6 | Flake v0.6 complete | in progress |
 
 ## What v0.6 milestone 1 delivers
 
@@ -57,6 +57,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - Added `thread_jumps` optimization pass resolving chained jump targets through intermediate empty basic blocks and converting identical-target branches into direct jumps.
 - Native x86-64 code density optimizations:
   - Optimized immediate moves (`mov_ri`) to emit 32-bit zero-extending movs for positive 32-bit immediate values, saving 4-5 bytes per immediate load.
+
+## What v0.6 milestone 5 delivers
+
+- Structured concurrency showcase example (`examples/nursery.flk`):
+  - Demonstrates lexical nurseries, parallel task spawns, and explicit task cancellation state querying.
+- Full-matrix integration testing:
+  - Added `nursery_output` and cross-backend execution verification for structured task group ordering and cancellation.
+  - Validated package lockfile resolution, verification, and update across CLI subcommands.
 
 ## v0.5.7 milestones (complete)
 

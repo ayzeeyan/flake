@@ -16,6 +16,7 @@ const EXAMPLES: &[&str] = &[
     "app.flk",
     "concurrency.flk",
     "data.flk",
+    "nursery.flk",
     "task_pipeline.flk",
     "pattern_matching.flk",
     "projects/inventory/main.flk",
@@ -184,6 +185,19 @@ fn data_output() {
     assert_eq!(
         run_example("data.flk"),
         "port 81\nerror: unknown service: smtp\nsecure\ntrue\n"
+    );
+}
+
+#[test]
+fn nursery_output() {
+    assert_eq!(
+        run_example("nursery.flk"),
+        concat!(
+            "starting nursery showcase\n",
+            "nursery result = 126\n",
+            "cancelled before = false, after = true\n",
+            "completed nursery showcase\n",
+        )
     );
 }
 
