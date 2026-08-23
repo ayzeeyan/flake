@@ -9,8 +9,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Package system expansion | **done** |
-| 2 | Concurrency maturity improvements | in progress |
-| 3 | Further IR and native optimizations | planned |
+| 2 | Concurrency maturity improvements | **done** |
+| 3 | Further IR and native optimizations | in progress |
 | 4 | Integration, examples and expanded testing | planned |
 | 5 | Flake v0.5.7 complete | planned |
 
@@ -21,6 +21,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - Implemented transitive re-export resolution in `ModuleGraph::exported_items`: package façade entrypoints can re-export submodules and functions.
   - Enhanced `flake.toml` manifest support: `[workspace]` declaration (`members = [...]`), dependency package/version specification (`core = { path = "...", package = "..." }`), and improved syntax diagnostics.
   - 100% parity across Interpreter, Bytecode VM, and Native x86-64 executable emission for re-exported package modules and functions.
+
+## What v0.5.7 milestone 2 delivers
+
+- Concurrency maturity and cross-backend parity:
+  - Task handles safely passed across intra-function boundaries (`fn join_both(t1: Task[Int], t2: Task[Int]) -> Int / conc`).
+  - Strengthened task lifetime, error propagation, and ownership interactions (`strict owned` moved values into spawned tasks).
+  - Cross-backend integration tests verifying concurrent tasks returning algebraic data types (`Result[T, E]`), multi-task join order, and single-await enforcement across Interpreter, Bytecode VM, and Native x86-64 backend.
 
 ## v0.5.6 milestones (complete)
 

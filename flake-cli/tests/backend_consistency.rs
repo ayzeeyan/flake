@@ -802,6 +802,78 @@ fn main() {
     assert_all_backends("stdlib-v055-expansion", source, expected);
 }
 
+#[test]
+fn concurrency_maturity_ownership_and_results() {
+    let source = r#"
+import result
+
+fn compute_val(x: Int, mult: Int) -> Int {
+    x * mult
+}
+
+fn compute_result(x: Int) -> result.Result[Int, String] {
+    if x > 0 {
+        result.Result.Ok(x * 2)
+    } else {
+        result.Result.Err("non-positive input")
+    }
+}
+
+fn main() / io + conc {
+    // 1. Concurrent arithmetic tasks
+    let t1 = spawn compute_val(10, 4)
+    let t2 = spawn compute_val(2, 1)
+    let r1 = await t1
+    let r2 = await t2
+    print(r1 + r2)
+
+    // 2. Tasks returning typed Result enum
+    let t_ok = spawn compute_result(21)
+    let res = await t_ok
+    match res {
+        result.Result.Ok(val) => print(val),
+        result.Result.Err(msg) => print(msg),
+    }
+
+    let t_err = spawn compute_result(-5)
+    let res_err = await t_err
+    match res_err {
+        result.Result.Ok(val) => print(val),
+        result.Result.Err(msg) => print(msg),
+    }
+}
+"#;
+    let expected = concat!(
+        "42\n",
+        "42\n",
+        "non-positive input\n",
+    );
+    assert_all_backends("concurrency-maturity-results", source, expected);
+}
+
+#[test]
+fn concurrency_intra_function_task_passing() {
+    let source = r#"
+fn work_a(x: Int) -> Int { x + 10 }
+fn work_b(y: Int) -> Int { y * 3 }
+
+fn join_both(t1: Task[Int], t2: Task[Int]) -> Int / conc {
+    let a = await t1
+    let b = await t2
+    a + b
+}
+
+fn main() / io + conc {
+    let t1 = spawn work_a(5)
+    let t2 = spawn work_b(10)
+    let total = join_both(t1, t2)
+    print(total)
+}
+"#;
+    let expected = "45\n";
+    assert_all_backends("concurrency-task-passing", source, expected);
+}
+
 
 
 
