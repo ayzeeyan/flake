@@ -51,12 +51,11 @@ between:
 
 ## Status
 
-**Flake v0.5.6 is complete.** Building on previous stability and language expansion achievements,
-v0.5.6 delivers strengthened concurrency, package manager foundations, and comprehensive optimizations:
-- **Strengthened concurrency**: typed heap Task objects on native x86-64 backend, preserving `IrType::Task`, `Inst::Spawn`, and `Inst::Await` in IR, and 100% single-join parity across Interpreter, Bytecode VM, and Native execution.
-- **Package manager foundations**: `flake.toml` manifests, local file dependency resolution (`[dependencies]`), and new CLI commands (`flake init`, `flake new`, and directory-targeted `flake run` / `check` / `build`).
-- **IR & Backend optimizations**: constant folding and propagation with checked overflow safety, unreachable basic block elimination, dead code pruning, copy propagation, and assembler peephole reductions.
-- **Multi-package project examples**: added [`projects/pkg_workspace`](examples/projects/pkg_workspace) demonstrating local dependency graphs and nested submodule imports.
+**Flake v0.5.7 is complete.** Theme: **Deeper packages, more mature concurrency, and further performance work**.
+- **Package system expansion**: public re-exports (`pub import path as alias`), multi-package workspaces (`[workspace]`), dependency aliasing, and 100% backend parity for re-exported modules and functions.
+- **Mature concurrency**: task handles passed cleanly across intra-function boundaries (`fn join_both(t1: Task[Int], t2: Task[Int]) -> Int / conc`), strengthened task lifetimes, ownership move interactions, and typed `Result[T, E]` tasks.
+- **IR & Backend optimizations**: module-level function inlining pass (`inline_functions`) for small non-recursive leaf functions, instruction-level local remapping, and compact `xor reg, reg` zeroing on Native x86-64.
+- **Showcase projects**: added [`projects/service_hub`](examples/projects/service_hub) multi-package workspace demonstrating public re-exports, concurrent workers, and ADTs.
 - **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
 
 See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
@@ -64,7 +63,7 @@ for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.5.6 release notes](docs/release-notes-v0.5.6.md) for the complete
+See the [v0.5.7 release notes](docs/release-notes-v0.5.7.md) for the complete
 feature and compatibility summary.
 
 ## Build and run

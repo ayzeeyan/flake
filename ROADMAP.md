@@ -1,10 +1,10 @@
 # Flake Roadmap
 
-**Flake v0.5.7 development is in progress.** Theme: **Deeper packages, more mature concurrency, and further performance work**.
+**Flake v0.5.7 is complete.** Theme: **Deeper packages, more mature concurrency, and further performance work**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.5.7 milestones
+## v0.5.7 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Concurrency maturity improvements | **done** |
 | 3 | Further IR and native optimizations | **done** |
 | 4 | Integration, examples and expanded testing | **done** |
-| 5 | Flake v0.5.7 complete | in progress |
+| 5 | Flake v0.5.7 complete | **done** |
 
 ## What v0.5.7 milestone 1 delivers
 
@@ -42,6 +42,14 @@ There is no LLVM, Cranelift, or C transpilation.
 - Multi-package showcase projects and end-to-end integration tests:
   - Added `service_hub` multi-package workspace example (`examples/projects/service_hub/`): multi-package project featuring public re-exports (`pub import service`), concurrent worker tasks (`spawn`/`await`), ADTs, and stdlib integration.
   - Verified 100% cross-backend parity across Interpreter, Bytecode VM, and Native x86-64 executable emission across all examples and test suites.
+
+## What v0.5.7 milestone 5 delivers
+
+- Documentation, release notes, and version finalization:
+  - Bumped crate versions across the workspace from `0.5.6` to `0.5.7`.
+  - Created complete [v0.5.7 Release Notes](docs/release-notes-v0.5.7.md).
+  - Updated [README.md](README.md) and [docs/packages.md](docs/packages.md).
+  - 100% clean builds, clippy checks, and test passes across the entire pure-Rust workspace.
 
 ## v0.5.6 milestones (complete)
 

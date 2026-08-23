@@ -1,6 +1,6 @@
 # Flake Packages and Manifests
 
-Flake v0.5.6 introduces first-class package management foundations, allowing projects to be structured as local packages with clear manifest declarations and dependency graphs.
+Flake packages allow projects to be structured as multi-package workspaces with clean manifest declarations, dependency graphs, and public re-exports.
 
 ## The Package Manifest (`flake.toml`)
 
@@ -9,14 +9,17 @@ Every Flake package is configured with a `flake.toml` file at its root directory
 ```toml
 [package]
 name = "my_service"
-version = "0.1.0"
+version = "0.5.7"
 entry = "main.flk" # optional, defaults to main.flk
 description = "My high-performance service"
 authors = ["Flake Developer <dev@flake.lang>"]
 
+[workspace]
+members = ["core_api", "hub_app"]
+
 [dependencies]
-core_utils = { path = "../core_utils" }
-telemetry = { path = "../../common/telemetry" }
+core_utils = { path = "../core_utils", version = "0.5.0" }
+telemetry = { path = "../../common/telemetry", package = "telemetry_lib" }
 ```
 
 ### Manifest Fields
@@ -26,7 +29,34 @@ telemetry = { path = "../../common/telemetry" }
 - `package.entry`: The entrypoint `.flk` source file (defaults to `main.flk`).
 - `package.description`: Optional human-readable description.
 - `package.authors`: Optional list of author strings.
-- `dependencies`: Map of dependency names to dependency specifications (`{ path = "..." }`).
+- `workspace.members`: Optional list of workspace member directories.
+- `dependencies`: Map of dependency names to specifications (`{ path = "...", package = "...", version = "..." }`).
+
+## Public Re-exports (`pub import`)
+
+Modules and packages can re-export items from submodules using `pub import`:
+
+```flake
+// core_lib/main.flk
+pub import service
+pub import service.metrics as m
+
+pub fn greeting() -> String {
+    "Core library ready"
+}
+```
+
+Consumers importing `core_lib` can access re-exported items directly:
+
+```flake
+// app/main.flk
+import core_lib
+
+fn main() / io {
+    print(core_lib.greeting())
+    print(core_lib.calculate_throughput(100, 4))
+}
+```
 
 ## Creating Packages
 
@@ -70,6 +100,7 @@ Packages can depend on each other via relative file paths:
 
 ```
 workspace/
+├── flake.toml
 ├── core_lib/
 │   ├── flake.toml
 │   ├── main.flk
@@ -79,11 +110,17 @@ workspace/
     └── main.flk
 ```
 
+In `workspace/flake.toml`:
+```toml
+[workspace]
+members = ["core_lib", "app"]
+```
+
 In `app/flake.toml`:
 ```toml
 [package]
 name = "app"
-version = "0.1.0"
+version = "0.5.7"
 entry = "main.flk"
 
 [dependencies]
@@ -93,17 +130,16 @@ core_lib = { path = "../core_lib" }
 In `app/main.flk`:
 ```flake
 import core_lib
-import core_lib.service
 
 fn main() / io {
     print(core_lib.format_greeting("Flake"))
-    print(service.compute_metrics(10, 5))
+    print(core_lib.compute_metrics(10, 5))
 }
 ```
 
 ## Dependency Resolution Rules
 
-1. When importing a symbol (`import foo`), the compiler first searches ancestor directories for a `flake.toml`.
+1. When importing a symbol (`import foo`), the compiler searches ancestor directories for a `flake.toml`.
 2. If `foo` is defined in `[dependencies]`, the path is resolved relative to the package directory.
 3. If importing a submodule of a package (`import foo.bar`), the compiler locates `bar.flk` within the dependency package folder.
 4. Circular dependencies across packages or modules are detected and reported with actionable diagnostics.
