@@ -37,11 +37,13 @@ primary     := ident | literal | list | map | string | "if" | "match" | block | 
 match       := "match" expr "{" arm* "}"
 arm         := pattern "=>" expr
 pattern     := "_" | ident | literal
-             | path "." ident ("(" ident ("," ident)* ")")?
+             | (path ".")? ident ("(" pattern ("," pattern)* ")")?
+             | "[" pattern ("," pattern)* "]"
 
 type        := "owned" type | "ref" type | "mut" type | "&" "mut"? type
              | atom "?"?
 atom        := "dyn" | path ("[" type ("," type)* "]")? | "[" type "]"
+             | "Task" "[" type "]"
              | "fn" "(" types? ")" ("->" type)? ("/" effects)?
 ```
 

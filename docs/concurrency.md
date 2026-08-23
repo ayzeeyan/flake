@@ -1,9 +1,9 @@
 # Structured concurrency
 
-Flake v0.5 makes concurrency part of the language contract without pretending
-that a production async runtime already exists. The foundation is deliberately
-small: typed tasks, explicit joins, lexical ownership, deterministic failure
-propagation, and a visible `conc` effect.
+Flake v0.5.6 makes concurrency part of the language contract without pretending
+that a complex external async runtime is needed. The foundation is robust and clean:
+typed tasks, explicit joins, lexical ownership, deterministic failure propagation,
+heap-backed task states on native execution, and a visible `conc` effect.
 
 ## Surface and effects
 
@@ -25,7 +25,7 @@ fn main() / conc + io {
 - Both operations perform the `conc` effect.
 - Effects of the child call remain visible. Spawning an `/ io` function needs
   both `conc` and `io` in the parent.
-- There is no special `async fn` form in v0.5. An ordinary function call
+- There is no special `async fn` form. An ordinary function call
   becomes child work when it appears as the operand of `spawn`.
 
 The checker rejects `spawn` on a non-call expression, `await` on a non-task,
@@ -40,7 +40,7 @@ awaited, in spawn order. A child error becomes a parent error. If the parent is
 already failing, pending cooperative work is abandoned with the scope.
 
 Task handles are single-use. Awaiting a joined or cancelled handle is a runtime
-error; `strict` ownership contexts can additionally diagnose repeated moves.
+error (`"task was already awaited"` across all backends); `strict` ownership contexts can additionally diagnose repeated moves.
 This keeps result delivery and failure propagation unambiguous.
 
 ```flake
@@ -49,7 +49,7 @@ fn answer() -> Int { 42 }
 fn one_join() -> Int / conc {
     let task = spawn answer()
     let value = await task
-    // await task  // rejected at runtime; also a move error in strict code
+    // await task  // rejected at runtime on all backends; also a move error in strict code
     value
 }
 ```
@@ -59,8 +59,8 @@ fn one_join() -> Int / conc {
 The callee and every argument are evaluated at the `spawn` expression. The
 call itself remains pending until `await` or scope exit on the cooperative
 backends. In strict ownership code, ordinary move rules apply to captured
-arguments. In gradual code, mutable containers can still alias because v0.5
-never executes two Flake instructions in parallel.
+arguments. In gradual code, mutable containers can still alias because Flake
+never executes two instructions in parallel without explicit task scheduling.
 
 Interpreter and VM use the same deterministic cooperative protocol:
 
@@ -75,7 +75,7 @@ I/O readiness, cancellation APIs, task groups, or work stealing.
 
 ## Portable task programs
 
-For output that agrees across all v0.5 backends, keep child work free of
+For output that agrees across all backends, keep child work free of
 scheduling-visible I/O or shared mutation and print after joining:
 
 ```flake
@@ -108,8 +108,8 @@ functions and checked for state.
 ## Safety boundary and future work
 
 Detached tasks are intentionally excluded: work cannot silently outlive its
-parent. Before true parallel execution is enabled, Flake needs a sendability
+parent. Before true parallel multi-threaded execution is enabled, Flake needs a sendability
 rule for captured values, explicit cancellation and task-group policy, and a
-runtime scheduler. Native scheduling must then preserve scope exit, child
+multi-threaded runtime scheduler. Native scheduling must then preserve scope exit, child
 failure, and single-result rules rather than inventing a second concurrency
 model.

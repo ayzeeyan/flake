@@ -140,6 +140,26 @@ examples/projects/query_engine/
 - `utils.display` formats filters and dataset records into human-readable strings.
 - Runs with identical results across Interpreter, Bytecode VM, and Native x86-64.
 
+### Multi-package Workspace (`examples/projects/pkg_workspace/`)
+
+A multi-package project demonstrating package manifests (`flake.toml`), local dependencies, and submodule consumption:
+
+```
+examples/projects/pkg_workspace/
+├── core_lib/
+│   ├── flake.toml
+│   ├── main.flk
+│   └── service.flk
+└── app/
+    ├── flake.toml
+    └── main.flk
+```
+
+- `core_lib` defines library functions and nested services with `flake.toml`.
+- `app` depends on `core_lib` via `{ path = "../core_lib" }` in its `flake.toml`.
+- `app/main.flk` imports `core_lib` and `core_lib.service`.
+- Runs identically on Interpreter, Bytecode VM, and Native x86-64 executable.
+
 ## Adding an example
 
 Keep an example deterministic, give it a short comment explaining its teaching

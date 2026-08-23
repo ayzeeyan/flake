@@ -45,13 +45,13 @@ A **function** has:
 - a list of **basic blocks**, with `bb0` as the entry
 
 A **local** is `%id` with an optional source name and an IR type (`Int`,
-`Bool`, `String`, `Map[K, V]`, `fn -> R`, `dyn`, …). Function values retain
+`Bool`, `String`, `Map[K, V]`, `Task[T]`, `fn -> R`, `dyn`, …). Function values retain
 their return type so an indirect call produces a correctly typed result.
 
-In v0.5 milestone 1, structured task handles remain an interpreter/VM runtime
-concept. IR lowering maps `spawn call()` to the call result and `await task` to
-the underlying value. This is the native backend's deliberate synchronous
-fallback, not a promise of native parallel scheduling.
+In v0.5.6, structured task handles are represented directly in the IR via `IrType::Task`,
+`Inst::Spawn`, and `Inst::Await`. On the native x86-64 backend, tasks lower to structured
+heap descriptors with explicit lifecycle tracking (`Pending`, `Joined`, `Running`, `Cancelled`)
+and strict single-await runtime verification.
 
 ## Instructions (summary)
 
@@ -63,6 +63,9 @@ fallback, not a promise of native parallel scheduling.
 | `%d = add/sub/… %a, %b` | arithmetic / compare |
 | `%d = call name(%a, …)` | direct call (user fn or builtin) |
 | `%d = call %f(%a, …)` | indirect call through a function local |
+| `%d = spawn name(%a, …)` | spawn direct child task |
+| `%d = spawn %f(%a, …)` | spawn indirect child task |
+| `%d = await %t` | join task handle `%t` |
 | `%d = %o[%i]` / `%o[%i] = %v` | index |
 | `%d = %o.field` / `%o.field = %v` | struct field |
 | `%d = list […]` / `map` / `struct` / `range` | constructors |
@@ -71,6 +74,21 @@ fallback, not a promise of native parallel scheduling.
 | `goto bbN` | jump |
 | `br %c bbT, bbE` | conditional |
 | `return %v` | return |
+
+## Optimization Passes (`flake-ir::opt`)
+
+Flake IR passes optimize functions prior to code generation and inspection:
+
+1. **Constant Folding and Propagation**:
+   - Evaluates pure compile-time arithmetic and comparison expressions for `Int`, `Float`, `Bool`, and `String` with checked integer arithmetic overflow safety.
+   - Simplifies branches on constant conditions into unconditional jumps.
+   - Propagates single-assignment constants across basic blocks.
+2. **Unreachable Basic Block Elimination**:
+   - Performs CFG reachability analysis from function entries and removes dead blocks.
+3. **Dead Code Elimination**:
+   - Removes pure instructions (`LoadConst`, `Unary`, `Binary`, `Move`, `LoadFunction`) whose destination locals are never referenced.
+4. **Copy Propagation**:
+   - Replaces uses of single-assignment copied variables with their source, eliminating redundant moves.
 
 ## Example
 
@@ -90,7 +108,7 @@ fn add(a: Int, b: Int) -> Int {
 }
 ```
 
-Dump IR from the CLI:
+Dump optimized IR from the CLI:
 
 ```bash
 flake ir examples/hello.flk

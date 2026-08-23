@@ -116,12 +116,21 @@ Missing-module errors point at the importing file and show the project-relative
 path Flake expected. Visibility errors suggest adding `pub`; ambiguous bare
 names suggest explicit qualified alternatives.
 
-## Current boundary
+## Packages and Local Dependencies
 
-Modules are source files arranged beneath one project root. Flake does not yet
-have inline module declarations, public re-exports, package manifests,
-versioned dependencies, a registry, or lockfiles. Those package-management
-features remain outside v0.5.
+In Flake v0.5.6, projects can define package manifests with `flake.toml` and depend on other local packages:
+
+```toml
+[package]
+name = "my_app"
+version = "0.1.0"
+entry = "main.flk"
+
+[dependencies]
+core_lib = { path = "../core_lib" }
+```
+
+When importing `import core_lib` or `import core_lib.service`, the compiler locates the dependency directory and resolves the library root or submodule accordingly. See [packages.md](packages.md) for complete details.
 
 ## Runnable projects
 
@@ -132,12 +141,14 @@ features remain outside v0.5.
 - [Release gate](../examples/projects/release/main.flk) combines public enums,
   a Result-like service API, maps, and structured tasks in a native-ready
   application.
+- [Multi-package Workspace](../examples/projects/pkg_workspace/app/main.flk) demonstrates
+  `flake.toml` package dependency declaration and consumption.
 
-Run a project by passing its entry file; imports are resolved from that file's
-project root:
+Run a project by passing its entry file or its directory:
 
 ```bash
 flake run examples/projects/release/main.flk
 flake run --vm examples/projects/release/main.flk
 flake run --native examples/projects/release/main.flk
+flake run examples/projects/pkg_workspace/app
 ```

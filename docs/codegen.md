@@ -103,18 +103,25 @@ The PE writer records actual virtual section sizes plus aligned raw sizes and
 fills `SizeOfCode`, `SizeOfInitializedData`, and `BaseOfCode`. Output is first
 written and flushed to a unique sibling file, then installed at the requested
 path; an existing output is backed up and restored if replacement fails. The
-default build no longer leaves an unsolicited assembly sidecar.
+default build creates only the executable unless `--emit-asm` is requested.
 
-Structured concurrency currently uses a synchronous native fallback: the IR
-lowers `spawn f(args)` as the call and `await task` as its underlying value.
-This lets typed `conc` programs compile and produce coherent pure results
-without claiming that the PE runtime has a scheduler. Scheduling-visible
-side-effect order can differ. Interpreter and VM retain real, scope-bound task
-handles; a native task runtime is post-v0.5 work.
+## Task Runtime & Concurrency
 
-The [release gate example](../examples/projects/release/main.flk) is the
-end-to-end native showcase for hierarchical modules, public enums, patterns,
-Result propagation, maps, and pure task results:
+In v0.5.6, native x86-64 code generation represents `Task[T]` values as heap-allocated
+task structures with explicit state tracking (`Pending = 0`, `Joined = 1`, `Running = 2`, `Cancelled = 3`).
+The native execution path enforces the strict single-join runtime contract: attempting to
+`await` an already-joined task triggers the runtime diagnostic `"task was already awaited"`,
+matching interpreter and bytecode VM behavior.
+
+## Assembler Optimizations
+
+The pure-Rust x86-64 assembler applies peephole optimizations:
+- Redundant self-moves (`mov reg, reg`) are detected and eliminated.
+- Single-assignment variables and constants are folded and propagated at the IR level prior to register allocation.
+
+The [release gate example](../examples/projects/release/main.flk) and [multi-package workspace](../examples/projects/pkg_workspace/app/main.flk) are
+end-to-end native showcases for hierarchical modules, public enums, patterns,
+Result propagation, maps, and structured tasks:
 
 ```bash
 flake build examples/projects/release/main.flk -o release.exe
