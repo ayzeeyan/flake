@@ -363,33 +363,56 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             scrutinee, arms, ..
         } => {
             check_expr(cx, scrutinee, false)?;
+            if arms.is_empty() {
+                return Ok(());
+            }
+            let before = cx.snapshot();
+            let mut arm_snapshots = Vec::new();
             for arm in arms {
+                cx.restore_states(&before);
                 check_expr(cx, &arm.body, move_ok)?;
+                arm_snapshots.push(cx.snapshot());
+            }
+            if let Some(first) = arm_snapshots.first() {
+                let mut merged = first.clone();
+                for other in &arm_snapshots[1..] {
+                    cx.restore_states(&merged);
+                    cx.merge_after_branches(&merged, other);
+                    merged = cx.snapshot();
+                }
+                cx.restore_states(&merged);
             }
             Ok(())
         }
     }
 }
 
+fn root_variable_info(expr: &Expr) -> Option<(&str, Span)> {
+    match expr {
+        Expr::Ident(id) => Some((id.name.as_str(), id.span)),
+        Expr::Field { target, .. } | Expr::Index { target, .. } => root_variable_info(target),
+        _ => None,
+    }
+}
+
 fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), TypeError> {
-    if let Expr::Ident(id) = expr {
+    if let Some((root_name, _root_span)) = root_variable_info(expr) {
         let depth = cx.depth();
-        let Some(binding) = cx.lookup_mut(&id.name) else {
+        let Some(binding) = cx.lookup_mut(root_name) else {
             return Ok(());
         };
         match binding.state {
             State::Moved(_) => {
                 return Err(TypeError::new(
                     span,
-                    format!("cannot borrow `{}` because it was already moved", id.name),
+                    format!("cannot borrow `{root_name}` because it was already moved"),
                 ));
             }
             State::Borrowed { mutable: true, .. } => {
                 return Err(TypeError::new(
                     span,
                     format!(
-                        "cannot borrow `{}` because it is already mutably borrowed",
-                        id.name
+                        "cannot borrow `{root_name}` because it is already mutably borrowed"
                     ),
                 ));
             }
@@ -397,8 +420,7 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
                 return Err(TypeError::new(
                     span,
                     format!(
-                        "cannot mutably borrow `{}` because it is already borrowed",
-                        id.name
+                        "cannot mutably borrow `{root_name}` because it is already borrowed"
                     ),
                 ));
             }
@@ -406,7 +428,7 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
                 if binding.kind == Kind::Ref && mutable {
                     return Err(TypeError::new(
                         span,
-                        format!("cannot mutably borrow `ref` binding `{}`", id.name),
+                        format!("cannot mutably borrow `ref` binding `{root_name}`"),
                     ));
                 }
                 binding.state = State::Borrowed {

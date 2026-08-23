@@ -10,8 +10,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Concurrency maturity (task groups, cancellation, stronger model) | **done** |
 | 2 | Practical package system (resolution, lockfile foundations, re-exports) | **done** |
-| 3 | Stronger ownership and language improvements | in progress |
-| 4 | Advanced optimizations and native quality | planned |
+| 3 | Stronger ownership and language improvements | **done** |
+| 4 | Advanced optimizations and native quality | in progress |
 | 5 | Integration, examples, testing and hardening | planned |
 | 6 | Flake v0.6 complete | planned |
 
@@ -37,6 +37,16 @@ There is no LLVM, Cranelift, or C transpilation.
   - `flake lock [--check]`: Generates or verifies `flake.lock` for the current package or workspace.
   - `flake update`: Re-resolves package dependency graphs and refreshes `flake.lock`.
   - Automatic lockfile verification during `flake run`, `flake build`, and `flake check`.
+
+## What v0.6 milestone 3 delivers
+
+- Structural borrow conflict checking:
+  - Root variable resolution for field accesses and index paths (`root_variable_info`).
+  - Enforced move prevention on containing aggregates or containers while fields/elements are borrowed (`cannot move \`p\` while it is borrowed`).
+  - Exclusive mutable borrowing checks protecting against conflicting concurrent or mutable sub-path borrows.
+- Branch-aware ownership state propagation:
+  - Snapshot isolation and branch state merging across all match arms in `match` expressions.
+  - Precise move tracking ensuring variables moved in all branches are recognized as moved afterwards.
 
 ## v0.5.7 milestones (complete)
 

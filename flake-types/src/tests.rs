@@ -764,6 +764,42 @@ fn main() {}
 }
 
 #[test]
+fn structural_borrow_conflicts_prevent_moves() {
+    let message = err(r#"
+struct Pair { x: String, y: String }
+fn consume(p: owned Pair) {}
+fn inspect(s: ref String) {}
+
+strict fn f() {
+    let p = Pair { x: "a", y: "b" }
+    let r = &p.x
+    consume(p)
+}
+"#);
+    assert!(message.contains("cannot move `p` while it is borrowed"), "{message}");
+}
+
+#[test]
+fn match_arms_branch_aware_move_checking() {
+    let message = err(r#"
+enum Option { Some(String) None }
+fn consume(s: owned String) {}
+
+strict fn f() {
+    let opt = Option.Some("data")
+    let s = "hello"
+    match opt {
+        Option.Some(val) => consume(s)
+        Option.None => consume(s)
+    }
+    // Since both arms moved s, using s here must fail
+    consume(s)
+}
+"#);
+    assert!(message.contains("use of moved value `s`"), "{message}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
