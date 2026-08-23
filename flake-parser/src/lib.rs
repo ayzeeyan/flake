@@ -1,11 +1,13 @@
 //! Recursive-descent parser for Flake.
 
 mod error;
+pub mod lockfile;
 pub mod manifest;
 mod parser;
 mod resolve;
 
 pub use error::ParseError;
+pub use lockfile::{LockedPackage, Lockfile, LockfileError};
 pub use manifest::{Dependency, Manifest, ManifestError, PackageInfo};
 pub use parser::{ReplInput, parse, parse_repl, parse_str};
 pub use resolve::{

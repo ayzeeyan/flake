@@ -9,8 +9,8 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Concurrency maturity (task groups, cancellation, stronger model) | **done** |
-| 2 | Practical package system (resolution, lockfile foundations, re-exports) | in progress |
-| 3 | Stronger ownership and language improvements | planned |
+| 2 | Practical package system (resolution, lockfile foundations, re-exports) | **done** |
+| 3 | Stronger ownership and language improvements | in progress |
 | 4 | Advanced optimizations and native quality | planned |
 | 5 | Integration, examples, testing and hardening | planned |
 | 6 | Flake v0.6 complete | planned |
@@ -25,6 +25,18 @@ There is no LLVM, Cranelift, or C transpilation.
 - Task cancellation primitives:
   - Added `cancel(task)` and `is_cancelled(task)` built-ins across all backends.
   - Consistent error propagation: awaiting a cancelled task produces `"task was cancelled"` runtime error across Tree-walking Interpreter, Bytecode VM, and pure-Rust Native x86-64 executable backend.
+
+## What v0.6 milestone 2 delivers
+
+- Deterministic package lockfiles (`flake.lock`):
+  - Created `flake_parser::lockfile` module with `Lockfile`, `LockedPackage`, and `LockfileError`.
+  - Deterministic FNV-1a checksum calculation across package source files and manifests.
+  - Format serializing `lockfile_version`, `root_package`, and sorted `[[package]]` entries with name, version, source, checksum, and dependencies.
+  - Verification engine checking manifest declarations against locked package versions and sources.
+- New CLI commands:
+  - `flake lock [--check]`: Generates or verifies `flake.lock` for the current package or workspace.
+  - `flake update`: Re-resolves package dependency graphs and refreshes `flake.lock`.
+  - Automatic lockfile verification during `flake run`, `flake build`, and `flake check`.
 
 ## v0.5.7 milestones (complete)
 

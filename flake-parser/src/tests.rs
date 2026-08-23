@@ -1,6 +1,6 @@
 use flake_ast::{BinOp, Expr, InterpPart, Item, Literal, Stmt, TypeExpr, print_program};
 
-use crate::{ReplInput, parse_repl, parse_str};
+use crate::{Lockfile, Manifest, ReplInput, parse_repl, parse_str};
 
 fn parse_ok(src: &str) -> flake_ast::Program {
     parse_str(src).unwrap_or_else(|e| panic!("parse failed for {src:?}: {e}"))
@@ -435,6 +435,55 @@ fn nursery_block_parses() {
     assert!(body.tail.is_some());
     let pretty = print_program(&program);
     assert!(pretty.contains("nursery {"), "{pretty}");
+}
+
+#[test]
+fn lockfile_generation_and_roundtrip() {
+    let dir = std::env::temp_dir().join(format!("flake-lock-test-{}", std::process::id()));
+    let lib_dir = dir.join("lib");
+    std::fs::create_dir_all(&lib_dir).unwrap();
+
+    let lib_manifest_text = r#"
+[package]
+name = "math_lib"
+version = "0.2.0"
+"#;
+    std::fs::write(lib_dir.join("flake.toml"), lib_manifest_text).unwrap();
+    std::fs::write(lib_dir.join("main.flk"), "pub fn add(a: Int, b: Int) -> Int { a + b }\n").unwrap();
+
+    let app_manifest_text = r#"
+[package]
+name = "my_app"
+version = "1.0.0"
+
+[dependencies]
+math = { path = "lib", package = "math_lib", version = "0.2.0" }
+"#;
+    let app_manifest_path = dir.join("flake.toml");
+    std::fs::write(&app_manifest_path, app_manifest_text).unwrap();
+    std::fs::write(dir.join("main.flk"), "import math\nfn main() { print(math.add(1, 2)) }\n").unwrap();
+
+    let manifest = Manifest::parse(app_manifest_text, &app_manifest_path).unwrap();
+    let lockfile = Lockfile::generate(&manifest, &dir).unwrap();
+
+    assert_eq!(lockfile.root_package, "my_app");
+    assert_eq!(lockfile.packages.len(), 2);
+    assert_eq!(lockfile.packages[0].name, "math_lib");
+    assert_eq!(lockfile.packages[1].name, "my_app");
+
+    let toml = lockfile.to_toml_string();
+    assert!(toml.contains("lockfile_version = 1"));
+    assert!(toml.contains("root_package = \"my_app\""));
+    assert!(toml.contains("name = \"math_lib\""));
+
+    let parsed = Lockfile::parse(&toml, &dir.join("flake.lock")).unwrap();
+    assert_eq!(parsed.root_package, lockfile.root_package);
+    assert_eq!(parsed.packages.len(), lockfile.packages.len());
+    assert_eq!(parsed.packages[0].name, lockfile.packages[0].name);
+
+    lockfile.verify(&manifest, &dir).expect("lockfile should verify against manifest");
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

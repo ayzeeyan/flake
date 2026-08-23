@@ -404,3 +404,64 @@ fn package_pub_reexport_and_workspace() {
     // Cleanup
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn package_lock_and_update_commands() {
+    let root = std::env::temp_dir().join(format!("flake-test-lock-{}", std::process::id()));
+    let lib_dir = root.join("math_lib");
+    let app_dir = root.join("app");
+    std::fs::create_dir_all(&lib_dir).expect("create lib dir");
+    std::fs::create_dir_all(&app_dir).expect("create app dir");
+
+    std::fs::write(
+        lib_dir.join("main.flk"),
+        "pub fn square(x: Int) -> Int { x * x }\n",
+    )
+    .expect("write math_lib main.flk");
+
+    std::fs::write(
+        lib_dir.join("flake.toml"),
+        "[package]\nname = \"math_lib\"\nversion = \"0.1.0\"\nentry = \"main.flk\"\n",
+    )
+    .expect("write math_lib flake.toml");
+
+    std::fs::write(
+        app_dir.join("flake.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nentry = \"main.flk\"\n\n[dependencies]\nmath_lib = { path = \"../math_lib\" }\n",
+    )
+    .expect("write app flake.toml");
+
+    std::fs::write(
+        app_dir.join("main.flk"),
+        "import math_lib\nfn main() / io {\n    print(math_lib.square(9))\n}\n",
+    )
+    .expect("write app main.flk");
+
+    // 1. Run flake lock on app
+    let out_lock = flake_bin().arg("lock").arg(&app_dir).output().expect("run lock");
+    assert!(out_lock.status.success(), "lock stderr: {}", String::from_utf8_lossy(&out_lock.stderr));
+    let lock_file = app_dir.join("flake.lock");
+    assert!(lock_file.is_file(), "flake.lock should exist");
+    let lock_content = std::fs::read_to_string(&lock_file).expect("read flake.lock");
+    assert!(lock_content.contains("lockfile_version = 1"));
+    assert!(lock_content.contains("name = \"math_lib\""));
+    assert!(lock_content.contains("name = \"app\""));
+
+    // 2. Check lock is up to date
+    let out_check = flake_bin().arg("lock").arg("--check").arg(&app_dir).output().expect("check lock");
+    assert!(out_check.status.success(), "lock --check failed");
+
+    // 3. Run app with lockfile present
+    let out_run = flake_bin().arg("run").arg(&app_dir).output().expect("run app");
+    assert!(out_run.status.success());
+    assert_eq!(String::from_utf8_lossy(&out_run.stdout), "81\n");
+
+    // 4. Run flake update
+    let out_update = flake_bin().arg("update").arg(&app_dir).output().expect("run update");
+    assert!(out_update.status.success());
+    assert!(lock_file.is_file());
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&root);
+}
+

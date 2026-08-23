@@ -5,7 +5,7 @@ mod report;
 
 use std::fs;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -78,6 +78,19 @@ enum Commands {
         /// Path for the new package directory
         path: PathBuf,
     },
+    /// Generate or check `flake.lock` for the current package or workspace
+    Lock {
+        /// Path to a package directory or `flake.toml` (default: current package)
+        file: Option<PathBuf>,
+        /// Verify that `flake.lock` is up-to-date without modifying it
+        #[arg(long)]
+        check: bool,
+    },
+    /// Update dependencies in `flake.lock`
+    Update {
+        /// Path to a package directory or `flake.toml` (default: current package)
+        file: Option<PathBuf>,
+    },
     /// Start an interactive Flake REPL
     Repl,
 }
@@ -112,6 +125,8 @@ fn main() -> ExitCode {
         },
         Commands::Init { name } => init_package(name),
         Commands::New { path } => new_package(&path),
+        Commands::Lock { file, check } => lock_package(file.as_ref(), check),
+        Commands::Update { file } => update_package(file.as_ref()),
         Commands::Repl => {
             let code = repl::run();
             ExitCode::from(code as u8)
@@ -248,6 +263,107 @@ entry = "main.flk"
     ExitCode::SUCCESS
 }
 
+fn lock_package(file: Option<&PathBuf>, check_only: bool) -> ExitCode {
+    let start_dir = file.cloned().unwrap_or_else(|| PathBuf::from("."));
+    let Some((dir, manifest)) = flake_parser::Manifest::find_in_ancestors(&start_dir) else {
+        report::emit_message("no flake.toml manifest found to lock");
+        return ExitCode::from(1);
+    };
+    let lock_path = dir.join("flake.lock");
+
+    if check_only {
+        if !lock_path.is_file() {
+            report::emit_message(&format!("lockfile {} does not exist (run `flake lock`)", lock_path.display()));
+            return ExitCode::from(1);
+        }
+        let content = match fs::read_to_string(&lock_path) {
+            Ok(c) => c,
+            Err(e) => {
+                report::emit_message(&format!("failed to read {}: {e}", lock_path.display()));
+                return ExitCode::from(1);
+            }
+        };
+        let lockfile = match flake_parser::Lockfile::parse(&content, &lock_path) {
+            Ok(l) => l,
+            Err(e) => {
+                report::emit_message(&format!("invalid lockfile {}: {}", lock_path.display(), e.message));
+                return ExitCode::from(1);
+            }
+        };
+        if let Err(e) = lockfile.verify(&manifest, &dir) {
+            report::emit_message(&format!("lockfile check failed: {}", e.message));
+            return ExitCode::from(1);
+        }
+        println!("Lockfile {} is up to date", lock_path.display());
+        return ExitCode::SUCCESS;
+    }
+
+    let lockfile = match flake_parser::Lockfile::generate(&manifest, &dir) {
+        Ok(l) => l,
+        Err(e) => {
+            report::emit_message(&format!("failed to generate lockfile: {}", e.message));
+            return ExitCode::from(1);
+        }
+    };
+    let toml = lockfile.to_toml_string();
+    if let Err(e) = fs::write(&lock_path, toml) {
+        report::emit_message(&format!("failed to write {}: {e}", lock_path.display()));
+        return ExitCode::from(1);
+    }
+    println!("Locked {} packages to {}", lockfile.packages.len(), lock_path.display());
+    ExitCode::SUCCESS
+}
+
+fn update_package(file: Option<&PathBuf>) -> ExitCode {
+    let start_dir = file.cloned().unwrap_or_else(|| PathBuf::from("."));
+    let Some((dir, manifest)) = flake_parser::Manifest::find_in_ancestors(&start_dir) else {
+        report::emit_message("no flake.toml manifest found to update");
+        return ExitCode::from(1);
+    };
+    let lock_path = dir.join("flake.lock");
+    let lockfile = match flake_parser::Lockfile::generate(&manifest, &dir) {
+        Ok(l) => l,
+        Err(e) => {
+            report::emit_message(&format!("failed to update lockfile: {}", e.message));
+            return ExitCode::from(1);
+        }
+    };
+    let toml = lockfile.to_toml_string();
+    if let Err(e) = fs::write(&lock_path, toml) {
+        report::emit_message(&format!("failed to write {}: {e}", lock_path.display()));
+        return ExitCode::from(1);
+    }
+    println!("Updated {} ({} packages locked)", lock_path.display(), lockfile.packages.len());
+    ExitCode::SUCCESS
+}
+
+fn verify_lockfile_if_present(target_path: &Path) -> Result<(), ExitCode> {
+    if let Some((dir, manifest)) = flake_parser::Manifest::find_in_ancestors(target_path) {
+        let lock_path = dir.join("flake.lock");
+        if lock_path.is_file() {
+            let content = match fs::read_to_string(&lock_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    report::emit_message(&format!("failed to read {}: {e}", lock_path.display()));
+                    return Err(ExitCode::from(1));
+                }
+            };
+            let lockfile = match flake_parser::Lockfile::parse(&content, &lock_path) {
+                Ok(l) => l,
+                Err(e) => {
+                    report::emit_message(&format!("invalid lockfile {}: {}", lock_path.display(), e.message));
+                    return Err(ExitCode::from(1));
+                }
+            };
+            if let Err(e) = lockfile.verify(&manifest, &dir) {
+                report::emit_message(&format!("{}: {}", lock_path.display(), e.message));
+                return Err(ExitCode::from(1));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn emit_check_error(entry: &Source, err: &flake_types::CheckError) {
     match err {
         flake_types::CheckError::Parse(e) => report::emit(entry, e.span, &e.message),
@@ -273,6 +389,11 @@ fn load_source(path: &PathBuf) -> Result<Source, ExitCode> {
 }
 
 fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> ExitCode {
+    if !skip_check {
+        if let Err(code) = verify_lockfile_if_present(path) {
+            return code;
+        }
+    }
     let source = match load_source(path) {
         Ok(s) => s,
         Err(code) => return code,
@@ -331,6 +452,9 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> Exi
 }
 
 fn build_file(path: &PathBuf, output: Option<PathBuf>, emit_asm: bool) -> ExitCode {
+    if let Err(code) = verify_lockfile_if_present(path) {
+        return code;
+    }
     let source = match load_source(path) {
         Ok(s) => s,
         Err(code) => return code,
@@ -387,6 +511,9 @@ fn dump_ir(path: &PathBuf) -> ExitCode {
 }
 
 fn check_file(path: &PathBuf) -> ExitCode {
+    if let Err(code) = verify_lockfile_if_present(path) {
+        return code;
+    }
     let source = match load_source(path) {
         Ok(s) => s,
         Err(code) => return code,
