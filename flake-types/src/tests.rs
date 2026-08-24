@@ -780,6 +780,41 @@ strict fn f() {
 }
 
 #[test]
+fn structural_borrow_conflicts_prevent_field_mutation() {
+    let message = err(r#"
+struct Pair { x: String, y: String }
+
+strict fn f() {
+    var p = Pair { x: "a", y: "b" }
+    let r = &p.x
+    p.y = "new"
+}
+"#);
+    assert!(
+        message.contains("cannot assign to field of `p` while it is borrowed"),
+        "{message}"
+    );
+}
+
+#[test]
+fn structural_borrow_conflicts_prevent_field_mutation_when_moved() {
+    let message = err(r#"
+struct Pair { x: String, y: String }
+fn consume(p: owned Pair) {}
+
+strict fn f() {
+    var p = Pair { x: "a", y: "b" }
+    consume(p)
+    p.x = "new"
+}
+"#);
+    assert!(
+        message.contains("cannot assign to field of `p` because it was already moved"),
+        "{message}"
+    );
+}
+
+#[test]
 fn match_arms_branch_aware_move_checking() {
     let message = err(r#"
 enum Option { Some(String) None }

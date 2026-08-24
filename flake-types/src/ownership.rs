@@ -308,6 +308,36 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
                         }
                     }
                 }
+            } else if let Some((root_name, root_span)) = root_variable_info(target) {
+                if let Some(binding) = cx.lookup_mut(root_name) {
+                    match binding.kind {
+                        Kind::Ref => {
+                            return Err(TypeError::new(
+                                root_span,
+                                format!("cannot assign to field of `ref` binding `{root_name}`"),
+                            ));
+                        }
+                        Kind::Copy | Kind::Owned | Kind::Mut => {
+                            if let State::Borrowed { .. } = binding.state {
+                                return Err(TypeError::new(
+                                    root_span,
+                                    format!(
+                                        "cannot assign to field of `{root_name}` while it is borrowed\nhelp: the borrow must end before the value is assigned"
+                                    ),
+                                ));
+                            }
+                            if let State::Moved(_) = binding.state {
+                                return Err(TypeError::new(
+                                    root_span,
+                                    format!(
+                                        "cannot assign to field of `{root_name}` because it was already moved"
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
+                check_expr(cx, target, false)?;
             } else {
                 check_expr(cx, target, false)?;
             }
