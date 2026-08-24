@@ -883,6 +883,10 @@ fn f() -> Int / conc {
         r1 + r2
     }
 }
+fn main() {}
+"#);
+}
+
 #[test]
 fn concurrency_task_inspection_builtins_typecheck() {
     ok(r#"
