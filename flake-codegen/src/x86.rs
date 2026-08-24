@@ -97,6 +97,12 @@ impl Asm {
         self.bytes.push(0x58 + (r.id() & 7));
     }
 
+    #[allow(dead_code)]
+    pub fn syscall(&mut self) {
+        self.bytes.push(0x0f);
+        self.bytes.push(0x05);
+    }
+
     pub fn ret(&mut self) {
         self.bytes.push(0xC3);
     }

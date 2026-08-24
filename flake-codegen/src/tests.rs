@@ -865,6 +865,39 @@ fn main() / conc + io {
 }
 
 #[test]
+fn elf_starts_with_magic_and_has_valid_headers() {
+    use crate::{Target, compile_target};
+    let elf = compile_target(&src("fn main() { print(42) }"), Target::X86_64_LINUX)
+        .expect("x86_64 elf codegen");
+    assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
+    assert_eq!(elf[4], 2); // 64-bit
+    assert_eq!(elf[5], 1); // Little endian
+    assert_eq!(u16::from_le_bytes([elf[18], elf[19]]), 62); // EM_X86_64
+}
+
+#[test]
+fn aarch64_elf_generation() {
+    use crate::{Target, compile_target};
+    let elf = compile_target(&src("fn main() { print(42) }"), Target::AARCH64_LINUX)
+        .expect("aarch64 elf codegen");
+    assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
+    assert_eq!(elf[4], 2); // 64-bit
+    assert_eq!(elf[5], 1); // Little endian
+    assert_eq!(u16::from_le_bytes([elf[18], elf[19]]), 183); // EM_AARCH64
+}
+
+#[test]
+fn target_parsing_and_defaults() {
+    use crate::Target;
+    assert_eq!("x86_64-windows".parse::<Target>().unwrap(), Target::X86_64_WINDOWS);
+    assert_eq!("x86_64-linux".parse::<Target>().unwrap(), Target::X86_64_LINUX);
+    assert_eq!("aarch64-linux".parse::<Target>().unwrap(), Target::AARCH64_LINUX);
+    assert_eq!("linux".parse::<Target>().unwrap(), Target::X86_64_LINUX);
+    assert_eq!("windows".parse::<Target>().unwrap(), Target::X86_64_WINDOWS);
+    assert_eq!("arm64".parse::<Target>().unwrap(), Target::AARCH64_LINUX);
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

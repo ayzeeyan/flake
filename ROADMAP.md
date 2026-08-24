@@ -9,7 +9,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Concurrency runtime foundations | **done** |
-| 2 | Multi-target native code generation | planned |
+| 2 | Multi-target native code generation | **done** |
 | 3 | Advanced ownership & lifetime analysis | planned |
 | 4 | Serious compiler optimizations + package maturity | planned |
 | 5 | Integration, hardening & showcase examples | planned |
@@ -23,6 +23,15 @@ There is no LLVM, Cranelift, or C transpilation.
   - Enforced cross-backend sendability checks preventing borrowed references (`&x`, `&mut x`, `ref T`) from escaping across `spawn` task boundaries.
   - Strict ownership capture consumption: values moved into spawned child work are checked and consumed consistently across all backends.
   - Parity across Tree-walking Interpreter, Bytecode VM, and pure-Rust Native executable code generator.
+
+## What v0.7 milestone 2 delivers
+
+- Multi-target native code generation (pure Rust, fully owned pipeline):
+  - Added target configuration system (`Target`, `TargetArch`, `TargetOs`) supporting Windows PE32+ and Linux ELF64 across x86-64 and AArch64.
+  - Built custom, standalone ELF64 executable writer (`flake-codegen/src/elf.rs`) producing valid static ELF binaries without external linkers.
+  - Built pure-Rust AArch64 (ARM64) assembler and code generator (`flake-codegen/src/aarch64.rs`).
+  - Added `--target <triple>` CLI flag to `flake build` for cross-targeting (`x86_64-windows`, `x86_64-linux`, `aarch64-linux`).
+  - Maintained 100% backward compatibility and parity with existing x86-64 PE execution.
 
 ## v0.6.1 milestones (complete)
 

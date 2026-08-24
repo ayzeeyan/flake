@@ -1,18 +1,26 @@
-# Native x86-64 backend
+# Native Multi-Target Backend
 
-Flake's native backend is written entirely in-tree. There is no LLVM, Cranelift,
+Flake's native backend is written entirely in pure Rust. There is no LLVM, Cranelift,
 or C transpilation.
 
 ```
-source → AST → IR → x86-64 machine code → PE32+ executable
+source → AST → IR → machine code (x86-64 / AArch64) → binary (PE32+ / ELF64)
 ```
 
-On Windows the compiler emits a real `.exe`. Assembly listings are explicit,
-optional diagnostic artifacts. `flake run --native` compiles to a temporary
-executable, runs it, and removes it on both success and failure.
+The compiler can target multiple architectures and executable binary formats:
+- **x86-64 Windows PE32+** (`x86_64-windows` / `x86_64-windows-pe`)
+- **x86-64 Linux ELF64** (`x86_64-linux` / `x86_64-linux-elf`)
+- **AArch64 Linux ELF64** (`aarch64-linux` / `aarch64-linux-elf`)
 
 ```bash
+# Build for host target:
 flake build examples/hello.flk -o hello.exe
+
+# Cross-target to Linux ELF:
+flake build examples/hello.flk -o hello --target x86_64-linux
+flake build examples/hello.flk -o hello_arm64 --target aarch64-linux
+
+# Emit human-readable assembly:
 flake build examples/hello.flk -o hello.exe --emit-asm
 flake run --native examples/hello.flk
 ```
@@ -97,13 +105,13 @@ division-by-zero and overflow failures instead of leaking processor exceptions
 or wrapping. Concrete list element types similarly drive deterministic String,
 Int, Bool, and Float display.
 
-## Executable production
+## Executable production & Binary Writers
 
-The PE writer records actual virtual section sizes plus aligned raw sizes and
-fills `SizeOfCode`, `SizeOfInitializedData`, and `BaseOfCode`. Output is first
-written and flushed to a unique sibling file, then installed at the requested
-path; an existing output is backed up and restored if replacement fails. The
-default build creates only the executable unless `--emit-asm` is requested.
+Flake includes custom, in-tree binary format writers:
+- **PE32+ Writer** (`pe.rs`): Emits Windows 64-bit PE executables, populating headers, section tables, and imports.
+- **ELF64 Writer** (`elf.rs`): Emits standalone 64-bit ELF executables for Linux, configuring `PT_LOAD` code and data segments without external linkers.
+
+Output files are written atomically and validated before persisting to disk.
 
 ## Task Runtime & Concurrency
 

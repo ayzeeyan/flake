@@ -1,13 +1,11 @@
-//! Pure-Rust x86-64 code generator for Flake.
-//!
-//! Pipeline: AST → IR → machine code → PE32+ executable.
-//! No LLVM, Cranelift, or C transpilation.
-
+pub mod aarch64;
 mod emit;
+pub mod elf;
 mod error;
 mod pe;
 mod regalloc;
 mod runtime;
+pub mod target;
 mod x86;
 
 use std::fs::{self, OpenOptions};
@@ -18,9 +16,12 @@ use std::process::Command;
 use flake_ast::Source;
 use flake_ir::lower;
 
+pub use aarch64::compile_module_aarch64;
+pub use elf::write_elf;
 pub use emit::compile_module;
 pub use error::CodegenError;
 pub use pe::write_pe;
+pub use target::{Target, TargetArch, TargetOs};
 
 static UNIQUE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -198,11 +199,47 @@ impl Drop for RemoveOnDrop {
     }
 }
 
+/// Compile Flake source to binary executable bytes for the specified target.
+pub fn compile_target(source: &Source, target: Target) -> Result<Vec<u8>, CodegenError> {
+    let module = lower(source).map_err(|e| CodegenError::new(e.to_string()))?;
+    compile_target_module(&module, target)
+}
+
+/// Compile an IR module to binary executable bytes for the specified target.
+pub fn compile_target_module(
+    module: &flake_ir::Module,
+    target: Target,
+) -> Result<Vec<u8>, CodegenError> {
+    match (target.arch, target.os) {
+        (TargetArch::X86_64, TargetOs::Windows) => {
+            let compiled = compile_module(module)?;
+            Ok(write_pe(&compiled))
+        }
+        (TargetArch::X86_64, TargetOs::Linux) => {
+            let compiled = compile_module(module)?;
+            Ok(write_elf(&compiled, TargetArch::X86_64))
+        }
+        (TargetArch::Aarch64, TargetOs::Linux | TargetOs::Windows) => {
+            let compiled = compile_module_aarch64(module)?;
+            Ok(write_elf(&compiled, TargetArch::Aarch64))
+        }
+    }
+}
+
 /// Compile Flake source to a Windows PE x86-64 executable.
 pub fn compile_exe(source: &Source) -> Result<Vec<u8>, CodegenError> {
-    let module = lower(source).map_err(|e| CodegenError::new(e.to_string()))?;
-    let compiled = compile_module(&module)?;
-    Ok(write_pe(&compiled))
+    compile_target(source, Target::X86_64_WINDOWS)
+}
+
+/// Compile Flake source to a Linux ELF64 executable.
+pub fn compile_elf(source: &Source, arch: TargetArch) -> Result<Vec<u8>, CodegenError> {
+    compile_target(
+        source,
+        Target {
+            arch,
+            os: TargetOs::Linux,
+        },
+    )
 }
 
 /// Compile to GNU-style assembly text for inspection and diagnostics.
@@ -212,12 +249,51 @@ pub fn compile_asm(source: &Source) -> Result<String, CodegenError> {
     Ok(compiled.gas)
 }
 
+/// Write a native executable to `out` for the given target.
+pub fn write_executable_for_target(
+    source: &Source,
+    out: &Path,
+    target: Target,
+) -> Result<(), CodegenError> {
+    let bytes = compile_target(source, target)?;
+    write_file_atomically(out, &bytes)
+}
+
 /// Write a native executable to `out` without auxiliary artifacts.
 pub fn write_executable(source: &Source, out: &Path) -> Result<(), CodegenError> {
+    write_executable_for_target(source, out, Target::default())
+}
+
+/// Write a native executable and an explicitly requested assembly listing for target.
+pub fn write_executable_with_asm_for_target(
+    source: &Source,
+    out: &Path,
+    asm_out: &Path,
+    target: Target,
+) -> Result<(), CodegenError> {
+    if out == asm_out {
+        return Err(CodegenError::new(
+            "executable and assembly output paths must be different",
+        ));
+    }
     let module = lower(source).map_err(|e| CodegenError::new(e.to_string()))?;
-    let compiled = compile_module(&module)?;
-    let pe = write_pe(&compiled);
-    write_file_atomically(out, &pe)
+    let (bytes, gas) = match target.arch {
+        TargetArch::X86_64 => {
+            let compiled = compile_module(&module)?;
+            let b = match target.os {
+                TargetOs::Windows => write_pe(&compiled),
+                TargetOs::Linux => write_elf(&compiled, TargetArch::X86_64),
+            };
+            (b, compiled.gas)
+        }
+        TargetArch::Aarch64 => {
+            let compiled = compile_module_aarch64(&module)?;
+            let b = write_elf(&compiled, TargetArch::Aarch64);
+            (b, compiled.gas)
+        }
+    };
+    write_file_atomically(asm_out, gas.as_bytes())?;
+    write_file_atomically(out, &bytes)
 }
 
 /// Write a native executable and an explicitly requested assembly listing.
@@ -226,16 +302,7 @@ pub fn write_executable_with_asm(
     out: &Path,
     asm_out: &Path,
 ) -> Result<(), CodegenError> {
-    if out == asm_out {
-        return Err(CodegenError::new(
-            "executable and assembly output paths must be different",
-        ));
-    }
-    let module = lower(source).map_err(|e| CodegenError::new(e.to_string()))?;
-    let compiled = compile_module(&module)?;
-    write_file_atomically(asm_out, compiled.gas.as_bytes())?;
-    let pe = write_pe(&compiled);
-    write_file_atomically(out, &pe)
+    write_executable_with_asm_for_target(source, out, asm_out, Target::default())
 }
 
 /// Compile, write a temp exe, run it, return stdout.

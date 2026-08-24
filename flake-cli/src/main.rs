@@ -46,13 +46,16 @@ enum Commands {
         #[arg(long, conflicts_with = "vm")]
         native: bool,
     },
-    /// Compile a Flake program or local package to a native x86-64 executable
+    /// Compile a Flake program or local package to a native executable
     Build {
         /// Path to a `.flk` source file or package directory (default: current package)
         file: Option<PathBuf>,
-        /// Output path (default: `<stem>.exe`)
+        /// Output path (default: `<stem>.exe` or `<stem>`)
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Target triple (e.g. x86_64-windows, x86_64-linux, aarch64-linux)
+        #[arg(long)]
+        target: Option<String>,
         /// Also emit a human-readable `.s` assembly listing
         #[arg(long)]
         emit_asm: bool,
@@ -110,9 +113,10 @@ fn main() -> ExitCode {
         Commands::Build {
             file,
             output,
+            target,
             emit_asm,
         } => match resolve_target_path(file.as_ref()) {
-            Ok(target) => build_file(&target, output, emit_asm),
+            Ok(target_path) => build_file(&target_path, output, target, emit_asm),
             Err(code) => code,
         },
         Commands::Check { file } => match resolve_target_path(file.as_ref()) {
@@ -451,7 +455,12 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> Exi
     }
 }
 
-fn build_file(path: &PathBuf, output: Option<PathBuf>, emit_asm: bool) -> ExitCode {
+fn build_file(
+    path: &PathBuf,
+    output: Option<PathBuf>,
+    target_str: Option<String>,
+    emit_asm: bool,
+) -> ExitCode {
     if let Err(code) = verify_lockfile_if_present(path) {
         return code;
     }
@@ -463,16 +472,37 @@ fn build_file(path: &PathBuf, output: Option<PathBuf>, emit_asm: bool) -> ExitCo
         emit_check_error(&source, &err);
         return ExitCode::from(1);
     }
+    let target = match target_str {
+        Some(s) => match s.parse::<flake_codegen::Target>() {
+            Ok(t) => t,
+            Err(err) => {
+                report::emit_message(&err.to_string());
+                return ExitCode::from(1);
+            }
+        },
+        None => {
+            if let Some(ref out) = output {
+                if out.extension().and_then(|e| e.to_str()) == Some("exe") {
+                    flake_codegen::Target::X86_64_WINDOWS
+                } else {
+                    flake_codegen::Target::default()
+                }
+            } else {
+                flake_codegen::Target::default()
+            }
+        }
+    };
     let out = output.unwrap_or_else(|| {
         let mut p = path.clone();
-        p.set_extension("exe");
+        let ext = target.default_extension();
+        p.set_extension(ext);
         p
     });
     let asm_out = out.with_extension("s");
     let result = if emit_asm {
-        flake_codegen::write_executable_with_asm(&source, &out, &asm_out)
+        flake_codegen::write_executable_with_asm_for_target(&source, &out, &asm_out, target)
     } else {
-        flake_codegen::write_executable(&source, &out)
+        flake_codegen::write_executable_for_target(&source, &out, target)
     };
     match result {
         Ok(()) => {

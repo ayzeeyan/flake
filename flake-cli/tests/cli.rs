@@ -477,3 +477,26 @@ fn package_lock_and_update_commands() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn build_supports_target_flag() {
+    let src = temp_source("target");
+    std::fs::write(&src, "fn main() { print(42) }\n").unwrap();
+    let out_elf = src.with_extension("elf");
+    let output = flake_bin()
+        .arg("build")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out_elf)
+        .arg("--target")
+        .arg("x86_64-linux")
+        .output()
+        .expect("build target");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(out_elf.is_file());
+    let bytes = std::fs::read(&out_elf).unwrap();
+    assert_eq!(&bytes[0..4], &[0x7f, b'E', b'L', b'F']);
+
+    let _ = std::fs::remove_file(&src);
+    let _ = std::fs::remove_file(&out_elf);
+}
+
