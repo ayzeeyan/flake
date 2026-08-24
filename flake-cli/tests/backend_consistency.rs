@@ -960,6 +960,28 @@ fn main() / io + conc {
     );
 }
 
+#[test]
+fn concurrency_nursery_with_structs_and_lists() {
+    let source = r#"
+struct Job { id: Int, weight: Int }
+
+fn run_job(j: Job) -> Int {
+    j.id * j.weight
+}
+
+fn main() / io + conc {
+    let score = nursery {
+        let t1 = spawn run_job(Job { id: 2, weight: 10 })
+        let t2 = spawn run_job(Job { id: 3, weight: 20 })
+        await t1 + await t2
+    }
+    print("total score: {score}")
+}
+"#;
+    let expected = "total score: 80\n";
+    assert_all_backends("concurrency-nursery-structs", source, expected);
+}
+
 
 
 
