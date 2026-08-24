@@ -562,4 +562,3 @@ pub fn print_pattern(pattern: &crate::ast::Pattern, out: &mut String) {
         }
     }
 }
-

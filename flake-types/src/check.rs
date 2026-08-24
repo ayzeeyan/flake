@@ -183,10 +183,8 @@ impl Checker {
                 &["alloc"],
             ),
         );
-        self.functions.insert(
-            "is_empty".into(),
-            mk(vec![Type::Dyn], Type::Bool, &[]),
-        );
+        self.functions
+            .insert("is_empty".into(), mk(vec![Type::Dyn], Type::Bool, &[]));
         self.functions.insert(
             "has_key".into(),
             mk(vec![Type::Dyn, Type::Dyn], Type::Bool, &[]),
@@ -712,7 +710,8 @@ impl Checker {
                         "use `Enum.Variant` patterns only when matching an enum",
                     ));
                 };
-                let Some((_, field_types)) = variants.iter().find(|(n, _)| n == &variant.name) else {
+                let Some((_, field_types)) = variants.iter().find(|(n, _)| n == &variant.name)
+                else {
                     let listed: Vec<_> = variants.iter().map(|(n, _)| n.as_str()).collect();
                     return Err(TypeError::with_help(
                         variant.span,
@@ -1318,7 +1317,10 @@ impl Checker {
                 }
             }
             Expr::Spawn { call, span } => {
-                let Expr::Call { callee: _, args, .. } = call.as_ref() else {
+                let Expr::Call {
+                    callee: _, args, ..
+                } = call.as_ref()
+                else {
                     return Err(TypeError::with_help(
                         *span,
                         "`spawn` expects a function call",
@@ -1326,7 +1328,13 @@ impl Checker {
                     ));
                 };
                 for arg in args {
-                    if matches!(arg, Expr::Unary { op: UnOp::Ref | UnOp::RefMut, .. }) {
+                    if matches!(
+                        arg,
+                        Expr::Unary {
+                            op: UnOp::Ref | UnOp::RefMut,
+                            ..
+                        }
+                    ) {
                         return Err(TypeError::with_help(
                             arg.span(),
                             "cannot capture reference across task boundary into `spawn`",
@@ -1679,7 +1687,9 @@ impl Checker {
                 let map_ty = self.check_expr(&args[0])?;
                 match self.resolve(&map_ty).without_ownership() {
                     Type::Map(_k, _v) => Ok(Type::List(Box::new(Type::List(Box::new(Type::Dyn))))),
-                    Type::Dyn | Type::Var(_) => Ok(Type::List(Box::new(Type::List(Box::new(Type::Dyn))))),
+                    Type::Dyn | Type::Var(_) => {
+                        Ok(Type::List(Box::new(Type::List(Box::new(Type::Dyn)))))
+                    }
                     other => Err(TypeError::with_help(
                         args[0].span(),
                         format!("entries() expected Map, found {other}"),

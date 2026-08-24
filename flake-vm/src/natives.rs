@@ -245,7 +245,10 @@ pub fn call_native(
                         other => {
                             return Err(VmError::new(
                                 span,
-                                format!("contains() on Range expected Int, found {}", other.type_name()),
+                                format!(
+                                    "contains() on Range expected Int, found {}",
+                                    other.type_name()
+                                ),
                             ));
                         }
                     };
@@ -454,7 +457,10 @@ pub fn call_native(
                 Value::Map(m) => Ok(Value::Bool(m.borrow().is_empty())),
                 other => Err(VmError::new(
                     span,
-                    format!("is_empty() expected List, String, or Map, found {}", other.type_name()),
+                    format!(
+                        "is_empty() expected List, String, or Map, found {}",
+                        other.type_name()
+                    ),
                 )),
             }
         }
@@ -509,10 +515,8 @@ pub fn call_native(
             expect_arity("is_completed", args, 1)?;
             match &args[0] {
                 Value::Task(task) => {
-                    let completed = matches!(
-                        &*task.borrow(),
-                        TaskState::Ready(_) | TaskState::Joined
-                    );
+                    let completed =
+                        matches!(&*task.borrow(), TaskState::Ready(_) | TaskState::Joined);
                     Ok(Value::Bool(completed))
                 }
                 other => Err(VmError::new(

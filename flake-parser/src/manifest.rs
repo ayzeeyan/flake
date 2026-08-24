@@ -133,14 +133,15 @@ impl Manifest {
                 }
                 "dep_table" => {
                     if let Some(ref dep_name) = current_dep_table {
-                        let entry = dependencies
-                            .entry(dep_name.clone())
-                            .or_insert_with(|| Dependency {
-                                name: dep_name.clone(),
-                                path: PathBuf::new(),
-                                package: None,
-                                version: None,
-                            });
+                        let entry =
+                            dependencies
+                                .entry(dep_name.clone())
+                                .or_insert_with(|| Dependency {
+                                    name: dep_name.clone(),
+                                    path: PathBuf::new(),
+                                    package: None,
+                                    version: None,
+                                });
                         if key == "path" {
                             entry.path = PathBuf::from(unquote(val));
                         } else if key == "package" {

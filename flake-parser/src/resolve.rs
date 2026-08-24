@@ -48,7 +48,10 @@ impl ModuleGraph {
 
     /// Collect all exported items of a module, including transitive re-exports through `pub import`.
     #[must_use]
-    pub fn exported_items<'a>(&'a self, module: &'a LoadedModule) -> Vec<(&'a Item, &'a LoadedModule)> {
+    pub fn exported_items<'a>(
+        &'a self,
+        module: &'a LoadedModule,
+    ) -> Vec<(&'a Item, &'a LoadedModule)> {
         let mut result = Vec::new();
         let mut visited = HashSet::new();
         self.collect_exported_items(module, &mut visited, &mut result);
@@ -365,14 +368,18 @@ fn find_module(importer: &str, module: &str, project_root: &Path) -> Option<Reso
     let importer_dir = source_dir(importer);
 
     // 0. Package Manifest Dependency Lookup (flake.toml)
-    if let Some((manifest_dir, manifest)) = crate::manifest::Manifest::find_in_ancestors(&importer_dir) {
+    if let Some((manifest_dir, manifest)) =
+        crate::manifest::Manifest::find_in_ancestors(&importer_dir)
+    {
         let (root_pkg, rest) = match module.split_once('.') {
             Some((first, rest)) => (first, Some(rest)),
             None => (module, None),
         };
 
         if let Some(dep_path) = manifest.resolve_dependency_path(&manifest_dir, root_pkg) {
-            if let Some((dep_manifest_dir, dep_manifest)) = crate::manifest::Manifest::find_in_ancestors(&dep_path) {
+            if let Some((dep_manifest_dir, dep_manifest)) =
+                crate::manifest::Manifest::find_in_ancestors(&dep_path)
+            {
                 if let Some(sub) = rest {
                     let sub_rel = module_relative_path(sub);
                     let candidate = dep_manifest_dir.join(&sub_rel);
@@ -736,7 +743,10 @@ fn main() {
 
         let text = fs::read_to_string(&main_path).expect("read main");
         let graph = load_graph(&Source::new(main_path.display().to_string(), text)).expect("load");
-        assert!(graph.get("math").is_some(), "expected module `math` in graph");
+        assert!(
+            graph.get("math").is_some(),
+            "expected module `math` in graph"
+        );
         assert_eq!(graph.modules.len(), 2);
     }
 }

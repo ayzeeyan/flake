@@ -169,7 +169,9 @@ fn resolve_target_path(path: Option<&PathBuf>) -> Result<PathBuf, ExitCode> {
         if default_main.is_file() {
             return Ok(default_main);
         }
-        report::emit_message("no input file specified and no flake.toml found in current directory");
+        report::emit_message(
+            "no input file specified and no flake.toml found in current directory",
+        );
         Err(ExitCode::from(1))
     }
 }
@@ -212,9 +214,7 @@ entry = "main.flk"
     }
     let main_path = cur_dir.join("main.flk");
     if !main_path.exists() {
-        let main_content = format!(
-            "fn main() / io {{\n    print(\"Hello from {name}!\")\n}}\n"
-        );
+        let main_content = format!("fn main() / io {{\n    print(\"Hello from {name}!\")\n}}\n");
         if let Err(e) = fs::write(&main_path, main_content) {
             report::emit_message(&format!("failed to write {}: {e}", main_path.display()));
             return ExitCode::from(1);
@@ -225,7 +225,11 @@ entry = "main.flk"
 }
 
 fn new_package(path: &PathBuf) -> ExitCode {
-    if path.exists() && fs::read_dir(path).map(|mut d| d.next().is_some()).unwrap_or(false) {
+    if path.exists()
+        && fs::read_dir(path)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(false)
+    {
         report::emit_message(&format!(
             "destination `{}` already exists and is not empty",
             path.display()
@@ -233,7 +237,10 @@ fn new_package(path: &PathBuf) -> ExitCode {
         return ExitCode::from(1);
     }
     if let Err(e) = fs::create_dir_all(path) {
-        report::emit_message(&format!("failed to create directory `{}`: {e}", path.display()));
+        report::emit_message(&format!(
+            "failed to create directory `{}`: {e}",
+            path.display()
+        ));
         return ExitCode::from(1);
     }
     let name = path
@@ -256,9 +263,7 @@ entry = "main.flk"
         return ExitCode::from(1);
     }
     let main_path = path.join("main.flk");
-    let main_content = format!(
-        "fn main() / io {{\n    print(\"Hello from {name}!\")\n}}\n"
-    );
+    let main_content = format!("fn main() / io {{\n    print(\"Hello from {name}!\")\n}}\n");
     if let Err(e) = fs::write(&main_path, main_content) {
         report::emit_message(&format!("failed to write {}: {e}", main_path.display()));
         return ExitCode::from(1);
@@ -277,7 +282,10 @@ fn lock_package(file: Option<&PathBuf>, check_only: bool) -> ExitCode {
 
     if check_only {
         if !lock_path.is_file() {
-            report::emit_message(&format!("lockfile {} does not exist (run `flake lock`)", lock_path.display()));
+            report::emit_message(&format!(
+                "lockfile {} does not exist (run `flake lock`)",
+                lock_path.display()
+            ));
             return ExitCode::from(1);
         }
         let content = match fs::read_to_string(&lock_path) {
@@ -290,7 +298,11 @@ fn lock_package(file: Option<&PathBuf>, check_only: bool) -> ExitCode {
         let lockfile = match flake_parser::Lockfile::parse(&content, &lock_path) {
             Ok(l) => l,
             Err(e) => {
-                report::emit_message(&format!("invalid lockfile {}: {}", lock_path.display(), e.message));
+                report::emit_message(&format!(
+                    "invalid lockfile {}: {}",
+                    lock_path.display(),
+                    e.message
+                ));
                 return ExitCode::from(1);
             }
         };
@@ -314,7 +326,11 @@ fn lock_package(file: Option<&PathBuf>, check_only: bool) -> ExitCode {
         report::emit_message(&format!("failed to write {}: {e}", lock_path.display()));
         return ExitCode::from(1);
     }
-    println!("Locked {} packages to {}", lockfile.packages.len(), lock_path.display());
+    println!(
+        "Locked {} packages to {}",
+        lockfile.packages.len(),
+        lock_path.display()
+    );
     ExitCode::SUCCESS
 }
 
@@ -337,7 +353,11 @@ fn update_package(file: Option<&PathBuf>) -> ExitCode {
         report::emit_message(&format!("failed to write {}: {e}", lock_path.display()));
         return ExitCode::from(1);
     }
-    println!("Updated {} ({} packages locked)", lock_path.display(), lockfile.packages.len());
+    println!(
+        "Updated {} ({} packages locked)",
+        lock_path.display(),
+        lockfile.packages.len()
+    );
     ExitCode::SUCCESS
 }
 
@@ -355,7 +375,11 @@ fn verify_lockfile_if_present(target_path: &Path) -> Result<(), ExitCode> {
             let lockfile = match flake_parser::Lockfile::parse(&content, &lock_path) {
                 Ok(l) => l,
                 Err(e) => {
-                    report::emit_message(&format!("invalid lockfile {}: {}", lock_path.display(), e.message));
+                    report::emit_message(&format!(
+                        "invalid lockfile {}: {}",
+                        lock_path.display(),
+                        e.message
+                    ));
                     return Err(ExitCode::from(1));
                 }
             };

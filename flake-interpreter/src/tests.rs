@@ -580,4 +580,3 @@ fn main() / io + conc {
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
-

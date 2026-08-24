@@ -8,7 +8,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::ir::{BasicBlock, BinOp, BlockId, Callee, Const, Function, Inst, Local, LocalId, Module, UnOp};
+use crate::ir::{
+    BasicBlock, BinOp, BlockId, Callee, Const, Function, Inst, Local, LocalId, Module, UnOp,
+};
 
 /// Run all IR optimization passes on the module.
 pub fn optimize(module: &mut Module) {
@@ -145,7 +147,9 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                         }
                     }
                 }
-                Inst::MakeStruct { dest, ref fields, .. } => {
+                Inst::MakeStruct {
+                    dest, ref fields, ..
+                } => {
                     if defs.get(&dest) == Some(&1) && !escaped_or_mutated.contains(&dest) {
                         let mut map = HashMap::new();
                         for (f, val_id) in fields {
@@ -159,7 +163,11 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                         list_items.insert(dest, items.clone());
                     }
                 }
-                Inst::GetField { dest, obj, ref field } => {
+                Inst::GetField {
+                    dest,
+                    obj,
+                    ref field,
+                } => {
                     if let Some(map) = struct_fields.get(&obj) {
                         if let Some(&field_val_id) = map.get(field) {
                             if let Some(c) = constants.get(&field_val_id) {
@@ -194,10 +202,7 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                                         constants.insert(dest, c.clone());
                                     }
                                 } else {
-                                    *inst = Inst::Move {
-                                        dest,
-                                        src: item_id,
-                                    };
+                                    *inst = Inst::Move { dest, src: item_id };
                                 }
                                 changed = true;
                             }
@@ -218,12 +223,7 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                         }
                     }
                 }
-                Inst::Binary {
-                    dest,
-                    op,
-                    lhs,
-                    rhs,
-                } => {
+                Inst::Binary { dest, op, lhs, rhs } => {
                     let l_opt = constants.get(&lhs);
                     let r_opt = constants.get(&rhs);
                     if let (Some(l), Some(r)) = (l_opt, r_opt) {
@@ -237,7 +237,9 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                             }
                             changed = true;
                         }
-                    } else if let Some(simplified) = simplify_algebraic(op, lhs, rhs, l_opt, r_opt, dest) {
+                    } else if let Some(simplified) =
+                        simplify_algebraic(op, lhs, rhs, l_opt, r_opt, dest)
+                    {
                         *inst = simplified;
                         changed = true;
                     }
@@ -352,12 +354,11 @@ fn simplify_algebraic(
         // true && x -> x
         (BinOp::And, Some(Const::Bool(true)), None) => Some(Inst::Move { dest, src: rhs }),
         // x && false -> false
-        (BinOp::And, None, Some(Const::Bool(false))) | (BinOp::And, Some(Const::Bool(false)), None) => {
-            Some(Inst::LoadConst {
-                dest,
-                value: Const::Bool(false),
-            })
-        }
+        (BinOp::And, None, Some(Const::Bool(false)))
+        | (BinOp::And, Some(Const::Bool(false)), None) => Some(Inst::LoadConst {
+            dest,
+            value: Const::Bool(false),
+        }),
         // x || true -> true
         (BinOp::Or, None, Some(Const::Bool(true))) | (BinOp::Or, Some(Const::Bool(true)), None) => {
             Some(Inst::LoadConst {
@@ -369,16 +370,6 @@ fn simplify_algebraic(
         (BinOp::Or, None, Some(Const::Bool(false))) => Some(Inst::Move { dest, src: lhs }),
         // false || x -> x
         (BinOp::Or, Some(Const::Bool(false)), None) => Some(Inst::Move { dest, src: rhs }),
-        // x == x -> true
-        (BinOp::Eq, None, None) if lhs == rhs => Some(Inst::LoadConst {
-            dest,
-            value: Const::Bool(true),
-        }),
-        // x != x -> false
-        (BinOp::Ne, None, None) if lhs == rhs => Some(Inst::LoadConst {
-            dest,
-            value: Const::Bool(false),
-        }),
         _ => None,
     }
 }
@@ -872,7 +863,11 @@ pub fn inline_functions(module: &mut Module) -> bool {
         }
         let mut is_leaf = true;
         for inst in &block.insts {
-            if let Inst::Call { callee: Callee::Static(target), .. } = inst {
+            if let Inst::Call {
+                callee: Callee::Static(target),
+                ..
+            } = inst
+            {
                 if target == &func.name {
                     is_leaf = false;
                     break;
@@ -897,7 +892,12 @@ pub fn inline_functions(module: &mut Module) -> bool {
         for block in &func.blocks {
             let mut new_insts = Vec::with_capacity(block.insts.len());
             for inst in &block.insts {
-                if let Inst::Call { dest, callee: Callee::Static(target), args } = inst {
+                if let Inst::Call {
+                    dest,
+                    callee: Callee::Static(target),
+                    args,
+                } = inst
+                {
                     if let Some(target_func) = inlinable.get(target) {
                         if target_func.name != func.name && target_func.params.len() == args.len() {
                             func_changed = true;
@@ -909,11 +909,16 @@ pub fn inline_functions(module: &mut Module) -> bool {
                             }
 
                             for target_local in &target_func.locals {
-                                if let std::collections::hash_map::Entry::Vacant(e) = local_map.entry(target_local.id) {
+                                if let std::collections::hash_map::Entry::Vacant(e) =
+                                    local_map.entry(target_local.id)
+                                {
                                     let new_id = LocalId(func.locals.len() as u32);
                                     func.locals.push(Local {
                                         id: new_id,
-                                        name: target_local.name.clone().map(|n| format!("inline_{n}")),
+                                        name: target_local
+                                            .name
+                                            .clone()
+                                            .map(|n| format!("inline_{n}")),
                                         ty: target_local.ty.clone(),
                                     });
                                     e.insert(new_id);
@@ -924,9 +929,15 @@ pub fn inline_functions(module: &mut Module) -> bool {
                             let last_idx = target_block.insts.len() - 1;
                             for (idx, target_inst) in target_block.insts.iter().enumerate() {
                                 if idx == last_idx {
-                                    if let Inst::Return { value: Some(ret_local) } = target_inst {
+                                    if let Inst::Return {
+                                        value: Some(ret_local),
+                                    } = target_inst
+                                    {
                                         if let Some(caller_dest) = dest {
-                                            let mapped_ret = local_map.get(ret_local).copied().unwrap_or(*ret_local);
+                                            let mapped_ret = local_map
+                                                .get(ret_local)
+                                                .copied()
+                                                .unwrap_or(*ret_local);
                                             new_insts.push(Inst::Move {
                                                 dest: *caller_dest,
                                                 src: mapped_ret,
@@ -977,17 +988,42 @@ mod tests {
             strict: false,
             owned: false,
             locals: vec![
-                Local { id: LocalId(0), name: None, ty: IrType::Int },
-                Local { id: LocalId(1), name: None, ty: IrType::Int },
-                Local { id: LocalId(2), name: None, ty: IrType::Int },
+                Local {
+                    id: LocalId(0),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(1),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(2),
+                    name: None,
+                    ty: IrType::Int,
+                },
             ],
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 insts: vec![
-                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(10) },
-                    Inst::LoadConst { dest: LocalId(1), value: Const::Int(20) },
-                    Inst::Binary { dest: LocalId(2), op: BinOp::Add, lhs: LocalId(0), rhs: LocalId(1) },
-                    Inst::Return { value: Some(LocalId(2)) },
+                    Inst::LoadConst {
+                        dest: LocalId(0),
+                        value: Const::Int(10),
+                    },
+                    Inst::LoadConst {
+                        dest: LocalId(1),
+                        value: Const::Int(20),
+                    },
+                    Inst::Binary {
+                        dest: LocalId(2),
+                        op: BinOp::Add,
+                        lhs: LocalId(0),
+                        rhs: LocalId(1),
+                    },
+                    Inst::Return {
+                        value: Some(LocalId(2)),
+                    },
                 ],
             }],
             entry: BlockId(0),
@@ -996,7 +1032,12 @@ mod tests {
         optimize_function(&mut func);
 
         let return_inst = &func.blocks[0].insts.last().unwrap();
-        assert!(matches!(return_inst, Inst::Return { value: Some(LocalId(2)) }));
+        assert!(matches!(
+            return_inst,
+            Inst::Return {
+                value: Some(LocalId(2))
+            }
+        ));
 
         let const_inst = &func.blocks[0].insts[0];
         assert_eq!(
@@ -1019,14 +1060,29 @@ mod tests {
             strict: false,
             owned: false,
             locals: vec![
-                Local { id: LocalId(0), name: Some("x".into()), ty: IrType::Int },
-                Local { id: LocalId(1), name: None, ty: IrType::Int },
+                Local {
+                    id: LocalId(0),
+                    name: Some("x".into()),
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(1),
+                    name: None,
+                    ty: IrType::Int,
+                },
             ],
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 insts: vec![
-                    Inst::Binary { dest: LocalId(1), op: BinOp::Mul, lhs: LocalId(0), rhs: LocalId(0) },
-                    Inst::Return { value: Some(LocalId(1)) },
+                    Inst::Binary {
+                        dest: LocalId(1),
+                        op: BinOp::Mul,
+                        lhs: LocalId(0),
+                        rhs: LocalId(0),
+                    },
+                    Inst::Return {
+                        value: Some(LocalId(1)),
+                    },
                 ],
             }],
             entry: BlockId(0),
@@ -1041,19 +1097,32 @@ mod tests {
             strict: false,
             owned: false,
             locals: vec![
-                Local { id: LocalId(0), name: None, ty: IrType::Int },
-                Local { id: LocalId(1), name: None, ty: IrType::Int },
+                Local {
+                    id: LocalId(0),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(1),
+                    name: None,
+                    ty: IrType::Int,
+                },
             ],
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 insts: vec![
-                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(5) },
+                    Inst::LoadConst {
+                        dest: LocalId(0),
+                        value: Const::Int(5),
+                    },
                     Inst::Call {
                         dest: Some(LocalId(1)),
                         callee: Callee::Static("square".into()),
                         args: vec![LocalId(0)],
                     },
-                    Inst::Return { value: Some(LocalId(1)) },
+                    Inst::Return {
+                        value: Some(LocalId(1)),
+                    },
                 ],
             }],
             entry: BlockId(0),
@@ -1069,12 +1138,24 @@ mod tests {
 
         let main_func = module.functions.iter().find(|f| f.name == "main").unwrap();
         // After inlining square(5) -> 5 * 5 -> constant-folded to 25!
-        let has_call = main_func.blocks[0].insts.iter().any(|i| matches!(i, Inst::Call { .. }));
+        let has_call = main_func.blocks[0]
+            .insts
+            .iter()
+            .any(|i| matches!(i, Inst::Call { .. }));
         assert!(!has_call, "call instruction should have been inlined");
         let has_const_25 = main_func.blocks[0].insts.iter().any(|i| {
-            matches!(i, Inst::LoadConst { value: Const::Int(25), .. })
+            matches!(
+                i,
+                Inst::LoadConst {
+                    value: Const::Int(25),
+                    ..
+                }
+            )
         });
-        assert!(has_const_25, "inlined 5 * 5 should be folded to Const::Int(25)");
+        assert!(
+            has_const_25,
+            "inlined 5 * 5 should be folded to Const::Int(25)"
+        );
     }
 
     #[test]
@@ -1088,16 +1169,38 @@ mod tests {
             strict: false,
             owned: false,
             locals: vec![
-                Local { id: LocalId(0), name: None, ty: IrType::Int },
-                Local { id: LocalId(1), name: None, ty: IrType::Int },
-                Local { id: LocalId(2), name: None, ty: IrType::Struct("Point".into()) },
-                Local { id: LocalId(3), name: None, ty: IrType::Int },
+                Local {
+                    id: LocalId(0),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(1),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(2),
+                    name: None,
+                    ty: IrType::Struct("Point".into()),
+                },
+                Local {
+                    id: LocalId(3),
+                    name: None,
+                    ty: IrType::Int,
+                },
             ],
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 insts: vec![
-                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(10) },
-                    Inst::LoadConst { dest: LocalId(1), value: Const::Int(20) },
+                    Inst::LoadConst {
+                        dest: LocalId(0),
+                        value: Const::Int(10),
+                    },
+                    Inst::LoadConst {
+                        dest: LocalId(1),
+                        value: Const::Int(20),
+                    },
                     Inst::MakeStruct {
                         dest: LocalId(2),
                         name: "Point".into(),
@@ -1108,7 +1211,9 @@ mod tests {
                         obj: LocalId(2),
                         field: "y".into(),
                     },
-                    Inst::Return { value: Some(LocalId(3)) },
+                    Inst::Return {
+                        value: Some(LocalId(3)),
+                    },
                 ],
             }],
             entry: BlockId(0),
@@ -1123,12 +1228,24 @@ mod tests {
         optimize(&mut module);
 
         let opt_func = &module.functions[0];
-        let has_get_field = opt_func.blocks[0].insts.iter().any(|i| matches!(i, Inst::GetField { .. }));
+        let has_get_field = opt_func.blocks[0]
+            .insts
+            .iter()
+            .any(|i| matches!(i, Inst::GetField { .. }));
         assert!(!has_get_field, "GetField should be eliminated");
         let has_const_20 = opt_func.blocks[0].insts.iter().any(|i| {
-            matches!(i, Inst::LoadConst { value: Const::Int(20), .. })
+            matches!(
+                i,
+                Inst::LoadConst {
+                    value: Const::Int(20),
+                    ..
+                }
+            )
         });
-        assert!(has_const_20, "Point.y projection should fold to Const::Int(20)");
+        assert!(
+            has_const_20,
+            "Point.y projection should fold to Const::Int(20)"
+        );
     }
 
     #[test]
@@ -1142,21 +1259,38 @@ mod tests {
             strict: false,
             owned: false,
             locals: vec![
-                Local { id: LocalId(0), name: None, ty: IrType::Int },
-                Local { id: LocalId(1), name: None, ty: IrType::Int },
-                Local { id: LocalId(2), name: None, ty: IrType::Int },
+                Local {
+                    id: LocalId(0),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(1),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(2),
+                    name: None,
+                    ty: IrType::Int,
+                },
             ],
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 insts: vec![
-                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(0) },
+                    Inst::LoadConst {
+                        dest: LocalId(0),
+                        value: Const::Int(0),
+                    },
                     Inst::Binary {
                         dest: LocalId(2),
                         op: BinOp::Mul,
                         lhs: LocalId(1),
                         rhs: LocalId(0),
                     },
-                    Inst::Return { value: Some(LocalId(2)) },
+                    Inst::Return {
+                        value: Some(LocalId(2)),
+                    },
                 ],
             }],
             entry: BlockId(0),
@@ -1171,10 +1305,22 @@ mod tests {
         optimize(&mut module);
 
         let opt_func = &module.functions[0];
-        let has_binop = opt_func.blocks[0].insts.iter().any(|i| matches!(i, Inst::Binary { .. }));
-        assert!(!has_binop, "Binary multiply by 0 should be simplified to LoadConst");
+        let has_binop = opt_func.blocks[0]
+            .insts
+            .iter()
+            .any(|i| matches!(i, Inst::Binary { .. }));
+        assert!(
+            !has_binop,
+            "Binary multiply by 0 should be simplified to LoadConst"
+        );
         let has_zero = opt_func.blocks[0].insts.iter().any(|i| {
-            matches!(i, Inst::LoadConst { value: Const::Int(0), .. })
+            matches!(
+                i,
+                Inst::LoadConst {
+                    value: Const::Int(0),
+                    ..
+                }
+            )
         });
         assert!(has_zero, "Result should fold to 0");
     }

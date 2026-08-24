@@ -747,7 +747,10 @@ fn check(c: Color) -> String {
 }
 fn main() {}
 "#);
-    assert!(message.contains("non-exhaustive match on `Color`: missing Blue"), "{message}");
+    assert!(
+        message.contains("non-exhaustive match on `Color`: missing Blue"),
+        "{message}"
+    );
 
     let message = err(r#"
 enum Color { Red Green Blue }
@@ -776,7 +779,10 @@ strict fn f() {
     consume(p)
 }
 "#);
-    assert!(message.contains("cannot move `p` while it is borrowed"), "{message}");
+    assert!(
+        message.contains("cannot move `p` while it is borrowed"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -867,7 +873,10 @@ fn f() / conc {
 }
 fn main() { }
 "#);
-    assert!(msg.contains("task handle cannot escape its nursery"), "{msg}");
+    assert!(
+        msg.contains("task handle cannot escape its nursery"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -912,7 +921,10 @@ fn caller() / conc {
 }
 fn main() {}
 "#);
-    assert!(msg.contains("cannot capture reference across task boundary"), "{msg}");
+    assert!(
+        msg.contains("cannot capture reference across task boundary"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -924,7 +936,10 @@ strict fn caller(r: ref String) / conc {
 }
 fn main() {}
 "#);
-    assert!(msg.contains("cannot capture reference `r` across task boundary"), "{msg}");
+    assert!(
+        msg.contains("cannot capture reference `r` across task boundary"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -951,4 +966,3 @@ fn main() {}
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
-

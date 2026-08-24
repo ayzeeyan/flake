@@ -1,10 +1,10 @@
 # Flake Roadmap
 
-**Flake v0.7 in progress.** Theme: **From solid foundation to serious systems language**.
+**Flake v0.7 is complete.** Theme: **From solid foundation to serious systems language**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.7 milestones
+## v0.7 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
@@ -13,49 +13,29 @@ There is no LLVM, Cranelift, or C transpilation.
 | 3 | Advanced ownership & lifetime analysis | **done** |
 | 4 | Serious compiler optimizations + package maturity | **done** |
 | 5 | Integration, hardening & showcase examples | **done** |
-| 6 | Flake v0.7 complete – documentation, polish & release | planned |
+| 6 | Flake v0.7 complete – documentation, polish & release | **done** |
 
-## What v0.7 milestone 1 delivers
+## What v0.7 delivers
 
-- Concurrency runtime foundations & expanded task lifecycle:
-  - Added explicit lifecycle states: `Pending`, `Running`, `Completed(Value)`, `Joined`, `Cancelled`.
-  - Added built-in inspection primitives: `is_completed(task)` and `task_status(task)` returning `"pending"`, `"running"`, `"completed"`, `"joined"`, `"cancelled"`.
-  - Enforced cross-backend sendability checks preventing borrowed references (`&x`, `&mut x`, `ref T`) from escaping across `spawn` task boundaries.
-  - Strict ownership capture consumption: values moved into spawned child work are checked and consumed consistently across all backends.
-  - Parity across Tree-walking Interpreter, Bytecode VM, and pure-Rust Native executable code generator.
-
-## What v0.7 milestone 2 delivers
-
-- Multi-target native code generation (pure Rust, fully owned pipeline):
-  - Added target configuration system (`Target`, `TargetArch`, `TargetOs`) supporting Windows PE32+ and Linux ELF64 across x86-64 and AArch64.
-  - Built custom, standalone ELF64 executable writer (`flake-codegen/src/elf.rs`) producing valid static ELF binaries without external linkers.
-  - Built pure-Rust AArch64 (ARM64) assembler and code generator (`flake-codegen/src/aarch64.rs`).
-  - Added `--target <triple>` CLI flag to `flake build` for cross-targeting (`x86_64-windows`, `x86_64-linux`, `aarch64-linux`).
-  - Maintained 100% backward compatibility and parity with existing x86-64 PE execution.
-
-## What v0.7 milestone 3 delivers
-
-- Advanced ownership and lifetime analysis:
-  - Match arm pattern binding ownership: tracked ownership, movement, and reuse rules for bindings introduced in pattern matching arms.
-  - Enhanced structural borrow checking: field-level and path-sensitive tracking protecting root and nested containers against conflicting mutations and invalidations.
-  - Sendability checking across task boundaries: preventing borrowed references from escaping across asynchronous task scopes.
-  - Scope and lifetime analysis: strict verification that reborrows and local references do not outlive their owning contexts.
-
-## What v0.7 milestone 4 delivers
-
-- Serious optimizations & package maturity:
-  - Added algebraic identity simplification & strength reduction passes over IR binary expressions (identity operations on 0, 1, true, false, and reflexive equality).
-  - Dead code elimination (DCE) over IR control flow graph removing unreachable basic blocks and unused instructions.
-  - Jump threading & block collapsing across single-jump blocks.
-  - Deterministic lockfile validation across package manifests and local path dependencies.
-  - Verified optimization and execution consistency across all three backends.
-
-## What v0.7 milestone 5 delivers
-
-- Integration, hardening & showcase examples:
-  - Added flagship v0.7 showcase package (`examples/projects/v07_showcase/`) exercising concurrent task orchestration with `is_completed` and `task_status`, strict ownership across modular boundaries, and Result error pattern matching.
-  - Cross-backend integration testing across Tree-walking Interpreter, Bytecode VM, and pure-Rust Native backend.
-  - Hardened multi-target native build pipeline for Windows PE32+ and Linux ELF64 (x86-64 and AArch64).
+- **Multi-target native code generation**:
+  - Pure-Rust standalone 64-bit ELF executable generator (`flake-codegen/src/elf.rs`).
+  - Pure-Rust AArch64 (ARM64) machine code assembler (`flake-codegen/src/aarch64.rs`).
+  - CLI cross-compilation support via `--target` for `x86_64-windows`, `x86_64-linux`, and `aarch64-linux`.
+- **Concurrency runtime foundations**:
+  - Full task lifecycle states (`Pending`, `Running`, `Completed(Value)`, `Joined`, `Cancelled`).
+  - Runtime inspection primitives: `is_completed(task)` and `task_status(task)`.
+  - Compile-time cross-task sendability validation preventing borrowed reference escapes across `spawn` boundaries.
+- **Advanced ownership & lifetime analysis**:
+  - Pattern matching arm-scoped binding ownership and move checking.
+  - Structural and field-sensitive borrow checking protecting containers and nested components.
+  - Reborrow lifetime verification preventing references from outliving their owner.
+- **Serious compiler optimizations & package maturity**:
+  - Algebraic identity simplification and strength reduction on arithmetic, booleans, and strings.
+  - Control flow graph dead code elimination and jump threading.
+  - Deterministic lockfiles and multi-module resolution.
+- **Showcase & integration hardening**:
+  - Flagship v0.7 showcase project in `examples/projects/v07_showcase/`.
+  - 100% cross-backend consistency and automated test coverage across Interpreter, VM, and Native x86-64 executable backend.
 
 ## v0.6.1 milestones (complete)
 

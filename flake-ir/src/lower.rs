@@ -296,15 +296,9 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
                     if let Item::Fn(func) = item {
                         let canonical = qualify(&origin_name, &func.name.name);
                         if graph.unqualified_import_is_unambiguous(module, &func.name.name) {
-                            imported_fns.insert(
-                                func.name.name.clone(),
-                                canonical.clone(),
-                            );
+                            imported_fns.insert(func.name.name.clone(), canonical.clone());
                         }
-                        imported_fns.insert(
-                            format!("{alias}.{}", func.name.name),
-                            canonical,
-                        );
+                        imported_fns.insert(format!("{alias}.{}", func.name.name), canonical);
                         exported
                             .get_mut(&alias)
                             .unwrap()
@@ -316,8 +310,10 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
                         _ => None,
                     };
                     if let Some(name) = imported_type {
-                        imported_types.insert(format!("{alias}.{name}"), qualify(&origin_name, name));
-                        imported_types.insert(qualify(&origin_name, name), qualify(&origin_name, name));
+                        imported_types
+                            .insert(format!("{alias}.{name}"), qualify(&origin_name, name));
+                        imported_types
+                            .insert(qualify(&origin_name, name), qualify(&origin_name, name));
                         if graph.unqualified_import_is_unambiguous(module, name) {
                             imported_types.insert(name.clone(), qualify(&origin_name, name));
                         }
@@ -440,8 +436,8 @@ fn structs_for(
                             .iter()
                             .map(|f| {
                                 (
-                                     f.name.name.clone(),
-                                     names.resolve_type(lower_type(Some(&f.ty))),
+                                    f.name.name.clone(),
+                                    names.resolve_type(lower_type(Some(&f.ty))),
                                 )
                             })
                             .collect();
@@ -923,7 +919,10 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                         let mut items = vec![b.const_val(Const::Int(tag as i64), IrType::Int)];
                         items.extend(arg_ids);
                         let val_dest = b.alloc(None, IrType::Struct(ename.clone()));
-                        b.emit(Inst::MakeList { dest: val_dest, items });
+                        b.emit(Inst::MakeList {
+                            dest: val_dest,
+                            items,
+                        });
                         let dest = b.alloc(None, IrType::Task(Box::new(IrType::Struct(ename))));
                         b.emit(Inst::Spawn {
                             dest,
@@ -1004,7 +1003,10 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                 _ => IrType::Dyn,
             };
             let dest = b.alloc(None, ret_ty);
-            b.emit(Inst::Await { dest, task: task_id });
+            b.emit(Inst::Await {
+                dest,
+                task: task_id,
+            });
             dest
         }
         Expr::Try { expr, .. } => lower_try(b, expr),
@@ -1124,7 +1126,9 @@ fn lower_pattern_test(
             if id.name == "_" {
                 // do nothing
             } else if id.name.chars().next().is_some_and(|c| c.is_uppercase())
-                && b.enums.values().any(|vs| vs.iter().any(|(n, _)| n == &id.name))
+                && b.enums
+                    .values()
+                    .any(|vs| vs.iter().any(|(n, _)| n == &id.name))
             {
                 let tag_val = b
                     .enums
@@ -1161,7 +1165,10 @@ fn lower_pattern_test(
                     .map(|l| l.ty.clone())
                     .unwrap_or(IrType::Dyn);
                 let slot = b.alloc(Some(id.name.clone()), var_ty);
-                b.emit(Inst::Move { dest: slot, src: val });
+                b.emit(Inst::Move {
+                    dest: slot,
+                    src: val,
+                });
             }
         }
         flake_ast::Pattern::Literal { value, .. } => {
@@ -1411,18 +1418,18 @@ fn lower_binary(b: &mut Builder, op: AstBin, left: &Expr, right: &Expr) -> Local
     let lhs_ty = b.locals.iter().find(|l| l.id == lhs).map(|l| &l.ty);
     let rhs_ty = b.locals.iter().find(|l| l.id == rhs).map(|l| &l.ty);
     let dest_ty = match op {
-        AstBin::Eq | AstBin::Ne | AstBin::Lt | AstBin::Le | AstBin::Gt | AstBin::Ge => {
-            IrType::Bool
-        }
-        AstBin::Add if matches!(lhs_ty, Some(IrType::String)) || matches!(rhs_ty, Some(IrType::String)) => {
+        AstBin::Eq | AstBin::Ne | AstBin::Lt | AstBin::Le | AstBin::Gt | AstBin::Ge => IrType::Bool,
+        AstBin::Add
+            if matches!(lhs_ty, Some(IrType::String)) || matches!(rhs_ty, Some(IrType::String)) =>
+        {
             IrType::String
         }
-        AstBin::Add if matches!(lhs_ty, Some(IrType::List(_))) => {
-            lhs_ty.cloned().unwrap_or(IrType::List(Box::new(IrType::Dyn)))
-        }
-        AstBin::Add if matches!(rhs_ty, Some(IrType::List(_))) => {
-            rhs_ty.cloned().unwrap_or(IrType::List(Box::new(IrType::Dyn)))
-        }
+        AstBin::Add if matches!(lhs_ty, Some(IrType::List(_))) => lhs_ty
+            .cloned()
+            .unwrap_or(IrType::List(Box::new(IrType::Dyn))),
+        AstBin::Add if matches!(rhs_ty, Some(IrType::List(_))) => rhs_ty
+            .cloned()
+            .unwrap_or(IrType::List(Box::new(IrType::Dyn))),
         _ if matches!(lhs_ty, Some(IrType::Float)) || matches!(rhs_ty, Some(IrType::Float)) => {
             IrType::Float
         }
@@ -1679,14 +1686,8 @@ fn native_result_ty(name: &str) -> IrType {
         "len" | "int" => IrType::Int,
         "str" | "join" | "type_of" | "read_file" | "trim" | "upper" | "lower" | "env" | "cwd"
         | "task_status" => IrType::String,
-        "contains"
-        | "starts_with"
-        | "ends_with"
-        | "file_exists"
-        | "is_empty"
-        | "has_key"
-        | "is_cancelled"
-        | "is_completed" => IrType::Bool,
+        "contains" | "starts_with" | "ends_with" | "file_exists" | "is_empty" | "has_key"
+        | "is_cancelled" | "is_completed" => IrType::Bool,
         "range" => IrType::Range,
         "split" => IrType::List(Box::new(IrType::String)),
         "keys" | "values" => IrType::List(Box::new(IrType::Dyn)),

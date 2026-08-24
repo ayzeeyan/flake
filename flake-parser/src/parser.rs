@@ -142,7 +142,9 @@ impl<'src> Parser<'src> {
             return Ok(Item::Import(self.parse_import(start, is_pub)?));
         }
         if is_pub {
-            return Err(self.error("expected `fn`, `struct`, `enum`, `type`, or `import` after `pub`"));
+            return Err(
+                self.error("expected `fn`, `struct`, `enum`, `type`, or `import` after `pub`")
+            );
         }
         Err(self.unexpected("top-level item (`fn`, `struct`, `enum`, `type`, or `import`)"))
     }

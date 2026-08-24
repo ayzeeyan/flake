@@ -1,6 +1,6 @@
 pub mod aarch64;
-mod emit;
 pub mod elf;
+mod emit;
 mod error;
 mod pe;
 mod regalloc;

@@ -680,7 +680,11 @@ impl<'a> FnCompiler<'a> {
                 if id.name == "_" {
                     Ok(())
                 } else if id.name.chars().next().is_some_and(|c| c.is_uppercase())
-                    && self.names.enums.values().any(|vs| vs.iter().any(|n| n == &id.name))
+                    && self
+                        .names
+                        .enums
+                        .values()
+                        .any(|vs| vs.iter().any(|n| n == &id.name))
                 {
                     let tag_val = self
                         .names
@@ -980,13 +984,19 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
                             }
                         }
                         Item::Struct(st) => {
-                            imported_types
-                                .insert(format!("{alias}.{}", st.name.name), qualify(&origin_name, &st.name.name));
-                            imported_types
-                                .insert(qualify(&origin_name, &st.name.name), qualify(&origin_name, &st.name.name));
+                            imported_types.insert(
+                                format!("{alias}.{}", st.name.name),
+                                qualify(&origin_name, &st.name.name),
+                            );
+                            imported_types.insert(
+                                qualify(&origin_name, &st.name.name),
+                                qualify(&origin_name, &st.name.name),
+                            );
                             if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
-                                imported_types
-                                    .insert(st.name.name.clone(), qualify(&origin_name, &st.name.name));
+                                imported_types.insert(
+                                    st.name.name.clone(),
+                                    qualify(&origin_name, &st.name.name),
+                                );
                             }
                         }
                         _ => {}

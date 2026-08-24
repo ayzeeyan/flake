@@ -1445,7 +1445,10 @@ impl<'io> Interpreter<'io> {
                     Value::Map(m) => Ok(Value::Bool(m.borrow().is_empty())),
                     other => Err(RuntimeError::new(
                         span,
-                        format!("is_empty() expected List, String, or Map, found {}", other.type_name()),
+                        format!(
+                            "is_empty() expected List, String, or Map, found {}",
+                            other.type_name()
+                        ),
                     )
                     .into()),
                 }
@@ -1496,10 +1499,8 @@ impl<'io> Interpreter<'io> {
                 expect_arity("is_completed", args, 1, span)?;
                 match &args[0] {
                     Value::Task(task) => {
-                        let completed = matches!(
-                            &*task.borrow(),
-                            TaskState::Completed(_) | TaskState::Joined
-                        );
+                        let completed =
+                            matches!(&*task.borrow(), TaskState::Completed(_) | TaskState::Joined);
                         Ok(Value::Bool(completed))
                     }
                     other => Err(RuntimeError::new(

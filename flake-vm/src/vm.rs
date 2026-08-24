@@ -458,7 +458,11 @@ impl<'io> Vm<'io> {
         result
     }
 
-    fn finish_nursery_tasks(&mut self, frame_index: usize, start_idx: usize) -> Result<(), VmError> {
+    fn finish_nursery_tasks(
+        &mut self,
+        frame_index: usize,
+        start_idx: usize,
+    ) -> Result<(), VmError> {
         let tasks = self.frames[frame_index].tasks[start_idx..].to_vec();
         for (index, task) in tasks.iter().enumerate() {
             let joinable = matches!(

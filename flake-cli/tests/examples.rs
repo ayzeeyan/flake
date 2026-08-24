@@ -279,11 +279,7 @@ fn analytics_project_output() {
 fn pkg_workspace_project_output() {
     assert_eq!(
         run_example("projects/pkg_workspace/app/main.flk"),
-        concat!(
-            "Hello, Flake User from core_lib!\n",
-            "300\n",
-            "92\n",
-        )
+        concat!("Hello, Flake User from core_lib!\n", "300\n", "92\n",)
     );
 }
 

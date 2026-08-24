@@ -482,6 +482,3 @@ fn main() / io + conc {
 "#;
     assert_eq!(run(src), "pending\nfalse\n42\njoined\ntrue\n");
 }
-
-
-

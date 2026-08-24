@@ -118,15 +118,15 @@ impl Lockfile {
                 let checksum = compute_package_checksum(&dep_dir)?;
                 let pkg_name = dep.package.as_deref().unwrap_or(dep_name);
                 let version = dep.version.as_deref().unwrap_or("0.1.0");
-                packages_map.entry(pkg_name.to_string()).or_insert_with(|| {
-                    LockedPackage {
+                packages_map
+                    .entry(pkg_name.to_string())
+                    .or_insert_with(|| LockedPackage {
                         name: pkg_name.to_string(),
                         version: version.to_string(),
                         source: source_str,
                         checksum,
                         dependencies: Vec::new(),
-                    }
-                });
+                    });
             }
         }
 
@@ -194,15 +194,15 @@ impl Lockfile {
                 let checksum = compute_package_checksum(&dep_dir)?;
                 let name = dep.package.as_deref().unwrap_or(dep_name);
                 let version = dep.version.as_deref().unwrap_or("0.1.0");
-                packages_map.entry(name.to_string()).or_insert_with(|| {
-                    LockedPackage {
+                packages_map
+                    .entry(name.to_string())
+                    .or_insert_with(|| LockedPackage {
                         name: name.to_string(),
                         version: version.to_string(),
                         source: source_str,
                         checksum,
                         dependencies: Vec::new(),
-                    }
-                });
+                    });
             }
         }
 
@@ -324,11 +324,8 @@ impl Lockfile {
             )));
         }
 
-        let locked_by_name: BTreeMap<&str, &LockedPackage> = self
-            .packages
-            .iter()
-            .map(|p| (p.name.as_str(), p))
-            .collect();
+        let locked_by_name: BTreeMap<&str, &LockedPackage> =
+            self.packages.iter().map(|p| (p.name.as_str(), p)).collect();
 
         for expected_pkg in &expected.packages {
             match locked_by_name.get(expected_pkg.name.as_str()) {

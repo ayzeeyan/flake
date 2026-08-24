@@ -50,9 +50,7 @@ impl Drop for TempSource {
 fn flake_bin() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_flake"));
     command.env("NO_COLOR", "1");
-    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("std");
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("std");
     command.env("FLAKE_STD", std_dir);
     command
 }
@@ -857,11 +855,7 @@ fn main() / io + conc {
     }
 }
 "#;
-    let expected = concat!(
-        "42\n",
-        "42\n",
-        "non-positive input\n",
-    );
+    let expected = concat!("42\n", "42\n", "non-positive input\n",);
     assert_all_backends("concurrency-maturity-results", source, expected);
 }
 
@@ -911,11 +905,7 @@ fn main() / io + conc {
     print(is_cancelled(t3))
 }
 "#;
-    let expected = concat!(
-        "70\n",
-        "false\n",
-        "true\n",
-    );
+    let expected = concat!("70\n", "false\n", "true\n",);
     assert_all_backends("concurrency-nursery-cancellation", source, expected);
 }
 
@@ -999,18 +989,6 @@ fn main() / io + conc {
     print(is_completed(t))
 }
 "#;
-    let expected = concat!(
-        "pending\n",
-        "false\n",
-        "42\n",
-        "joined\n",
-        "true\n",
-    );
+    let expected = concat!("pending\n", "false\n", "42\n", "joined\n", "true\n",);
     assert_all_backends("concurrency-task-status", source, expected);
 }
-
-
-
-
-
-

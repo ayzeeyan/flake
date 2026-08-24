@@ -242,14 +242,16 @@ impl Aarch64Asm {
     pub fn stp_pre(&mut self, rt1: Reg, rt2: Reg, rn: Reg, offset: i32) {
         // STP pre-index: 0xa9bf0000 | ((imm7 & 0x7f) << 15) | (rt2 << 10) | (rn << 5) | rt1
         let imm7 = ((offset / 8) & 0x7f) as u32;
-        let insn = 0xa9800000 | 0x00200000 | (imm7 << 15) | (rt2.id() << 10) | (rn.id() << 5) | rt1.id();
+        let insn =
+            0xa9800000 | 0x00200000 | (imm7 << 15) | (rt2.id() << 10) | (rn.id() << 5) | rt1.id();
         self.emit_u32(insn);
     }
 
     pub fn ldp_post(&mut self, rt1: Reg, rt2: Reg, rn: Reg, offset: i32) {
         // LDP post-index: 0xa8c00000 | ((imm7 & 0x7f) << 15) | (rt2 << 10) | (rn << 5) | rt1
         let imm7 = ((offset / 8) & 0x7f) as u32;
-        let insn = 0xa8800000 | 0x00400000 | (imm7 << 15) | (rt2.id() << 10) | (rn.id() << 5) | rt1.id();
+        let insn =
+            0xa8800000 | 0x00400000 | (imm7 << 15) | (rt2.id() << 10) | (rn.id() << 5) | rt1.id();
         self.emit_u32(insn);
     }
 

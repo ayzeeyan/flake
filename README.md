@@ -51,19 +51,19 @@ between:
 
 ## Status
 
-**Flake v0.6.1 is complete.** Theme: **Stabilize v0.6 — fix bugs, close edge cases, harden reliability**.
-- **Concurrency hardening**: strict nursery containment preventing task handle escapes to outer variables, robust sibling cancellation on early return/panic, and 100% backend consistency.
-- **Cross-platform deterministic lockfiles**: normalized path separators (`/`) and line endings (`\n`) for bit-identical `flake.lock` content checksums across Windows, macOS, and Linux.
-- **Reinforced structural borrow checking**: prohibited field and index assignments while root containers or their fields are borrowed.
-- **Optimizer correctness**: transitive alias escape tracking ensuring constructor projections are only folded for strictly unmutated locals.
-- **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
+**Flake v0.7 is complete.** Theme: **From solid foundation to serious systems language**.
+- **Multi-target native code generation**: Built pure-Rust standalone 64-bit ELF executable writer (`elf.rs`) and pure-Rust AArch64 (ARM64) assembler (`aarch64.rs`), enabling `--target x86_64-windows`, `--target x86_64-linux`, and `--target aarch64-linux`.
+- **Concurrency runtime foundations**: Added inspection primitives `is_completed(task)` and `task_status(task)` ("pending", "running", "completed", "joined", "cancelled") and cross-task sendability validation.
+- **Advanced ownership & lifetime analysis**: Added pattern matching arm ownership tracking, field-sensitive structural borrow checking, and scope escape prevention.
+- **Serious compiler optimizations**: Added algebraic identity simplification & strength reduction, control flow graph dead code elimination, and jump threading.
+- **100% pure Rust owned pipeline**: Zero external dependencies, no LLVM, no Cranelift, no C transpilation.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
 for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.6.1 release notes](docs/release-notes-v0.6.1.md) for the complete
+See the [v0.7 release notes](docs/release-notes-v0.7.0.md) for the complete
 feature and compatibility summary.
 
 ## Build and run

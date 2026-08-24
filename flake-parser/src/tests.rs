@@ -406,12 +406,16 @@ fn use_it() -> Result {
 fn pub_import_parses() {
     let program = parse_ok("pub import utils.math as m\npub import service");
     assert_eq!(program.items.len(), 2);
-    let Item::Import(ref i1) = program.items[0] else { panic!("expected import"); };
+    let Item::Import(ref i1) = program.items[0] else {
+        panic!("expected import");
+    };
     assert!(i1.is_pub);
     assert_eq!(i1.path.name, "utils.math");
     assert_eq!(i1.alias.as_ref().map(|a| a.name.as_str()), Some("m"));
 
-    let Item::Import(ref i2) = program.items[1] else { panic!("expected import"); };
+    let Item::Import(ref i2) = program.items[1] else {
+        panic!("expected import");
+    };
     assert!(i2.is_pub);
     assert_eq!(i2.path.name, "service");
     assert_eq!(i2.alias, None);
@@ -426,7 +430,9 @@ fn repl_recognizes_enum_items() {
 #[test]
 fn nursery_block_parses() {
     let program = parse_ok("fn main() / conc { nursery { let t = spawn work() await t } }");
-    let Item::Fn(f) = &program.items[0] else { panic!("expected function"); };
+    let Item::Fn(f) = &program.items[0] else {
+        panic!("expected function");
+    };
     assert_eq!(f.body.stmts.len(), 0);
     let Some(Expr::Nursery { body, .. }) = f.body.tail.as_deref() else {
         panic!("expected nursery expression");
@@ -449,7 +455,11 @@ name = "math_lib"
 version = "0.2.0"
 "#;
     std::fs::write(lib_dir.join("flake.toml"), lib_manifest_text).unwrap();
-    std::fs::write(lib_dir.join("main.flk"), "pub fn add(a: Int, b: Int) -> Int { a + b }\n").unwrap();
+    std::fs::write(
+        lib_dir.join("main.flk"),
+        "pub fn add(a: Int, b: Int) -> Int { a + b }\n",
+    )
+    .unwrap();
 
     let app_manifest_text = r#"
 [package]
@@ -461,7 +471,11 @@ math = { path = "lib", package = "math_lib", version = "0.2.0" }
 "#;
     let app_manifest_path = dir.join("flake.toml");
     std::fs::write(&app_manifest_path, app_manifest_text).unwrap();
-    std::fs::write(dir.join("main.flk"), "import math\nfn main() { print(math.add(1, 2)) }\n").unwrap();
+    std::fs::write(
+        dir.join("main.flk"),
+        "import math\nfn main() { print(math.add(1, 2)) }\n",
+    )
+    .unwrap();
 
     let manifest = Manifest::parse(app_manifest_text, &app_manifest_path).unwrap();
     let lockfile = Lockfile::generate(&manifest, &dir).unwrap();
@@ -481,7 +495,9 @@ math = { path = "lib", package = "math_lib", version = "0.2.0" }
     assert_eq!(parsed.packages.len(), lockfile.packages.len());
     assert_eq!(parsed.packages[0].name, lockfile.packages[0].name);
 
-    lockfile.verify(&manifest, &dir).expect("lockfile should verify against manifest");
+    lockfile
+        .verify(&manifest, &dir)
+        .expect("lockfile should verify against manifest");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -511,8 +527,7 @@ fn lockfile_checksum_crlf_lf_invariance() {
     let lock_crlf = Lockfile::generate(&m_crlf, &dir_crlf).unwrap();
 
     assert_eq!(
-        lock_lf.packages[0].checksum,
-        lock_crlf.packages[0].checksum,
+        lock_lf.packages[0].checksum, lock_crlf.packages[0].checksum,
         "CRLF and LF line endings must produce identical package checksums"
     );
 

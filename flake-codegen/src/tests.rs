@@ -889,9 +889,18 @@ fn aarch64_elf_generation() {
 #[test]
 fn target_parsing_and_defaults() {
     use crate::Target;
-    assert_eq!("x86_64-windows".parse::<Target>().unwrap(), Target::X86_64_WINDOWS);
-    assert_eq!("x86_64-linux".parse::<Target>().unwrap(), Target::X86_64_LINUX);
-    assert_eq!("aarch64-linux".parse::<Target>().unwrap(), Target::AARCH64_LINUX);
+    assert_eq!(
+        "x86_64-windows".parse::<Target>().unwrap(),
+        Target::X86_64_WINDOWS
+    );
+    assert_eq!(
+        "x86_64-linux".parse::<Target>().unwrap(),
+        Target::X86_64_LINUX
+    );
+    assert_eq!(
+        "aarch64-linux".parse::<Target>().unwrap(),
+        Target::AARCH64_LINUX
+    );
     assert_eq!("linux".parse::<Target>().unwrap(), Target::X86_64_LINUX);
     assert_eq!("windows".parse::<Target>().unwrap(), Target::X86_64_WINDOWS);
     assert_eq!("arm64".parse::<Target>().unwrap(), Target::AARCH64_LINUX);
@@ -901,5 +910,3 @@ fn target_parsing_and_defaults() {
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
-
-

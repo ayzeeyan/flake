@@ -8,7 +8,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use flake_ast::{Block, Expr, FnDecl, InterpPart, Item, Pattern, Program, Span, Stmt, TypeExpr, UnOp};
+use flake_ast::{
+    Block, Expr, FnDecl, InterpPart, Item, Pattern, Program, Span, Stmt, TypeExpr, UnOp,
+};
 
 use crate::error::TypeError;
 
@@ -359,18 +361,30 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
                             if b.kind == Kind::Ref {
                                 return Err(TypeError::with_help(
                                     ident.span,
-                                    format!("cannot capture reference `{}` across task boundary in `spawn`", ident.name),
+                                    format!(
+                                        "cannot capture reference `{}` across task boundary in `spawn`",
+                                        ident.name
+                                    ),
                                     "spawned tasks must receive owned values",
                                 ));
                             }
                             if matches!(b.state, State::Borrowed { .. }) {
                                 return Err(TypeError::new(
                                     ident.span,
-                                    format!("cannot move borrowed value `{}` into spawned task", ident.name),
+                                    format!(
+                                        "cannot move borrowed value `{}` into spawned task",
+                                        ident.name
+                                    ),
                                 ));
                             }
                         }
-                    } else if matches!(arg, Expr::Unary { op: UnOp::Ref | UnOp::RefMut, .. }) {
+                    } else if matches!(
+                        arg,
+                        Expr::Unary {
+                            op: UnOp::Ref | UnOp::RefMut,
+                            ..
+                        }
+                    ) {
                         return Err(TypeError::with_help(
                             arg.span(),
                             "cannot capture reference across task boundary in `spawn`",
@@ -500,17 +514,13 @@ fn borrow(cx: &mut OwnCx, expr: &Expr, mutable: bool, span: Span) -> Result<(), 
             State::Borrowed { mutable: true, .. } => {
                 return Err(TypeError::new(
                     span,
-                    format!(
-                        "cannot borrow `{root_name}` because it is already mutably borrowed"
-                    ),
+                    format!("cannot borrow `{root_name}` because it is already mutably borrowed"),
                 ));
             }
             State::Borrowed { mutable: false, .. } if mutable => {
                 return Err(TypeError::new(
                     span,
-                    format!(
-                        "cannot mutably borrow `{root_name}` because it is already borrowed"
-                    ),
+                    format!("cannot mutably borrow `{root_name}` because it is already borrowed"),
                 ));
             }
             State::Available | State::Borrowed { mutable: false, .. } => {

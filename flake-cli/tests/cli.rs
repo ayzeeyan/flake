@@ -320,7 +320,11 @@ fn package_new_and_run() {
         .arg(&pkg_dir)
         .output()
         .expect("flake new");
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(pkg_dir.join("flake.toml").is_file());
     assert!(pkg_dir.join("main.flk").is_file());
 
@@ -330,7 +334,11 @@ fn package_new_and_run() {
         .arg(&pkg_dir)
         .output()
         .expect("flake run package dir");
-    assert!(run_out.status.success(), "stderr: {}", String::from_utf8_lossy(&run_out.stderr));
+    assert!(
+        run_out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run_out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&run_out.stdout);
     assert!(stdout.contains("Hello from"), "stdout: {stdout}");
 
@@ -387,19 +395,54 @@ fn package_pub_reexport_and_workspace() {
     .expect("write app main.flk");
 
     // 1. Run tree interpreter
-    let out_interp = flake_bin().arg("run").arg(&app_dir).output().expect("run interp");
-    assert!(out_interp.status.success(), "interp err: {}", String::from_utf8_lossy(&out_interp.stderr));
-    assert_eq!(String::from_utf8_lossy(&out_interp.stdout), "hello from core\n42\n");
+    let out_interp = flake_bin()
+        .arg("run")
+        .arg(&app_dir)
+        .output()
+        .expect("run interp");
+    assert!(
+        out_interp.status.success(),
+        "interp err: {}",
+        String::from_utf8_lossy(&out_interp.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out_interp.stdout),
+        "hello from core\n42\n"
+    );
 
     // 2. Run bytecode VM
-    let out_vm = flake_bin().arg("run").arg("--vm").arg(&app_dir).output().expect("run vm");
-    assert!(out_vm.status.success(), "vm err: {}", String::from_utf8_lossy(&out_vm.stderr));
-    assert_eq!(String::from_utf8_lossy(&out_vm.stdout), "hello from core\n42\n");
+    let out_vm = flake_bin()
+        .arg("run")
+        .arg("--vm")
+        .arg(&app_dir)
+        .output()
+        .expect("run vm");
+    assert!(
+        out_vm.status.success(),
+        "vm err: {}",
+        String::from_utf8_lossy(&out_vm.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out_vm.stdout),
+        "hello from core\n42\n"
+    );
 
     // 3. Run Native x86-64
-    let out_native = flake_bin().arg("run").arg("--native").arg(&app_dir).output().expect("run native");
-    assert!(out_native.status.success(), "native err: {}", String::from_utf8_lossy(&out_native.stderr));
-    assert_eq!(String::from_utf8_lossy(&out_native.stdout), "hello from core\n42\n");
+    let out_native = flake_bin()
+        .arg("run")
+        .arg("--native")
+        .arg(&app_dir)
+        .output()
+        .expect("run native");
+    assert!(
+        out_native.status.success(),
+        "native err: {}",
+        String::from_utf8_lossy(&out_native.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out_native.stdout),
+        "hello from core\n42\n"
+    );
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&root);
@@ -438,8 +481,16 @@ fn package_lock_and_update_commands() {
     .expect("write app main.flk");
 
     // 1. Run flake lock on app
-    let out_lock = flake_bin().arg("lock").arg(&app_dir).output().expect("run lock");
-    assert!(out_lock.status.success(), "lock stderr: {}", String::from_utf8_lossy(&out_lock.stderr));
+    let out_lock = flake_bin()
+        .arg("lock")
+        .arg(&app_dir)
+        .output()
+        .expect("run lock");
+    assert!(
+        out_lock.status.success(),
+        "lock stderr: {}",
+        String::from_utf8_lossy(&out_lock.stderr)
+    );
     let lock_file = app_dir.join("flake.lock");
     assert!(lock_file.is_file(), "flake.lock should exist");
     let lock_content = std::fs::read_to_string(&lock_file).expect("read flake.lock");
@@ -448,16 +499,29 @@ fn package_lock_and_update_commands() {
     assert!(lock_content.contains("name = \"app\""));
 
     // 2. Check lock is up to date
-    let out_check = flake_bin().arg("lock").arg("--check").arg(&app_dir).output().expect("check lock");
+    let out_check = flake_bin()
+        .arg("lock")
+        .arg("--check")
+        .arg(&app_dir)
+        .output()
+        .expect("check lock");
     assert!(out_check.status.success(), "lock --check failed");
 
     // 3. Run app with lockfile present
-    let out_run = flake_bin().arg("run").arg(&app_dir).output().expect("run app");
+    let out_run = flake_bin()
+        .arg("run")
+        .arg(&app_dir)
+        .output()
+        .expect("run app");
     assert!(out_run.status.success());
     assert_eq!(String::from_utf8_lossy(&out_run.stdout), "81\n");
 
     // 4. Run flake update
-    let out_update = flake_bin().arg("update").arg(&app_dir).output().expect("run update");
+    let out_update = flake_bin()
+        .arg("update")
+        .arg(&app_dir)
+        .output()
+        .expect("run update");
     assert!(out_update.status.success());
     assert!(lock_file.is_file());
 
@@ -468,10 +532,21 @@ fn package_lock_and_update_commands() {
     )
     .expect("write updated app flake.toml");
 
-    let out_check_drift = flake_bin().arg("lock").arg("--check").arg(&app_dir).output().expect("check lock drift");
-    assert!(!out_check_drift.status.success(), "lock --check should fail when manifest drifts");
+    let out_check_drift = flake_bin()
+        .arg("lock")
+        .arg("--check")
+        .arg(&app_dir)
+        .output()
+        .expect("check lock drift");
+    assert!(
+        !out_check_drift.status.success(),
+        "lock --check should fail when manifest drifts"
+    );
     let err_msg = String::from_utf8_lossy(&out_check_drift.stderr);
-    assert!(err_msg.contains("mismatch") || err_msg.contains("run `flake update`"), "err: {err_msg}");
+    assert!(
+        err_msg.contains("mismatch") || err_msg.contains("run `flake update`"),
+        "err: {err_msg}"
+    );
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&root);
@@ -491,7 +566,11 @@ fn build_supports_target_flag() {
         .arg("x86_64-linux")
         .output()
         .expect("build target");
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(out_elf.is_file());
     let bytes = std::fs::read(&out_elf).unwrap();
     assert_eq!(&bytes[0..4], &[0x7f, b'E', b'L', b'F']);
@@ -499,4 +578,3 @@ fn build_supports_target_flag() {
     let _ = std::fs::remove_file(&src);
     let _ = std::fs::remove_file(&out_elf);
 }
-

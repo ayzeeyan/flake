@@ -291,8 +291,14 @@ fn compute() -> Int {
 "#);
     // 10 + 40 + 2 = 52
     assert!(dump.contains("const 52"), "{dump}");
-    assert!(!dump.contains("const 999"), "dead code was not eliminated: {dump}");
-    assert!(!dump.contains("100"), "unreachable else block was not eliminated: {dump}");
+    assert!(
+        !dump.contains("const 999"),
+        "dead code was not eliminated: {dump}"
+    );
+    assert!(
+        !dump.contains("100"),
+        "unreachable else block was not eliminated: {dump}"
+    );
 }
 
 #[test]
@@ -308,11 +314,13 @@ fn test() -> Int {
     b1.val
 }
 "#);
-    assert!(dump.contains(".val"), "dynamic field access must be preserved: {dump}");
+    assert!(
+        dump.contains(".val"),
+        "dynamic field access must be preserved: {dump}"
+    );
 }
 
 #[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
-

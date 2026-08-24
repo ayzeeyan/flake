@@ -199,11 +199,11 @@ dependencies = [
 
 [[package]]
 name = "flake-ast"
-version = "0.6.1"
+version = "0.7.0"
 
 [[package]]
 name = "flake-cli"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "clap",
  "flake-ast",
@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "flake-codegen"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "flake-ast",
  "flake-ir",
@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "flake-interpreter"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "flake-ast",
  "flake-parser",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "flake-ir"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "flake-ast",
  "flake-parser",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "flake-lexer"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "flake-ast",
  "thiserror",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "flake-parser"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "flake-ast",
  "flake-lexer",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "flake-types"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "flake-ast",
  "flake-parser",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "flake-vm"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "flake-ast",
  "flake-parser",
