@@ -51,11 +51,11 @@ between:
 
 ## Status
 
-**Flake v0.6.0 is complete.** Theme: **Make Flake feel like a real systems language**.
-- **Concurrency maturity**: lexical task nurseries (`nursery { ... }`), automatic sibling cancellation on failure, explicit cancellation primitives (`cancel(task)`, `is_cancelled(task)`), and consistent cancellation semantics across all three backends.
-- **Deterministic package management**: reproducible lockfiles (`flake.lock`) with pure-Rust FNV-1a checksums, plus CLI subcommands (`flake lock [--check]`, `flake update`) and automatic verification.
-- **Stronger ownership**: structural borrow conflict detection preventing moves of containers/aggregates with active field/element borrows, and branch-aware ownership tracking.
-- **Advanced compiler optimizations**: constructor projection constant propagation across structs and lists in `flake-ir`, CFG jump threading (`thread_jumps`), and 32-bit zero-extended immediate encoding on Native x86-64.
+**Flake v0.6.1 is complete.** Theme: **Stabilize v0.6 — fix bugs, close edge cases, harden reliability**.
+- **Concurrency hardening**: strict nursery containment preventing task handle escapes to outer variables, robust sibling cancellation on early return/panic, and 100% backend consistency.
+- **Cross-platform deterministic lockfiles**: normalized path separators (`/`) and line endings (`\n`) for bit-identical `flake.lock` content checksums across Windows, macOS, and Linux.
+- **Reinforced structural borrow checking**: prohibited field and index assignments while root containers or their fields are borrowed.
+- **Optimizer correctness**: transitive alias escape tracking ensuring constructor projections are only folded for strictly unmutated locals.
 - **No external codegen**: Pure Rust end-to-end (no LLVM, Cranelift, or C transpilation).
 
 See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
@@ -63,7 +63,7 @@ for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.6.0 release notes](docs/release-notes-v0.6.md) for the complete
+See the [v0.6.1 release notes](docs/release-notes-v0.6.1.md) for the complete
 feature and compatibility summary.
 
 ## Build and run

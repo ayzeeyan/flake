@@ -1,19 +1,63 @@
 # Flake Roadmap
 
-**Flake v0.6 is complete.** Theme: **Make Flake feel like a real systems language**.
+**Flake v0.6.1 is complete.** Theme: **Stabilize v0.6 — fix bugs, close edge cases, harden reliability**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.6 milestones
+## v0.6.1 milestones
 
 | # | Milestone | Status |
 | --- | --- | --- |
-| 1 | Concurrency maturity (task groups, cancellation, stronger model) | **done** |
-| 2 | Practical package system (resolution, lockfile foundations, re-exports) | **done** |
-| 3 | Stronger ownership and language improvements | **done** |
-| 4 | Advanced optimizations and native quality | **done** |
-| 5 | Integration, examples, testing and hardening | **done** |
-| 6 | Flake v0.6 complete | **done** |
+| 1 | Concurrency bug fixes and hardening | **done** |
+| 2 | Package and lockfile bug fixes | **done** |
+| 3 | Ownership and language bug fixes | **done** |
+| 4 | Optimizer and native backend correctness fixes | **done** |
+| 5 | Cross-backend consistency, diagnostics and testing | **done** |
+| 6 | Flake v0.6.1 complete – stability and bug fixes | **done** |
+
+## What v0.6.1 milestone 1 delivers
+
+- Nursery task containment & escape prevention:
+  - Enforced strict assignment checks prohibiting spawned task handles from escaping to variables defined in outer scopes enclosing `nursery { ... }` blocks.
+  - Automatically cancel active unjoined nursery tasks on early returns, breaks, or exceptions.
+- Cancellation and error propagation:
+  - Validated idempotent `cancel(task)` and `is_cancelled(task)` transitions across all backends.
+  - Ensured consistent `"task was cancelled"` runtime error when awaiting cancelled tasks.
+
+## What v0.6.1 milestone 2 delivers
+
+- Cross-platform deterministic lockfile generation:
+  - Normalized file path separators to forward slashes (`/`) during FNV-1a checksum calculation.
+  - Normalized CRLF (`\r\n`) to LF (`\n`) for text sources (`.flk`, `flake.toml`), ensuring bit-identical checksums across Windows, Linux, and macOS.
+- Lockfile CLI subcommands:
+  - Hardened drift detection in `flake lock --check` and reliable multi-package resolution in `flake update`.
+
+## What v0.6.1 milestone 3 delivers
+
+- Structural borrow checking for field/index assignments:
+  - Prohibit mutating fields or collections (e.g. `p.x = val` or `arr[i] = val`) while the root container or any of its fields is borrowed (`cannot assign to field of \`p\` while it is borrowed`).
+  - Prohibit field assignments through moved or `ref` bindings.
+
+## What v0.6.1 milestone 4 delivers
+
+- Optimizer transitive alias escape analysis:
+  - Restrict constructor projection folding (`MakeStruct` -> `GetField`, `MakeList` -> `GetIndex`) to strictly immutable, unmutated locals, preserving dynamic field reads across all aliased mutations.
+  - Verified CFG jump threading (`thread_jumps`) and 32-bit zero-extended immediate encoding on Native x86-64.
+
+## What v0.6.1 milestone 5 delivers
+
+- Full-matrix cross-backend consistency:
+  - Verified 100% agreement across Interpreter, Bytecode VM, and Native x86-64 executable backend on all language examples and test suites.
+
+## What v0.6.1 milestone 6 delivers
+
+- Version bump across workspace:
+  - Bumped workspace version to `0.6.1` in `Cargo.toml`.
+- Documentation & Release Notes:
+  - Published [v0.6.1 Release Notes](docs/release-notes-v0.6.1.md).
+  - Updated `README.md` and `ROADMAP.md`.
+
+## v0.6 milestones (complete)
 
 ## What v0.6 milestone 1 delivers
 
