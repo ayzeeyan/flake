@@ -1,0 +1,11 @@
+import services.orchestrator as orch
+
+strict fn process_batch(count: Int) -> Int / conc + io {
+    let total = orch.run_pipeline(count)
+    total
+}
+
+fn main() / conc + io {
+    let result = process_batch(5)
+    print("Flake v0.7 Showcase Pipeline Output: {result}")
+}

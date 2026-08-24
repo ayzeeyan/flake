@@ -1,0 +1,18 @@
+pub struct WorkItem {
+    id: Int,
+    title: String,
+    payload: Int,
+}
+
+pub enum WorkerResult {
+    Success(Int),
+    Failure(String),
+}
+
+pub fn execute_job(item: WorkItem) -> WorkerResult {
+    if item.payload < 0 {
+        WorkerResult.Failure("negative payload rejected")
+    } else {
+        WorkerResult.Success(item.payload * 2 + item.id)
+    }
+}

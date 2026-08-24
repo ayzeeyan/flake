@@ -27,6 +27,7 @@ const EXAMPLES: &[&str] = &[
     "projects/query_engine/main.flk",
     "projects/pkg_workspace/app/main.flk",
     "projects/service_hub/hub_app/main.flk",
+    "projects/v07_showcase/main.flk",
 ];
 
 fn flake_bin() -> Command {
@@ -316,6 +317,14 @@ fn query_engine_project_output() {
             "#1: Task Alpha [active]\n",
             "#4: Task Delta [active]\n",
         )
+    );
+}
+
+#[test]
+fn v07_showcase_project_output() {
+    assert_eq!(
+        run_example("projects/v07_showcase/main.flk"),
+        "Flake v0.7 Showcase Pipeline Output: 43\n"
     );
 }
 

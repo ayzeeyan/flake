@@ -1,0 +1,8 @@
+[package]
+name = "v07_showcase"
+version = "0.7.0"
+entry = "main.flk"
+authors = ["Flake Team"]
+description = "Flake v0.7 flagship showcase: concurrency runtime inspection, strict ownership, and multi-target compilation."
+
+[dependencies]

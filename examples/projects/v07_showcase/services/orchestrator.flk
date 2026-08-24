@@ -1,0 +1,37 @@
+import domain.task_worker as tw
+
+pub fn run_pipeline(base: Int) -> Int / conc + io {
+    let item1 = tw.WorkItem {
+        id: 1,
+        title: "compute-1",
+        payload: base,
+    }
+    let item2 = tw.WorkItem {
+        id: 2,
+        title: "compute-2",
+        payload: base + 10,
+    }
+
+    nursery {
+        let t1 = spawn tw.execute_job(item1)
+        let t2 = spawn tw.execute_job(item2)
+
+        let status1 = task_status(t1)
+        let done1 = is_completed(t1)
+
+        let res1 = await t1
+        let res2 = await t2
+
+        let val1 = match res1 {
+            tw.WorkerResult.Success(v) => v,
+            tw.WorkerResult.Failure(msg) => 0,
+        }
+
+        let val2 = match res2 {
+            tw.WorkerResult.Success(v) => v,
+            tw.WorkerResult.Failure(msg) => 0,
+        }
+
+        val1 + val2
+    }
+}

@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Multi-target native code generation | **done** |
 | 3 | Advanced ownership & lifetime analysis | **done** |
 | 4 | Serious compiler optimizations + package maturity | **done** |
-| 5 | Integration, hardening & showcase examples | planned |
+| 5 | Integration, hardening & showcase examples | **done** |
 | 6 | Flake v0.7 complete – documentation, polish & release | planned |
 
 ## What v0.7 milestone 1 delivers
@@ -49,6 +49,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - Jump threading & block collapsing across single-jump blocks.
   - Deterministic lockfile validation across package manifests and local path dependencies.
   - Verified optimization and execution consistency across all three backends.
+
+## What v0.7 milestone 5 delivers
+
+- Integration, hardening & showcase examples:
+  - Added flagship v0.7 showcase package (`examples/projects/v07_showcase/`) exercising concurrent task orchestration with `is_completed` and `task_status`, strict ownership across modular boundaries, and Result error pattern matching.
+  - Cross-backend integration testing across Tree-walking Interpreter, Bytecode VM, and pure-Rust Native backend.
+  - Hardened multi-target native build pipeline for Windows PE32+ and Linux ELF64 (x86-64 and AArch64).
 
 ## v0.6.1 milestones (complete)
 
