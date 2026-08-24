@@ -296,6 +296,22 @@ fn compute() -> Int {
 }
 
 #[test]
+fn aliased_struct_mutation_preserves_dynamic_lookup() {
+    let dump = ir(r#"
+struct Box { val: Int }
+fn bump(b: Box) {
+    b.val = b.val + 1
+}
+fn test() -> Int {
+    let b1 = Box { val: 10 }
+    bump(b1)
+    b1.val
+}
+"#);
+    assert!(dump.contains(".val"), "dynamic field access must be preserved: {dump}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

@@ -92,9 +92,14 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
     let mut escaped_or_mutated: HashSet<LocalId> = HashSet::new();
 
     // Find any locals that are passed to functions/tasks or mutated in place
+    let mut aliases: HashMap<LocalId, Vec<LocalId>> = HashMap::new();
     for block in &func.blocks {
         for inst in &block.insts {
             match inst {
+                Inst::Move { dest, src } => {
+                    aliases.entry(*src).or_default().push(*dest);
+                    aliases.entry(*dest).or_default().push(*src);
+                }
                 Inst::Call { args, .. } | Inst::Spawn { args, .. } => {
                     for a in args {
                         escaped_or_mutated.insert(*a);
@@ -107,6 +112,18 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                     escaped_or_mutated.insert(*obj);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    // Transitively propagate escaped_or_mutated across aliased locals
+    let mut worklist: Vec<LocalId> = escaped_or_mutated.iter().copied().collect();
+    while let Some(loc) = worklist.pop() {
+        if let Some(linked) = aliases.get(&loc) {
+            for neighbor in linked {
+                if escaped_or_mutated.insert(*neighbor) {
+                    worklist.push(*neighbor);
+                }
             }
         }
     }
