@@ -483,6 +483,18 @@ impl<'io> Vm<'io> {
     }
 
     fn finish_frame_tasks(&mut self, frame_index: usize) -> Result<(), VmError> {
+        while let Some(start_idx) = self.frames[frame_index].nursery_offsets.pop() {
+            if start_idx < self.frames[frame_index].tasks.len() {
+                for task in &self.frames[frame_index].tasks[start_idx..] {
+                    if matches!(
+                        &*task.borrow(),
+                        TaskState::Pending { .. } | TaskState::Ready(_)
+                    ) {
+                        *task.borrow_mut() = TaskState::Cancelled;
+                    }
+                }
+            }
+        }
         let tasks = self.frames[frame_index].tasks.clone();
         for (index, task) in tasks.iter().enumerate() {
             let joinable = matches!(

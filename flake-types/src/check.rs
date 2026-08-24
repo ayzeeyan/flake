@@ -23,6 +23,7 @@ struct Checker {
     ambiguous_imports: HashMap<String, Vec<String>>,
     type_context: Option<String>,
     current_returns: Vec<Type>,
+    nursery_scopes: Vec<usize>,
 }
 
 impl Checker {
@@ -38,6 +39,7 @@ impl Checker {
             ambiguous_imports: HashMap::new(),
             type_context: None,
             current_returns: Vec::new(),
+            nursery_scopes: Vec::new(),
         };
         this.install_builtins();
         this
@@ -505,6 +507,15 @@ impl Checker {
             .cloned()
             .or_else(|| self.enums.get(name).cloned())
             .or_else(|| self.structs.get(name).cloned())
+    }
+
+    fn lookup_scope_depth(&self, name: &str) -> Option<usize> {
+        for (depth, scope) in self.scopes.iter().enumerate().rev() {
+            if scope.contains_key(name) {
+                return Some(depth);
+            }
+        }
+        None
     }
 
     fn known_names(&self) -> Vec<String> {
@@ -1239,6 +1250,22 @@ impl Checker {
             } => {
                 let t_ty = self.check_expr(target)?;
                 let v_ty = self.check_expr(value)?;
+                if let Some(&current_nursery_scope) = self.nursery_scopes.last() {
+                    if let Some(root_var) = root_variable_name(target) {
+                        if let Some(var_depth) = self.lookup_scope_depth(root_var) {
+                            if var_depth < current_nursery_scope {
+                                let resolved_val = self.resolve(&v_ty).without_ownership();
+                                if contains_task(&resolved_val) {
+                                    return Err(TypeError::with_help(
+                                        *span,
+                                        "cannot assign task handle to variable defined outside the nursery",
+                                        "tasks must be awaited or handled within their enclosing nursery",
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
                 if *op == AssignOp::Assign {
                     self.unify(&t_ty, &v_ty, *span)
                 } else {
@@ -1470,7 +1497,11 @@ impl Checker {
             }
             Expr::Block(b) => self.check_block(b),
             Expr::Nursery { body, span } => {
-                let res = self.check_block(body)?;
+                let nursery_scope = self.scopes.len();
+                self.nursery_scopes.push(nursery_scope);
+                let res = self.check_block(body);
+                self.nursery_scopes.pop();
+                let res = res?;
                 let resolved = self.resolve(&res).without_ownership();
                 if contains_task(&resolved) {
                     return Err(TypeError::with_help(
@@ -2256,6 +2287,14 @@ fn occurs(id: u32, ty: &Type) -> bool {
         Type::Fn { params, ret, .. } => params.iter().any(|p| occurs(id, p)) || occurs(id, ret),
         Type::Module { members, .. } => members.iter().any(|(_, t)| occurs(id, t)),
         _ => false,
+    }
+}
+
+fn root_variable_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Ident(id) => Some(id.name.as_str()),
+        Expr::Field { target, .. } | Expr::Index { target, .. } => root_variable_name(target),
+        _ => None,
     }
 }
 

@@ -800,6 +800,59 @@ strict fn f() {
 }
 
 #[test]
+fn task_handles_cannot_escape_nursery_via_outer_assignment() {
+    let msg = err(r#"
+fn work() -> Int { 42 }
+fn f() / conc {
+    var outer: Task[Int] = spawn work()
+    let ignored = await outer
+    nursery {
+        let t = spawn work()
+        outer = t
+    }
+}
+fn main() { }
+"#);
+    assert!(
+        msg.contains("cannot assign task handle to variable defined outside the nursery")
+            || msg.contains("task handle cannot escape"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn task_handles_cannot_escape_nursery_via_block_value() {
+    let msg = err(r#"
+fn work() -> Int { 42 }
+fn f() / conc {
+    let escaped = nursery {
+        let t = spawn work()
+        t
+    }
+}
+fn main() { }
+"#);
+    assert!(msg.contains("task handle cannot escape its nursery"), "{msg}");
+}
+
+#[test]
+fn valid_nursery_typechecks_cleanly() {
+    ok(r#"
+fn work(n: Int) -> Int { n * 2 }
+fn f() -> Int / conc {
+    nursery {
+        let t1 = spawn work(10)
+        let t2 = spawn work(20)
+        let r1 = await t1
+        let r2 = await t2
+        r1 + r2
+    }
+}
+fn main() {}
+"#);
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

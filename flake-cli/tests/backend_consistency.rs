@@ -919,6 +919,47 @@ fn main() / io + conc {
     assert_all_backends("concurrency-nursery-cancellation", source, expected);
 }
 
+#[test]
+fn concurrency_nursery_implicit_drain() {
+    let source = r#"
+fn work_val(n: Int) -> Int {
+    n + 100
+}
+
+fn main() / io + conc {
+    let outcome = nursery {
+        let t1 = spawn work_val(1)
+        let t2 = spawn work_val(2)
+        // t1 and t2 not awaited explicitly; nursery drains them cleanly
+        42
+    }
+    print(outcome)
+}
+"#;
+    let expected = "42\n";
+    assert_all_backends("concurrency-nursery-drain", source, expected);
+}
+
+#[test]
+fn concurrency_cancelled_task_await_fails() {
+    let source = r#"
+fn slow() -> Int { 123 }
+
+fn main() / io + conc {
+    let t = spawn slow()
+    cancel(t)
+    let res = await t
+    print(res)
+}
+"#;
+    assert_all_backends_fail(
+        "concurrency-cancelled-await-fails",
+        source,
+        true,
+        &["task was cancelled"],
+    );
+}
+
 
 
 
