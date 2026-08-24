@@ -11,7 +11,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Concurrency runtime foundations | **done** |
 | 2 | Multi-target native code generation | **done** |
 | 3 | Advanced ownership & lifetime analysis | **done** |
-| 4 | Serious compiler optimizations + package maturity | planned |
+| 4 | Serious compiler optimizations + package maturity | **done** |
 | 5 | Integration, hardening & showcase examples | planned |
 | 6 | Flake v0.7 complete – documentation, polish & release | planned |
 
@@ -40,6 +40,15 @@ There is no LLVM, Cranelift, or C transpilation.
   - Enhanced structural borrow checking: field-level and path-sensitive tracking protecting root and nested containers against conflicting mutations and invalidations.
   - Sendability checking across task boundaries: preventing borrowed references from escaping across asynchronous task scopes.
   - Scope and lifetime analysis: strict verification that reborrows and local references do not outlive their owning contexts.
+
+## What v0.7 milestone 4 delivers
+
+- Serious optimizations & package maturity:
+  - Added algebraic identity simplification & strength reduction passes over IR binary expressions (identity operations on 0, 1, true, false, and reflexive equality).
+  - Dead code elimination (DCE) over IR control flow graph removing unreachable basic blocks and unused instructions.
+  - Jump threading & block collapsing across single-jump blocks.
+  - Deterministic lockfile validation across package manifests and local path dependencies.
+  - Verified optimization and execution consistency across all three backends.
 
 ## v0.6.1 milestones (complete)
 

@@ -224,7 +224,9 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                     lhs,
                     rhs,
                 } => {
-                    if let (Some(l), Some(r)) = (constants.get(&lhs), constants.get(&rhs)) {
+                    let l_opt = constants.get(&lhs);
+                    let r_opt = constants.get(&rhs);
+                    if let (Some(l), Some(r)) = (l_opt, r_opt) {
                         if let Some(folded) = fold_binary(op, l, r) {
                             *inst = Inst::LoadConst {
                                 dest,
@@ -235,6 +237,9 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                             }
                             changed = true;
                         }
+                    } else if let Some(simplified) = simplify_algebraic(op, lhs, rhs, l_opt, r_opt, dest) {
+                        *inst = simplified;
+                        changed = true;
                     }
                 }
                 Inst::Branch {
@@ -310,6 +315,70 @@ fn fold_binary(op: BinOp, l: &Const, r: &Const) -> Option<Const> {
         (BinOp::Eq, Const::Nil, Const::Nil) => Some(Const::Bool(true)),
         (BinOp::Ne, Const::Nil, Const::Nil) => Some(Const::Bool(false)),
 
+        _ => None,
+    }
+}
+
+fn simplify_algebraic(
+    op: BinOp,
+    lhs: LocalId,
+    rhs: LocalId,
+    l_const: Option<&Const>,
+    r_const: Option<&Const>,
+    dest: LocalId,
+) -> Option<Inst> {
+    match (op, l_const, r_const) {
+        // x + 0 -> x
+        (BinOp::Add, None, Some(Const::Int(0))) => Some(Inst::Move { dest, src: lhs }),
+        // 0 + x -> x
+        (BinOp::Add, Some(Const::Int(0)), None) => Some(Inst::Move { dest, src: rhs }),
+        // x - 0 -> x
+        (BinOp::Sub, None, Some(Const::Int(0))) => Some(Inst::Move { dest, src: lhs }),
+        // x * 1 -> x
+        (BinOp::Mul, None, Some(Const::Int(1))) => Some(Inst::Move { dest, src: lhs }),
+        // 1 * x -> x
+        (BinOp::Mul, Some(Const::Int(1)), None) => Some(Inst::Move { dest, src: rhs }),
+        // x * 0 -> 0
+        (BinOp::Mul, None, Some(Const::Int(0))) | (BinOp::Mul, Some(Const::Int(0)), None) => {
+            Some(Inst::LoadConst {
+                dest,
+                value: Const::Int(0),
+            })
+        }
+        // x / 1 -> x
+        (BinOp::Div, None, Some(Const::Int(1))) => Some(Inst::Move { dest, src: lhs }),
+        // x && true -> x
+        (BinOp::And, None, Some(Const::Bool(true))) => Some(Inst::Move { dest, src: lhs }),
+        // true && x -> x
+        (BinOp::And, Some(Const::Bool(true)), None) => Some(Inst::Move { dest, src: rhs }),
+        // x && false -> false
+        (BinOp::And, None, Some(Const::Bool(false))) | (BinOp::And, Some(Const::Bool(false)), None) => {
+            Some(Inst::LoadConst {
+                dest,
+                value: Const::Bool(false),
+            })
+        }
+        // x || true -> true
+        (BinOp::Or, None, Some(Const::Bool(true))) | (BinOp::Or, Some(Const::Bool(true)), None) => {
+            Some(Inst::LoadConst {
+                dest,
+                value: Const::Bool(true),
+            })
+        }
+        // x || false -> x
+        (BinOp::Or, None, Some(Const::Bool(false))) => Some(Inst::Move { dest, src: lhs }),
+        // false || x -> x
+        (BinOp::Or, Some(Const::Bool(false)), None) => Some(Inst::Move { dest, src: rhs }),
+        // x == x -> true
+        (BinOp::Eq, None, None) if lhs == rhs => Some(Inst::LoadConst {
+            dest,
+            value: Const::Bool(true),
+        }),
+        // x != x -> false
+        (BinOp::Ne, None, None) if lhs == rhs => Some(Inst::LoadConst {
+            dest,
+            value: Const::Bool(false),
+        }),
         _ => None,
     }
 }
@@ -1060,5 +1129,53 @@ mod tests {
             matches!(i, Inst::LoadConst { value: Const::Int(20), .. })
         });
         assert!(has_const_20, "Point.y projection should fold to Const::Int(20)");
+    }
+
+    #[test]
+    fn folds_algebraic_identities() {
+        let func = Function {
+            name: "main".into(),
+            params: vec![],
+            ret: IrType::Int,
+            effects: vec![],
+            effects_specified: false,
+            strict: false,
+            owned: false,
+            locals: vec![
+                Local { id: LocalId(0), name: None, ty: IrType::Int },
+                Local { id: LocalId(1), name: None, ty: IrType::Int },
+                Local { id: LocalId(2), name: None, ty: IrType::Int },
+            ],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                insts: vec![
+                    Inst::LoadConst { dest: LocalId(0), value: Const::Int(0) },
+                    Inst::Binary {
+                        dest: LocalId(2),
+                        op: BinOp::Mul,
+                        lhs: LocalId(1),
+                        rhs: LocalId(0),
+                    },
+                    Inst::Return { value: Some(LocalId(2)) },
+                ],
+            }],
+            entry: BlockId(0),
+        };
+
+        let mut module = Module {
+            name: "test".into(),
+            functions: vec![func],
+            structs: vec![],
+        };
+
+        optimize(&mut module);
+
+        let opt_func = &module.functions[0];
+        let has_binop = opt_func.blocks[0].insts.iter().any(|i| matches!(i, Inst::Binary { .. }));
+        assert!(!has_binop, "Binary multiply by 0 should be simplified to LoadConst");
+        let has_zero = opt_func.blocks[0].insts.iter().any(|i| {
+            matches!(i, Inst::LoadConst { value: Const::Int(0), .. })
+        });
+        assert!(has_zero, "Result should fold to 0");
     }
 }
