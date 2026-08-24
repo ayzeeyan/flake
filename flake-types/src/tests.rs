@@ -883,8 +883,44 @@ fn f() -> Int / conc {
         r1 + r2
     }
 }
+#[test]
+fn concurrency_task_inspection_builtins_typecheck() {
+    ok(r#"
+fn work() -> Int { 42 }
+fn test_inspection() / conc + io {
+    let t = spawn work()
+    let status: String = task_status(t)
+    let completed: Bool = is_completed(t)
+    let cancelled: Bool = is_cancelled(t)
+    let res = await t
+}
 fn main() {}
 "#);
+}
+
+#[test]
+fn spawn_rejects_borrowed_reference_argument() {
+    let msg = err(r#"
+fn work(x: ref String) -> String { x }
+fn caller() / conc {
+    let s = "hello"
+    let t = spawn work(&s)
+}
+fn main() {}
+"#);
+    assert!(msg.contains("cannot capture reference across task boundary"), "{msg}");
+}
+
+#[test]
+fn strict_spawn_rejects_ref_parameter() {
+    let msg = err(r#"
+fn work(s: String) -> String { s }
+strict fn caller(r: ref String) / conc {
+    let t = spawn work(r)
+}
+fn main() {}
+"#);
+    assert!(msg.contains("cannot capture reference `r` across task boundary"), "{msg}");
 }
 
 #[test]

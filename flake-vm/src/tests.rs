@@ -466,5 +466,22 @@ fn main() / io + conc {
     assert_eq!(run(src), "false\ntrue\n");
 }
 
+#[test]
+fn task_status_and_is_completed_in_vm() {
+    let src = r#"
+fn work() -> Int { 42 }
+fn main() / io + conc {
+    let t = spawn work()
+    print(task_status(t))
+    print(is_completed(t))
+    let val = await t
+    print(val)
+    print(task_status(t))
+    print(is_completed(t))
+}
+"#;
+    assert_eq!(run(src), "pending\nfalse\n42\njoined\ntrue\n");
+}
+
 
 

@@ -198,6 +198,8 @@ fn install_builtins(env: &Env) {
         NativeFn::HasKey,
         NativeFn::Cancel,
         NativeFn::IsCancelled,
+        NativeFn::IsCompleted,
+        NativeFn::TaskStatus,
     ] {
         env.define(native.name(), Value::Native(native), false);
     }
@@ -901,6 +903,14 @@ impl<'io> Interpreter<'io> {
             let mut state = task.borrow_mut();
             match &*state {
                 TaskState::Pending { .. } => {}
+                TaskState::Completed(_) => {
+                    let TaskState::Completed(val) =
+                        std::mem::replace(&mut *state, TaskState::Joined)
+                    else {
+                        unreachable!()
+                    };
+                    return Ok(val);
+                }
                 TaskState::Running => {
                     return Err(RuntimeError::new(await_span, "task is already running").into());
                 }
@@ -946,8 +956,12 @@ impl<'io> Interpreter<'io> {
     }
 
     fn cancel_task(task: &TaskRef) {
-        if matches!(&*task.borrow(), TaskState::Pending { .. }) {
-            *task.borrow_mut() = TaskState::Cancelled;
+        let mut state = task.borrow_mut();
+        if matches!(
+            &*state,
+            TaskState::Pending { .. } | TaskState::Running | TaskState::Completed(_)
+        ) {
+            *state = TaskState::Cancelled;
         }
     }
 
@@ -1474,6 +1488,43 @@ impl<'io> Interpreter<'io> {
                     other => Err(RuntimeError::new(
                         span,
                         format!("is_cancelled() expected Task, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::IsCompleted => {
+                expect_arity("is_completed", args, 1, span)?;
+                match &args[0] {
+                    Value::Task(task) => {
+                        let completed = matches!(
+                            &*task.borrow(),
+                            TaskState::Completed(_) | TaskState::Joined
+                        );
+                        Ok(Value::Bool(completed))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("is_completed() expected Task, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::TaskStatus => {
+                expect_arity("task_status", args, 1, span)?;
+                match &args[0] {
+                    Value::Task(task) => {
+                        let status = match &*task.borrow() {
+                            TaskState::Pending { .. } => "pending",
+                            TaskState::Running => "running",
+                            TaskState::Completed(_) => "completed",
+                            TaskState::Joined => "joined",
+                            TaskState::Cancelled => "cancelled",
+                        };
+                        Ok(Value::from_string(status))
+                    }
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("task_status() expected Task, found {}", other.type_name()),
                     )
                     .into()),
                 }

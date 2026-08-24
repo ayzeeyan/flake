@@ -58,54 +58,40 @@ fn main() / conc + io {
 
 ## Task cancellation & inspection
 
-Flake provides explicit cancellation primitives:
+Flake provides explicit cancellation and inspection primitives:
 
 ```flake
 fn slow_job() -> Int { 100 }
 
 fn main() / conc + io {
     let t = spawn slow_job()
-    print("before: {is_cancelled(t)}")  // false
+    print("status: {task_status(t)}")    // "pending"
+    print("cancelled: {is_cancelled(t)}") // false
+    print("completed: {is_completed(t)}") // false
+
     cancel(t)
-    print("after: {is_cancelled(t)}")   // true
+    print("status: {task_status(t)}")    // "cancelled"
+    print("cancelled: {is_cancelled(t)}") // true
 }
 ```
 
 - `cancel(task: Task[T]) -> Nil`: Cancels a pending task (requires `/ conc`).
 - `is_cancelled(task: Task[T]) -> Bool`: Returns `true` if the task was cancelled.
-- Attempting to `await` a cancelled task produces a `"task was cancelled"` runtime error across Interpreter, Bytecode VM, and Native x86-64 executable targets.
+- `is_completed(task: Task[T]) -> Bool`: Returns `true` if the task is completed/joined.
+- `task_status(task: Task[T]) -> String`: Returns `"pending"`, `"running"`, `"completed"`, `"joined"`, or `"cancelled"`.
+- Attempting to `await` a cancelled task produces a `"task was cancelled"` runtime error across Interpreter, Bytecode VM, and Native executable targets.
 
-## Structured lifetime
+## Sendability & Capture Rules
 
-Every function invocation and nursery owns a task scope. A spawned task is registered in
-that scope and its handle cannot escape through a known static type. On a
-successful return, the runtime joins every child that was not explicitly
-awaited, in spawn order. A child error becomes a parent error. If the parent is
-already failing, pending cooperative work is abandoned with the scope.
-
-Task handles are single-use. Awaiting a joined or cancelled handle is a runtime
-error (`"task was already awaited"` / `"task was cancelled"` across all backends); `strict` ownership contexts can additionally diagnose repeated moves.
-This keeps result delivery and failure propagation unambiguous.
-
-## Evaluation and capture
-
-The callee and every argument are evaluated at the `spawn` expression. The
-call itself remains pending until `await` or scope exit on the cooperative
-backends. In strict ownership code, ordinary move rules apply to captured
-arguments. In gradual code, mutable containers can still alias because Flake
-never executes two instructions in parallel without explicit task scheduling.
-
-Interpreter and VM use the same deterministic cooperative protocol:
-
-1. `spawn` records pending work and returns immediately.
-2. `await` drives that child to completion.
-3. A successful scope exit drains unawaited children in spawn order.
-4. A child failure cancels sibling tasks and reports through the parent scope.
+When spawning child work with `spawn f(args...)`:
+- **Reference escape prevention**: Arguments cannot be borrowed references (`&x`, `&mut x`, or `ref T`), preventing dangling references across task boundaries.
+- **Strict ownership consumption**: In `strict` functions, captured owned arguments are consumed (moved) into the spawned task.
+- **Single-join enforcement**: Task handles are single-use across all backends.
 
 ## Backend status
 
 | Backend | Implementation status |
 | --- | --- |
-| Tree-walking interpreter | Scope-bound pending tasks, nurseries, cancellation, failure propagation |
-| Bytecode VM | `Op::EnterNursery`/`Op::ExitNursery`, task values, `cancel`/`is_cancelled` natives |
-| Native x86-64 | Real heap Task objects with state transitions (Pending, Joined, Cancelled) and nursery unwinding |
+| Tree-walking interpreter | Scope-bound tasks, nurseries, cancellation, lifecycle state queries, failure propagation |
+| Bytecode VM | `Op::EnterNursery`/`Op::ExitNursery`, task values, `cancel`/`is_cancelled`/`is_completed`/`task_status` natives |
+| Native (PE/ELF) | Heap-allocated Task objects with full state transitions (`Pending`, `Running`, `Completed`, `Joined`, `Cancelled`) |

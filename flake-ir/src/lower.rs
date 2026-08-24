@@ -1668,6 +1668,8 @@ fn is_native_name(name: &str) -> bool {
             | "has_key"
             | "cancel"
             | "is_cancelled"
+            | "is_completed"
+            | "task_status"
     )
 }
 
@@ -1675,16 +1677,16 @@ fn native_result_ty(name: &str) -> IrType {
     match name {
         "print" | "push" | "assert" | "write_file" | "remove_file" | "cancel" => IrType::Nil,
         "len" | "int" => IrType::Int,
-        "str" | "join" | "type_of" | "read_file" | "trim" | "upper" | "lower" | "env" | "cwd" => {
-            IrType::String
-        }
+        "str" | "join" | "type_of" | "read_file" | "trim" | "upper" | "lower" | "env" | "cwd"
+        | "task_status" => IrType::String,
         "contains"
         | "starts_with"
         | "ends_with"
         | "file_exists"
         | "is_empty"
         | "has_key"
-        | "is_cancelled" => IrType::Bool,
+        | "is_cancelled"
+        | "is_completed" => IrType::Bool,
         "range" => IrType::Range,
         "split" => IrType::List(Box::new(IrType::String)),
         "keys" | "values" => IrType::List(Box::new(IrType::Dyn)),

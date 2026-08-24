@@ -147,10 +147,12 @@ pub enum Native {
     HasKey,
     Cancel,
     IsCancelled,
+    IsCompleted,
+    TaskStatus,
 }
 
 impl Native {
-    pub fn all() -> [Native; 36] {
+    pub fn all() -> [Native; 38] {
         [
             Native::Print,
             Native::Len,
@@ -188,6 +190,8 @@ impl Native {
             Native::HasKey,
             Native::Cancel,
             Native::IsCancelled,
+            Native::IsCompleted,
+            Native::TaskStatus,
         ]
     }
 
@@ -230,6 +234,8 @@ impl Native {
             Self::HasKey => "has_key",
             Self::Cancel => "cancel",
             Self::IsCancelled => "is_cancelled",
+            Self::IsCompleted => "is_completed",
+            Self::TaskStatus => "task_status",
         }
     }
 }

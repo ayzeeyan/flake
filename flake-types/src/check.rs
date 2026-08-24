@@ -199,6 +199,14 @@ impl Checker {
             "is_cancelled".into(),
             mk(vec![Type::Task(Box::new(Type::Dyn))], Type::Bool, &[]),
         );
+        self.functions.insert(
+            "is_completed".into(),
+            mk(vec![Type::Task(Box::new(Type::Dyn))], Type::Bool, &[]),
+        );
+        self.functions.insert(
+            "task_status".into(),
+            mk(vec![Type::Task(Box::new(Type::Dyn))], Type::String, &[]),
+        );
         self.overloaded_builtins.extend(
             [
                 "print",
@@ -212,6 +220,8 @@ impl Checker {
                 "entries",
                 "cancel",
                 "is_cancelled",
+                "is_completed",
+                "task_status",
             ]
             .into_iter()
             .map(str::to_string),
@@ -1308,12 +1318,29 @@ impl Checker {
                 }
             }
             Expr::Spawn { call, span } => {
-                if !matches!(call.as_ref(), Expr::Call { .. }) {
+                let Expr::Call { callee: _, args, .. } = call.as_ref() else {
                     return Err(TypeError::with_help(
                         *span,
                         "`spawn` expects a function call",
                         "pass the work and its arguments as `spawn work(args...)`",
                     ));
+                };
+                for arg in args {
+                    if matches!(arg, Expr::Unary { op: UnOp::Ref | UnOp::RefMut, .. }) {
+                        return Err(TypeError::with_help(
+                            arg.span(),
+                            "cannot capture reference across task boundary into `spawn`",
+                            "spawned tasks must capture owned values; references cannot outlive their stack frame",
+                        ));
+                    }
+                    let arg_ty = self.check_expr(arg)?;
+                    if matches!(self.resolve(&arg_ty).without_ownership(), Type::Ref { .. }) {
+                        return Err(TypeError::with_help(
+                            arg.span(),
+                            "cannot capture reference across task boundary into `spawn`",
+                            "spawned tasks must capture owned values; references cannot outlive their stack frame",
+                        ));
+                    }
                 }
                 let result = self.check_expr(call)?;
                 Ok(Type::Task(Box::new(result)))
@@ -1681,6 +1708,30 @@ impl Checker {
                         args[0].span(),
                         format!("is_cancelled() expected Task, found {other}"),
                         "pass a Task handle to is_cancelled()",
+                    )),
+                }
+            }
+            "is_completed" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                let task_ty = self.check_expr(&args[0])?;
+                match self.resolve(&task_ty).without_ownership() {
+                    Type::Task(_) | Type::Dyn | Type::Var(_) => Ok(Type::Bool),
+                    other => Err(TypeError::with_help(
+                        args[0].span(),
+                        format!("is_completed() expected Task, found {other}"),
+                        "pass a Task handle to is_completed()",
+                    )),
+                }
+            }
+            "task_status" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                let task_ty = self.check_expr(&args[0])?;
+                match self.resolve(&task_ty).without_ownership() {
+                    Type::Task(_) | Type::Dyn | Type::Var(_) => Ok(Type::String),
+                    other => Err(TypeError::with_help(
+                        args[0].span(),
+                        format!("task_status() expected Task, found {other}"),
+                        "pass a Task handle to task_status()",
                     )),
                 }
             }

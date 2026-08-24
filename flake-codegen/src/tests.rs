@@ -844,6 +844,27 @@ fn main() / conc {
 }
 
 #[test]
+fn native_task_status_and_is_completed() {
+    let out = run_native(&src(r#"
+fn work(x: Int) -> Int { x * 2 }
+fn main() / conc + io {
+    let t = spawn work(21)
+    print("status: {task_status(t)}")
+    print("completed: {is_completed(t)}")
+    let val = await t
+    print("result: {val}")
+    print("status: {task_status(t)}")
+    print("completed: {is_completed(t)}")
+}
+"#))
+    .expect("native task status");
+    assert_eq!(
+        out,
+        "status: pending\ncompleted: false\nresult: 42\nstatus: joined\ncompleted: true\n"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

@@ -505,6 +505,41 @@ pub fn call_native(
                 )),
             }
         }
+        Native::IsCompleted => {
+            expect_arity("is_completed", args, 1)?;
+            match &args[0] {
+                Value::Task(task) => {
+                    let completed = matches!(
+                        &*task.borrow(),
+                        TaskState::Ready(_) | TaskState::Joined
+                    );
+                    Ok(Value::Bool(completed))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("is_completed() expected Task, found {}", other.type_name()),
+                )),
+            }
+        }
+        Native::TaskStatus => {
+            expect_arity("task_status", args, 1)?;
+            match &args[0] {
+                Value::Task(task) => {
+                    let status = match &*task.borrow() {
+                        TaskState::Pending { .. } => "pending",
+                        TaskState::Ready(_) => "ready",
+                        TaskState::Running => "running",
+                        TaskState::Joined => "joined",
+                        TaskState::Cancelled => "cancelled",
+                    };
+                    Ok(Value::from_string(status))
+                }
+                other => Err(VmError::new(
+                    span,
+                    format!("task_status() expected Task, found {}", other.type_name()),
+                )),
+            }
+        }
     }
 }
 

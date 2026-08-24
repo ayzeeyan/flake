@@ -1,10 +1,30 @@
 # Flake Roadmap
 
-**Flake v0.6.1 is complete.** Theme: **Stabilize v0.6 — fix bugs, close edge cases, harden reliability**.
+**Flake v0.7 in progress.** Theme: **From solid foundation to serious systems language**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.6.1 milestones
+## v0.7 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Concurrency runtime foundations | **done** |
+| 2 | Multi-target native code generation | planned |
+| 3 | Advanced ownership & lifetime analysis | planned |
+| 4 | Serious compiler optimizations + package maturity | planned |
+| 5 | Integration, hardening & showcase examples | planned |
+| 6 | Flake v0.7 complete – documentation, polish & release | planned |
+
+## What v0.7 milestone 1 delivers
+
+- Concurrency runtime foundations & expanded task lifecycle:
+  - Added explicit lifecycle states: `Pending`, `Running`, `Completed(Value)`, `Joined`, `Cancelled`.
+  - Added built-in inspection primitives: `is_completed(task)` and `task_status(task)` returning `"pending"`, `"running"`, `"completed"`, `"joined"`, `"cancelled"`.
+  - Enforced cross-backend sendability checks preventing borrowed references (`&x`, `&mut x`, `ref T`) from escaping across `spawn` task boundaries.
+  - Strict ownership capture consumption: values moved into spawned child work are checked and consumed consistently across all backends.
+  - Parity across Tree-walking Interpreter, Bytecode VM, and pure-Rust Native executable code generator.
+
+## v0.6.1 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |

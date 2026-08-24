@@ -350,7 +350,40 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             }
             Ok(())
         }
-        Expr::Spawn { call, .. } => check_expr(cx, call, true),
+        Expr::Spawn { call, .. } => {
+            if let Expr::Call { callee, args, .. } = call.as_ref() {
+                check_expr(cx, callee, false)?;
+                for arg in args {
+                    if let Expr::Ident(ident) = arg {
+                        if let Some(b) = cx.lookup_mut(&ident.name) {
+                            if b.kind == Kind::Ref {
+                                return Err(TypeError::with_help(
+                                    ident.span,
+                                    format!("cannot capture reference `{}` across task boundary in `spawn`", ident.name),
+                                    "spawned tasks must receive owned values",
+                                ));
+                            }
+                            if matches!(b.state, State::Borrowed { .. }) {
+                                return Err(TypeError::new(
+                                    ident.span,
+                                    format!("cannot move borrowed value `{}` into spawned task", ident.name),
+                                ));
+                            }
+                        }
+                    } else if matches!(arg, Expr::Unary { op: UnOp::Ref | UnOp::RefMut, .. }) {
+                        return Err(TypeError::with_help(
+                            arg.span(),
+                            "cannot capture reference across task boundary in `spawn`",
+                            "spawned tasks must receive owned values",
+                        ));
+                    }
+                    check_expr(cx, arg, true)?;
+                }
+                Ok(())
+            } else {
+                check_expr(cx, call, true)
+            }
+        }
         Expr::Await { task, .. } => check_expr(cx, task, true),
         Expr::Try { expr, .. } => check_expr(cx, expr, true),
         Expr::Index { target, index, .. } => {

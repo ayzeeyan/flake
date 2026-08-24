@@ -556,6 +556,27 @@ fn main() / io + conc {
 }
 
 #[test]
+fn task_status_and_is_completed() {
+    let (_, out) = run(r#"
+fn work() -> Int { 99 }
+
+fn main() / io + conc {
+    let t = spawn work()
+    print("status: {task_status(t)}")
+    print("completed: {is_completed(t)}")
+    let val = await t
+    print("result: {val}")
+    print("status: {task_status(t)}")
+    print("completed: {is_completed(t)}")
+}
+"#);
+    assert_eq!(
+        out,
+        "status: pending\ncompleted: false\nresult: 99\nstatus: joined\ncompleted: true\n"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

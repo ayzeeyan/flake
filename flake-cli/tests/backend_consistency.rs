@@ -982,6 +982,33 @@ fn main() / io + conc {
     assert_all_backends("concurrency-nursery-structs", source, expected);
 }
 
+#[test]
+fn concurrency_task_status_and_is_completed() {
+    let source = r#"
+fn worker(x: Int) -> Int {
+    x * 3
+}
+
+fn main() / io + conc {
+    let t = spawn worker(14)
+    print(task_status(t))
+    print(is_completed(t))
+    let result = await t
+    print(result)
+    print(task_status(t))
+    print(is_completed(t))
+}
+"#;
+    let expected = concat!(
+        "pending\n",
+        "false\n",
+        "42\n",
+        "joined\n",
+        "true\n",
+    );
+    assert_all_backends("concurrency-task-status", source, expected);
+}
+
 
 
 

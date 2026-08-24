@@ -87,6 +87,7 @@ pub enum TaskState {
         span: Span,
     },
     Running,
+    Completed(Value),
     Joined,
     Cancelled,
 }
@@ -138,6 +139,8 @@ pub enum NativeFn {
     HasKey,
     Cancel,
     IsCancelled,
+    IsCompleted,
+    TaskStatus,
 }
 
 impl NativeFn {
@@ -180,6 +183,8 @@ impl NativeFn {
             Self::HasKey => "has_key",
             Self::Cancel => "cancel",
             Self::IsCancelled => "is_cancelled",
+            Self::IsCompleted => "is_completed",
+            Self::TaskStatus => "task_status",
         }
     }
 }
@@ -287,6 +292,7 @@ impl Value {
                 let state = match &*task.borrow() {
                     TaskState::Pending { .. } => "pending",
                     TaskState::Running => "running",
+                    TaskState::Completed(_) => "completed",
                     TaskState::Joined => "joined",
                     TaskState::Cancelled => "cancelled",
                 };
@@ -398,6 +404,7 @@ impl fmt::Debug for TaskState {
         match self {
             Self::Pending { .. } => f.write_str("Pending"),
             Self::Running => f.write_str("Running"),
+            Self::Completed(_) => f.write_str("Completed"),
             Self::Joined => f.write_str("Joined"),
             Self::Cancelled => f.write_str("Cancelled"),
         }

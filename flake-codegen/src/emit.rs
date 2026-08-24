@@ -1009,6 +1009,83 @@ fn emit_call(
             store_rax(frame, dest, asm);
             Ok(())
         }
+        Callee::Static(name) if name == "is_completed" => {
+            let id = next_id(uniq);
+            let done = format!(".is_completed_done_{id}");
+            frame.load(asm, args[0], Reg::Rax);
+            asm.mov_rm(Reg::R10, Reg::Rax, 0);
+            asm.mov_ri(Reg::Rax, 1);
+            asm.mov_ri(Reg::R11, 1);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::E, &done);
+            asm.mov_ri(Reg::R11, 4);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::E, &done);
+            asm.xor_rr(Reg::Rax, Reg::Rax);
+            asm.label(&done);
+            store_rax(frame, dest, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "task_status" => {
+            let id = next_id(uniq);
+            let s_pending = intern_cstring(strings, "pending");
+            let s_joined = intern_cstring(strings, "joined");
+            let s_cancelled = intern_cstring(strings, "cancelled");
+            let s_running = intern_cstring(strings, "running");
+            let s_completed = intern_cstring(strings, "completed");
+
+            let l_joined = format!(".ts_joined_{id}");
+            let l_cancelled = format!(".ts_cancelled_{id}");
+            let l_running = format!(".ts_running_{id}");
+            let l_completed = format!(".ts_completed_{id}");
+            let l_done = format!(".ts_done_{id}");
+
+            frame.load(asm, args[0], Reg::Rax);
+            asm.mov_rm(Reg::R10, Reg::Rax, 0);
+
+            asm.mov_ri(Reg::R11, 1);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::E, &l_joined);
+
+            asm.mov_ri(Reg::R11, 2);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::E, &l_cancelled);
+
+            asm.mov_ri(Reg::R11, 3);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::E, &l_running);
+
+            asm.mov_ri(Reg::R11, 4);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::E, &l_completed);
+
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, s_pending));
+            asm.jmp_label(&l_done);
+
+            asm.label(&l_joined);
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, s_joined));
+            asm.jmp_label(&l_done);
+
+            asm.label(&l_cancelled);
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, s_cancelled));
+            asm.jmp_label(&l_done);
+
+            asm.label(&l_running);
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, s_running));
+            asm.jmp_label(&l_done);
+
+            asm.label(&l_completed);
+            let at = asm.lea_rip(Reg::Rax);
+            strs.push((at, s_completed));
+
+            asm.label(&l_done);
+            store_rax(frame, dest, asm);
+            Ok(())
+        }
         Callee::Static(name) => emit_user_call(frame, name, dest, args, asm),
         Callee::Local(id) => {
             let space = prepare_call_args(frame, args, asm);
