@@ -10,7 +10,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Concurrency runtime foundations | **done** |
 | 2 | Multi-target native code generation | **done** |
-| 3 | Advanced ownership & lifetime analysis | planned |
+| 3 | Advanced ownership & lifetime analysis | **done** |
 | 4 | Serious compiler optimizations + package maturity | planned |
 | 5 | Integration, hardening & showcase examples | planned |
 | 6 | Flake v0.7 complete – documentation, polish & release | planned |
@@ -32,6 +32,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - Built pure-Rust AArch64 (ARM64) assembler and code generator (`flake-codegen/src/aarch64.rs`).
   - Added `--target <triple>` CLI flag to `flake build` for cross-targeting (`x86_64-windows`, `x86_64-linux`, `aarch64-linux`).
   - Maintained 100% backward compatibility and parity with existing x86-64 PE execution.
+
+## What v0.7 milestone 3 delivers
+
+- Advanced ownership and lifetime analysis:
+  - Match arm pattern binding ownership: tracked ownership, movement, and reuse rules for bindings introduced in pattern matching arms.
+  - Enhanced structural borrow checking: field-level and path-sensitive tracking protecting root and nested containers against conflicting mutations and invalidations.
+  - Sendability checking across task boundaries: preventing borrowed references from escaping across asynchronous task scopes.
+  - Scope and lifetime analysis: strict verification that reborrows and local references do not outlive their owning contexts.
 
 ## v0.6.1 milestones (complete)
 

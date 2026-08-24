@@ -60,6 +60,11 @@ Control flow is conservative where repetition is possible:
 Borrowing an interior field or element (`&p.field` or `&list[idx]`) tracks the root container binding. While an interior borrow is active:
 - The parent container cannot be moved (`cannot move \`p\` while it is borrowed`).
 - Conflicting mutable borrows to the same container are rejected.
+- Mutating fields while a structural borrow is active is prohibited.
+
+### Match arm pattern binding ownership
+
+In `strict` and `owned` functions, pattern bindings (e.g. `Option.Some(val)`, `Point { x, y }`, `(a, b)`) introduce owned or reference bindings into the arm scope. Moving an arm-bound value multiple times is caught and rejected by ownership analysis.
 
 ```flake
 strict fn inspect(name: owned String) / io {
@@ -68,29 +73,19 @@ strict fn inspect(name: owned String) / io {
 }
 ```
 
-## Tasks and recoverable errors
+## Tasks, sendability, and recoverable errors
 
 `spawn f(args...)` captures its arguments in move positions. Passing an owned
 value into child work therefore consumes it in strict code just as an ordinary
-call would. Awaiting a `Task[T]` also consumes the handle in strict code; every
-runtime independently enforces the single-join rule in gradual code.
-
-Task handles cannot escape their function through a known static type. This
-ties concurrency lifetime to the spawning scope even though v0.5 does not yet
-have a general lifetime checker. See [concurrency.md](concurrency.md).
+call would. In addition:
+- Borrowed references (`&x`, `&mut x`, `ref T`) are forbidden from escaping across `spawn` boundaries.
+- Task handles cannot escape their nursery or spawning function.
+- Awaiting a `Task[T]` consumes the handle in strict code; every runtime enforces the single-join contract in gradual code.
 
 Postfix `?` consumes its Result-like value. `Ok(payload)` yields the payload;
 `Err(error)` returns that enum value from the current function. A surrounding
 `match` still checks each branch separately. See [errors.md](errors.md).
 
-## Current boundary
+## Summary
 
-v0.5 ownership is deliberately not Rust's lifetime system. Reference escapes,
-aliasing through gradual `dyn` values, and all cross-task sendability cases are
-not proven with full lifetime precision. True parallel scheduling must add a
-captured-value sendability rule before gradual aliases can run concurrently.
-
-Use strict ownership today to catch local moves, borrow conflicts, loop moves,
-and task-handle reuse while retaining gradual code for areas that do not need
-those guarantees. The [ownership examples](../examples/ownership.flk) show the
-transition, and the [language tour](tour.md) supplies the surrounding syntax.
+Flake's gradual ownership model gives developers total control: write fluid, expressive code where appropriate, and opt into strict compile-time borrow checking and move tracking when building high-reliability systems components. The [ownership examples](../examples/ownership.flk) demonstrate these guarantees in action.

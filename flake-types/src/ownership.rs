@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use flake_ast::{Block, Expr, FnDecl, InterpPart, Item, Program, Span, Stmt, TypeExpr, UnOp};
+use flake_ast::{Block, Expr, FnDecl, InterpPart, Item, Pattern, Program, Span, Stmt, TypeExpr, UnOp};
 
 use crate::error::TypeError;
 
@@ -433,7 +433,14 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             let mut arm_snapshots = Vec::new();
             for arm in arms {
                 cx.restore_states(&before);
+                cx.push();
+                let mut bindings = Vec::new();
+                collect_pattern_bindings(&arm.pattern, &mut bindings);
+                for (name, kind) in bindings {
+                    cx.define(name, kind);
+                }
                 check_expr(cx, &arm.body, move_ok)?;
+                cx.pop();
                 arm_snapshots.push(cx.snapshot());
             }
             if let Some(first) = arm_snapshots.first() {
@@ -447,6 +454,25 @@ fn check_expr(cx: &mut OwnCx, expr: &Expr, move_ok: bool) -> Result<(), TypeErro
             }
             Ok(())
         }
+    }
+}
+
+fn collect_pattern_bindings(pattern: &Pattern, out: &mut Vec<(String, Kind)>) {
+    match pattern {
+        Pattern::Ident(id) => {
+            out.push((id.name.clone(), Kind::Owned));
+        }
+        Pattern::Variant { fields, .. } => {
+            for p in fields {
+                collect_pattern_bindings(p, out);
+            }
+        }
+        Pattern::List { patterns, .. } => {
+            for p in patterns {
+                collect_pattern_bindings(p, out);
+            }
+        }
+        Pattern::Wildcard { .. } | Pattern::Literal { .. } => {}
     }
 }
 

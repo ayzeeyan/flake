@@ -928,6 +928,26 @@ fn main() {}
 }
 
 #[test]
+fn strict_match_arm_pattern_bindings_track_ownership() {
+    let msg = err(r#"
+enum Option { Some(String) None }
+fn consume(s: owned String) {}
+
+strict fn f(opt: Option) {
+    match opt {
+        Option.Some(val) => {
+            consume(val)
+            consume(val)
+        }
+        Option.None => nil
+    }
+}
+fn main() {}
+"#);
+    assert!(msg.contains("use of moved value `val`"), "{msg}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
