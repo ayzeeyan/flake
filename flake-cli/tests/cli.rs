@@ -461,6 +461,18 @@ fn package_lock_and_update_commands() {
     assert!(out_update.status.success());
     assert!(lock_file.is_file());
 
+    // 5. Mutate manifest version to simulate drift and test lock --check failure
+    std::fs::write(
+        app_dir.join("flake.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.2.0\"\nentry = \"main.flk\"\n\n[dependencies]\nmath_lib = { path = \"../math_lib\" }\n",
+    )
+    .expect("write updated app flake.toml");
+
+    let out_check_drift = flake_bin().arg("lock").arg("--check").arg(&app_dir).output().expect("check lock drift");
+    assert!(!out_check_drift.status.success(), "lock --check should fail when manifest drifts");
+    let err_msg = String::from_utf8_lossy(&out_check_drift.stderr);
+    assert!(err_msg.contains("mismatch") || err_msg.contains("run `flake update`"), "err: {err_msg}");
+
     // Cleanup
     let _ = std::fs::remove_dir_all(&root);
 }

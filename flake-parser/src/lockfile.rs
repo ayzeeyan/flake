@@ -367,15 +367,27 @@ fn compute_package_checksum(dir: &Path) -> Result<String, LockfileError> {
 
     let mut files = Vec::new();
     collect_files_recursive(dir, &mut files)?;
-    files.sort();
+    files.sort_by(|a, b| {
+        a.to_string_lossy()
+            .replace('\\', "/")
+            .cmp(&b.to_string_lossy().replace('\\', "/"))
+    });
 
     let mut hasher = Fnv1aHasher::new();
     for file in files {
         if let Ok(rel) = file.strip_prefix(dir) {
-            hasher.write(rel.to_string_lossy().as_bytes());
+            let normalized_path = rel.to_string_lossy().replace('\\', "/");
+            hasher.write(normalized_path.as_bytes());
         }
         if let Ok(bytes) = fs::read(&file) {
-            hasher.write(&bytes);
+            let ext = file.extension().and_then(|e| e.to_str());
+            let name = file.file_name().and_then(|n| n.to_str());
+            if ext == Some("flk") || name == Some("flake.toml") {
+                let normalized_text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
+                hasher.write(normalized_text.as_bytes());
+            } else {
+                hasher.write(&bytes);
+            }
         }
     }
 

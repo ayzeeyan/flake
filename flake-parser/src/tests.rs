@@ -487,6 +487,40 @@ math = { path = "lib", package = "math_lib", version = "0.2.0" }
 }
 
 #[test]
+fn lockfile_checksum_crlf_lf_invariance() {
+    let dir_lf = std::env::temp_dir().join(format!("flake-lf-test-{}", std::process::id()));
+    let dir_crlf = std::env::temp_dir().join(format!("flake-crlf-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir_lf).unwrap();
+    std::fs::create_dir_all(&dir_crlf).unwrap();
+
+    let manifest_lf = "[package]\nname = \"test_pkg\"\nversion = \"0.1.0\"\n";
+    let manifest_crlf = "[package]\r\nname = \"test_pkg\"\r\nversion = \"0.1.0\"\r\n";
+    let code_lf = "fn main() {\n    print(42)\n}\n";
+    let code_crlf = "fn main() {\r\n    print(42)\r\n}\r\n";
+
+    std::fs::write(dir_lf.join("flake.toml"), manifest_lf).unwrap();
+    std::fs::write(dir_lf.join("main.flk"), code_lf).unwrap();
+
+    std::fs::write(dir_crlf.join("flake.toml"), manifest_crlf).unwrap();
+    std::fs::write(dir_crlf.join("main.flk"), code_crlf).unwrap();
+
+    let m_lf = Manifest::parse(manifest_lf, &dir_lf.join("flake.toml")).unwrap();
+    let m_crlf = Manifest::parse(manifest_crlf, &dir_crlf.join("flake.toml")).unwrap();
+
+    let lock_lf = Lockfile::generate(&m_lf, &dir_lf).unwrap();
+    let lock_crlf = Lockfile::generate(&m_crlf, &dir_crlf).unwrap();
+
+    assert_eq!(
+        lock_lf.packages[0].checksum,
+        lock_crlf.packages[0].checksum,
+        "CRLF and LF line endings must produce identical package checksums"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir_lf);
+    let _ = std::fs::remove_dir_all(&dir_crlf);
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
