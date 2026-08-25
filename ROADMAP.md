@@ -1,8 +1,26 @@
 # Flake Roadmap
 
-**Flake v0.7 is complete.** Theme: **From solid foundation to serious systems language**.
+**Flake v0.7.3 in progress.** Theme: **Harden the v0.7 leap — correctness, reliability, and performance**.
 
 There is no LLVM, Cranelift, or C transpilation.
+
+## v0.7.3 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Multi-target native hardening | **done** |
+| 2 | Concurrency runtime bug fixes & hardening | planned |
+| 3 | Ownership & lifetime bug fixes | planned |
+| 4 | Optimizer correctness & safe performance | planned |
+| 5 | Cross-backend / cross-target consistency & diagnostics | planned |
+| 6 | Flake v0.7.3 complete – hardening, optimization, and bug fixes | planned |
+
+## What v0.7.3 milestone 1 delivers
+
+- Multi-target native hardening:
+  - Dynamic `p_flags` and `phdr_count` calculation in standalone pure-Rust ELF64 writer (`flake-codegen/src/elf.rs`), ensuring exact program header compliance for binaries with or without `.rodata`.
+  - Hardened AArch64 instruction encodings for ALU operations, branches, and register/frame pointer manipulation.
+  - Added structural ELF header and ARM64 instruction opcode regression tests.
 
 ## v0.7 milestones (complete)
 

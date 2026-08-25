@@ -907,6 +907,44 @@ fn target_parsing_and_defaults() {
 }
 
 #[test]
+fn elf_header_structure_and_segments_verified() {
+    use crate::{Target, compile_target};
+    let elf = compile_target(&src("fn main() { print(\"hello\") }"), Target::X86_64_LINUX)
+        .expect("x86_64 elf codegen");
+    assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
+    assert_eq!(elf[4], 2); // 64-bit
+    assert_eq!(elf[5], 1); // Little endian
+    assert_eq!(elf[6], 1); // EV_CURRENT
+    assert_eq!(u16::from_le_bytes([elf[16], elf[17]]), 2); // ET_EXEC
+    assert_eq!(u16::from_le_bytes([elf[18], elf[19]]), 62); // EM_X86_64
+    assert_eq!(u32::from_le_bytes([elf[20], elf[21], elf[22], elf[23]]), 1); // EV_CURRENT
+    assert_eq!(u64::from_le_bytes(elf[32..40].try_into().unwrap()), 64); // e_phoff
+    assert_eq!(u16::from_le_bytes([elf[52], elf[53]]), 64); // e_ehsize
+    assert_eq!(u16::from_le_bytes([elf[54], elf[55]]), 56); // e_phentsize
+    assert_eq!(u16::from_le_bytes([elf[56], elf[57]]), 2); // e_phnum with data
+}
+
+#[test]
+fn aarch64_instruction_encodings_verified() {
+    use crate::aarch64::{Aarch64Asm, Cond, Reg};
+    let mut asm = Aarch64Asm::new();
+    asm.add_rr(Reg::X0, Reg::X1, Reg::X2);
+    asm.sub_rr(Reg::X3, Reg::X4, Reg::X5);
+    asm.mul_rr(Reg::X6, Reg::X7, Reg::X8);
+    asm.sdiv_rr(Reg::X9, Reg::X10, Reg::X11);
+    asm.mov_i64(Reg::X0, 42);
+    asm.cset(Reg::X0, Cond::EQ);
+    asm.svc(0);
+    asm.ret();
+    assert!(asm.bytes.len() >= 32);
+    // RET opcode is 0xd65f03c0
+    assert_eq!(
+        &asm.bytes[asm.bytes.len() - 4..],
+        &0xd65f03c0u32.to_le_bytes()
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

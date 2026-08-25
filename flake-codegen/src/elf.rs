@@ -17,6 +17,7 @@ const EM_AARCH64: u16 = 183;
 
 const PT_LOAD: u32 = 1;
 const PF_X: u32 = 1;
+#[allow(dead_code)]
 const PF_W: u32 = 2;
 const PF_R: u32 = 4;
 
@@ -36,9 +37,12 @@ pub fn write_elf(compiled: &Compiled, arch: TargetArch) -> Vec<u8> {
         rdata.extend_from_slice(s);
     }
 
+    let data_filesz = rdata.len() as u64;
+    let data_memsz = data_filesz;
+
     let ehdr_size = 64u64;
     let phdr_size = 56u64;
-    let phdr_count = 2u64; // Segment 0: Code (.text), Segment 1: Data (.rodata)
+    let phdr_count = if data_filesz > 0 { 2u64 } else { 1u64 };
     let headers_size = ehdr_size + phdr_size * phdr_count;
 
     // Code begins right after program headers, aligned to 16 bytes.
@@ -51,8 +55,6 @@ pub fn write_elf(compiled: &Compiled, arch: TargetArch) -> Vec<u8> {
 
     let data_offset = align_up(text_filesz, PAGE_SIZE);
     let data_vaddr = BASE_VADDR + data_offset;
-    let data_filesz = rdata.len() as u64;
-    let data_memsz = data_filesz;
 
     // Patch RIP-relative string references in machine code.
     let mut code = compiled.code.clone();
@@ -96,7 +98,7 @@ pub fn write_elf(compiled: &Compiled, arch: TargetArch) -> Vec<u8> {
     buf[48..52].copy_from_slice(&(0u32).to_le_bytes()); // e_flags
     buf[52..54].copy_from_slice(&(ehdr_size as u16).to_le_bytes()); // e_ehsize (64)
     buf[54..56].copy_from_slice(&(phdr_size as u16).to_le_bytes()); // e_phentsize (56)
-    buf[56..58].copy_from_slice(&(phdr_count as u16).to_le_bytes()); // e_phnum (2)
+    buf[56..58].copy_from_slice(&(phdr_count as u16).to_le_bytes()); // e_phnum (1 or 2)
     buf[58..60].copy_from_slice(&(0u16).to_le_bytes()); // e_shentsize
     buf[60..62].copy_from_slice(&(0u16).to_le_bytes()); // e_shnum
     buf[62..64].copy_from_slice(&(0u16).to_le_bytes()); // e_shstrndx
@@ -113,15 +115,17 @@ pub fn write_elf(compiled: &Compiled, arch: TargetArch) -> Vec<u8> {
     buf[ph0_off + 48..ph0_off + 56].copy_from_slice(&PAGE_SIZE.to_le_bytes()); // p_align
 
     // --- Program Header 1: Data Segment (.rodata) ---
-    let ph1_off = ph0_off + phdr_size as usize;
-    buf[ph1_off..ph1_off + 4].copy_from_slice(&PT_LOAD.to_le_bytes()); // p_type
-    buf[ph1_off + 4..ph1_off + 8].copy_from_slice(&(PF_R | PF_W).to_le_bytes()); // p_flags
-    buf[ph1_off + 8..ph1_off + 16].copy_from_slice(&data_offset.to_le_bytes()); // p_offset
-    buf[ph1_off + 16..ph1_off + 24].copy_from_slice(&data_vaddr.to_le_bytes()); // p_vaddr
-    buf[ph1_off + 24..ph1_off + 32].copy_from_slice(&data_vaddr.to_le_bytes()); // p_paddr
-    buf[ph1_off + 32..ph1_off + 40].copy_from_slice(&data_filesz.to_le_bytes()); // p_filesz
-    buf[ph1_off + 40..ph1_off + 48].copy_from_slice(&data_memsz.to_le_bytes()); // p_memsz
-    buf[ph1_off + 48..ph1_off + 56].copy_from_slice(&PAGE_SIZE.to_le_bytes()); // p_align
+    if data_filesz > 0 {
+        let ph1_off = ph0_off + phdr_size as usize;
+        buf[ph1_off..ph1_off + 4].copy_from_slice(&PT_LOAD.to_le_bytes()); // p_type
+        buf[ph1_off + 4..ph1_off + 8].copy_from_slice(&(PF_R).to_le_bytes()); // p_flags (Read-Only)
+        buf[ph1_off + 8..ph1_off + 16].copy_from_slice(&data_offset.to_le_bytes()); // p_offset
+        buf[ph1_off + 16..ph1_off + 24].copy_from_slice(&data_vaddr.to_le_bytes()); // p_vaddr
+        buf[ph1_off + 24..ph1_off + 32].copy_from_slice(&data_vaddr.to_le_bytes()); // p_paddr
+        buf[ph1_off + 32..ph1_off + 40].copy_from_slice(&data_filesz.to_le_bytes()); // p_filesz
+        buf[ph1_off + 40..ph1_off + 48].copy_from_slice(&data_memsz.to_le_bytes()); // p_memsz
+        buf[ph1_off + 48..ph1_off + 56].copy_from_slice(&PAGE_SIZE.to_le_bytes()); // p_align
+    }
 
     // --- Code Copy ---
     let code_start = code_offset as usize;
