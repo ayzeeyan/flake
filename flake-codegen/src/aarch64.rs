@@ -198,10 +198,10 @@ impl Aarch64Asm {
         let w3 = ((u >> 48) & 0xffff) as u16;
 
         self.movz(rd, w0, 0);
-        if w1 != 0 || w2 != 0 || w3 != 0 {
+        if w1 != 0 {
             self.movk(rd, w1, 16);
         }
-        if w2 != 0 || w3 != 0 {
+        if w2 != 0 {
             self.movk(rd, w2, 32);
         }
         if w3 != 0 {

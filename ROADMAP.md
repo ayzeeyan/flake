@@ -1,8 +1,23 @@
 # Flake Roadmap
 
-**Flake v0.7.3 is complete.** Theme: **Harden the v0.7 leap — correctness, reliability, and performance**.
+**Flake v0.7.4 in progress.** Theme: **Small, high-quality increment**.
 
 There is no LLVM, Cranelift, or C transpilation.
+
+## v0.7.4 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Bug fixes & consistency improvements | **done** |
+| 2 | Small quality-of-life improvements | planned |
+| 3 | Tests, examples, docs and v0.7.4 finalization | planned |
+| 4 | Flake v0.7.4 complete | planned |
+
+## What v0.7.4 milestone 1 delivers
+
+- Bug fixes and consistency improvements:
+  - Optimized 64-bit immediate materialization in `aarch64.rs` (`mov_i64`) to only emit `movk` instructions for non-zero halfwords.
+  - Added regression test for AArch64 immediate materialization (`aarch64_mov_i64_encodings_verified`).
 
 ## v0.7.3 milestones (complete)
 

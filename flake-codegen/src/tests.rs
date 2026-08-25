@@ -945,6 +945,21 @@ fn aarch64_instruction_encodings_verified() {
 }
 
 #[test]
+fn aarch64_mov_i64_encodings_verified() {
+    use crate::aarch64::{Aarch64Asm, Reg};
+    let mut asm = Aarch64Asm::new();
+    // 42 fits in w0 (single movz)
+    asm.mov_i64(Reg::X0, 42);
+    assert_eq!(asm.bytes.len(), 4);
+
+    // Number with non-zero w0 and w2, zero w1 and w3
+    let mut asm2 = Aarch64Asm::new();
+    asm2.mov_i64(Reg::X0, (1i64 << 32) | 5);
+    // movz for w0 + movk for w2 = 8 bytes (2 instructions)
+    assert_eq!(asm2.bytes.len(), 8);
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
