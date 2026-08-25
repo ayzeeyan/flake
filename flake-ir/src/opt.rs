@@ -408,11 +408,12 @@ fn simplify_algebraic(
             value: Const::Bool(false),
         }),
         // x || true -> true (for boolean)
-        (BinOp::Or, None, Some(Const::Bool(true)))
-        | (BinOp::Or, Some(Const::Bool(true)), None) => Some(Inst::LoadConst {
-            dest,
-            value: Const::Bool(true),
-        }),
+        (BinOp::Or, None, Some(Const::Bool(true))) | (BinOp::Or, Some(Const::Bool(true)), None) => {
+            Some(Inst::LoadConst {
+                dest,
+                value: Const::Bool(true),
+            })
+        }
         // x || false -> x (for boolean)
         (BinOp::Or, None, Some(Const::Bool(false)))
             if dest_ty == Some(&IrType::Bool) || lhs_ty == Some(&IrType::Bool) =>

@@ -1,10 +1,10 @@
 # Flake Roadmap
 
-**Flake v0.7.3 in progress.** Theme: **Harden the v0.7 leap — correctness, reliability, and performance**.
+**Flake v0.7.3 is complete.** Theme: **Harden the v0.7 leap — correctness, reliability, and performance**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.7.3 milestones
+## v0.7.3 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 3 | Ownership & lifetime bug fixes | **done** |
 | 4 | Optimizer correctness & safe performance | **done** |
 | 5 | Cross-backend / cross-target consistency & diagnostics | **done** |
-| 6 | Flake v0.7.3 complete – hardening, optimization, and bug fixes | planned |
+| 6 | Flake v0.7.3 complete – hardening, optimization, and bug fixes | **done** |
 
 ## What v0.7.3 milestone 1 delivers
 
@@ -48,6 +48,13 @@ There is no LLVM, Cranelift, or C transpilation.
 - Cross-backend and cross-target consistency & diagnostics:
   - Expanded consistency test suite across Interpreter, Bytecode VM, and Native backend covering pattern matching branch isolation, float NaN/infinity comparisons, and concurrency task state inspection.
   - Verified 100% execution parity with 0 test failures or warnings across all targets.
+
+## What v0.7.3 milestone 6 delivers
+
+- Finalization, version bump & release documentation:
+  - Bumped workspace version to 0.7.3.
+  - Authored comprehensive release notes in `docs/release-notes-v0.7.3.md`.
+  - Verified full test suite across all 9 crates with zero warnings.
 
 ## v0.7 milestones (complete)
 

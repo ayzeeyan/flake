@@ -1345,9 +1345,13 @@ impl Checker {
                     if self.resolve(&arg_ty).contains_ref() {
                         let err_msg = match arg {
                             Expr::Ident(id) => {
-                                format!("cannot capture reference `{}` across task boundary into `spawn`", id.name)
+                                format!(
+                                    "cannot capture reference `{}` across task boundary into `spawn`",
+                                    id.name
+                                )
                             }
-                            _ => "cannot capture reference across task boundary into `spawn`".to_string(),
+                            _ => "cannot capture reference across task boundary into `spawn`"
+                                .to_string(),
                         };
                         return Err(TypeError::with_help(
                             arg.span(),

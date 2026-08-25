@@ -51,11 +51,11 @@ between:
 
 ## Status
 
-**Flake v0.7 is complete.** Theme: **From solid foundation to serious systems language**.
-- **Multi-target native code generation**: Built pure-Rust standalone 64-bit ELF executable writer (`elf.rs`) and pure-Rust AArch64 (ARM64) assembler (`aarch64.rs`), enabling `--target x86_64-windows`, `--target x86_64-linux`, and `--target aarch64-linux`.
-- **Concurrency runtime foundations**: Added inspection primitives `is_completed(task)` and `task_status(task)` ("pending", "running", "completed", "joined", "cancelled") and cross-task sendability validation.
-- **Advanced ownership & lifetime analysis**: Added pattern matching arm ownership tracking, field-sensitive structural borrow checking, and scope escape prevention.
-- **Serious compiler optimizations**: Added algebraic identity simplification & strength reduction, control flow graph dead code elimination, and jump threading.
+**Flake v0.7.3 is complete.** Theme: **Harden the v0.7 leap — correctness, reliability, and performance**.
+- **Multi-target native hardening**: Dynamic `p_flags` and `phdr_count` calculation in pure-Rust ELF64 generator (`elf.rs`), hardened opcode encodings and operand ranges for AArch64 (`aarch64.rs`).
+- **Concurrency runtime hardening**: State machine inspection parity across all backends (`task_status` and `is_completed`) and recursive sendability validation across `spawn` boundaries.
+- **Advanced ownership & lifetime precision**: Branch-isolated match arm pattern binding ownership tracking and structural borrow protection for composite values.
+- **Optimizer safety & IEEE-754 compliance**: Type-aware algebraic simplifications preserving floating-point `NaN`/infinity behavior and runtime division traps.
 - **100% pure Rust owned pipeline**: Zero external dependencies, no LLVM, no Cranelift, no C transpilation.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
@@ -63,7 +63,7 @@ for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.7 release notes](docs/release-notes-v0.7.0.md) for the complete
+See the [v0.7.3 release notes](docs/release-notes-v0.7.3.md) for the complete
 feature and compatibility summary.
 
 ## Build and run
