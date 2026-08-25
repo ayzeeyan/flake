@@ -10,7 +10,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Bug fixes & consistency improvements | **done** |
 | 2 | Small quality-of-life improvements | **done** |
-| 3 | Tests, examples, docs and v0.7.4 finalization | planned |
+| 3 | Tests, examples, docs and v0.7.4 finalization | **done** |
 | 4 | Flake v0.7.4 complete | planned |
 
 ## What v0.7.4 milestone 1 delivers
@@ -25,6 +25,14 @@ There is no LLVM, Cranelift, or C transpilation.
   - Added geometric helpers `hypot_sq(a, b)` and `dist_sq(x1, y1, x2, y2)` to `std/math.flk`.
   - Added character classification helper `is_alphanumeric(ch)` to `std/string.flk`.
   - Verified cross-backend consistency across all 3 execution backends.
+
+## What v0.7.4 milestone 3 delivers
+
+- Tests, examples, docs and v0.7.4 finalization:
+  - Added `examples/geometry.flk` showcasing 2D shapes, pattern matching, structs, and math helpers.
+  - Added test coverage in `flake-cli/tests/examples.rs` with verification across Interpreter, VM, and Native backends.
+  - Published `docs/release-notes-v0.7.4.md` and updated `docs/examples.md` and `README.md`.
+  - Bumped workspace version to `0.7.4`.
 
 ## v0.7.3 milestones (complete)
 

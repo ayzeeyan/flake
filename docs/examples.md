@@ -33,6 +33,7 @@ optional `release.s` diagnostic listing.
 | [`ownership.flk`](../examples/ownership.flk) | gradual and strict ownership |
 | [`enum.flk`](../examples/enum.flk) | algebraic enums and exhaustive `match` |
 | [`pattern_matching.flk`](../examples/pattern_matching.flk) | nested variant destructuring and list pattern matching |
+| [`geometry.flk`](../examples/geometry.flk) | 2D shape geometry with structs, enums, and stdlib math |
 | [`data.flk`](../examples/data.flk) | typed maps, scalar patterns, and Result-style `?` |
 | [`concurrency.flk`](../examples/concurrency.flk) | the smallest `Task[T]`, `spawn`, and `await` program |
 | [`task_pipeline.flk`](../examples/task_pipeline.flk) | several scope-bound tasks returning enum values |

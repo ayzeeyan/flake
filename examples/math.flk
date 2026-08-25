@@ -7,3 +7,13 @@ pub fn add(a: Int, b: Int) -> Int {
 pub fn square(n: Int) -> Int {
     n * n
 }
+
+pub fn hypot_sq(a: Int, b: Int) -> Int {
+    a * a + b * b
+}
+
+pub fn dist_sq(x1: Int, y1: Int, x2: Int, y2: Int) -> Int {
+    let dx = x1 - x2
+    let dy = y1 - y2
+    dx * dx + dy * dy
+}

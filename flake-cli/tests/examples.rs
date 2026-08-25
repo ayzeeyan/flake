@@ -19,6 +19,7 @@ const EXAMPLES: &[&str] = &[
     "nursery.flk",
     "task_pipeline.flk",
     "pattern_matching.flk",
+    "geometry.flk",
     "projects/inventory/main.flk",
     "projects/telemetry/main.flk",
     "projects/release/main.flk",
@@ -211,6 +212,19 @@ fn task_pipeline_output() {
             "compile: completed with 36\n",
             "test: completed with 49\n",
             "package: rejected (package: empty input)\n",
+        )
+    );
+}
+
+#[test]
+fn geometry_output() {
+    assert_eq!(
+        run_example("geometry.flk"),
+        concat!(
+            "circle area: 75\n",
+            "rect area: 24\n",
+            "circle center dist sq: 25\n",
+            "rect center dist sq: 25\n",
         )
     );
 }

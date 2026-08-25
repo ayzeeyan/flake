@@ -1,0 +1,45 @@
+// Geometry and 2D shapes example demonstrating Flake structs, enums, pattern matching, and stdlib math.
+import math
+
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+enum Shape {
+    Circle(Point, Int)
+    Rectangle(Point, Point)
+}
+
+fn area(s: Shape) -> Int {
+    match s {
+        Shape.Circle(c, r) => 3 * r * r,
+        Shape.Rectangle(p1, p2) => {
+            let width = abs(p1.x - p2.x)
+            let height = abs(p1.y - p2.y)
+            width * height
+        }
+    }
+}
+
+fn center_dist_sq(s: Shape, origin: Point) -> Int {
+    match s {
+        Shape.Circle(c, r) => math.dist_sq(c.x, c.y, origin.x, origin.y),
+        Shape.Rectangle(p1, p2) => {
+            let mid_x = (p1.x + p2.x) / 2
+            let mid_y = (p1.y + p2.y) / 2
+            math.dist_sq(mid_x, mid_y, origin.x, origin.y)
+        }
+    }
+}
+
+fn main() / io {
+    let origin = Point { x: 0, y: 0 }
+    let c = Shape.Circle(Point { x: 3, y: 4 }, 5)
+    let r = Shape.Rectangle(Point { x: 1, y: 1 }, Point { x: 5, y: 7 })
+
+    print("circle area: {area(c)}")
+    print("rect area: {area(r)}")
+    print("circle center dist sq: {center_dist_sq(c, origin)}")
+    print("rect center dist sq: {center_dist_sq(r, origin)}")
+}
