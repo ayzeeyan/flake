@@ -979,6 +979,46 @@ fn main() / conc {
 }
 
 #[test]
+fn strict_match_arms_are_isolated_branches() {
+    let text = r#"
+enum Either { Left(String) Right(String) }
+fn consume(s: owned String) {}
+
+strict fn process(e: Either) {
+    match e {
+        Either.Left(s) => {
+            consume(s)
+        }
+        Either.Right(s) => {
+            consume(s)
+        }
+    }
+}
+fn main() {}
+"#;
+    ok(text);
+}
+
+#[test]
+fn structural_borrow_prevents_moving_root_struct() {
+    let msg = err(r#"
+struct Point { x: String, y: String }
+fn consume(p: owned Point) {}
+
+strict fn test() {
+    let p = Point { x: "10", y: "20" }
+    let r = &p.x
+    consume(p)
+}
+fn main() {}
+"#);
+    assert!(
+        msg.contains("cannot move `p` while it is borrowed"),
+        "{msg}"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

@@ -10,7 +10,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | --- | --- | --- |
 | 1 | Multi-target native hardening | **done** |
 | 2 | Concurrency runtime bug fixes & hardening | **done** |
-| 3 | Ownership & lifetime bug fixes | planned |
+| 3 | Ownership & lifetime bug fixes | **done** |
 | 4 | Optimizer correctness & safe performance | planned |
 | 5 | Cross-backend / cross-target consistency & diagnostics | planned |
 | 6 | Flake v0.7.3 complete – hardening, optimization, and bug fixes | planned |
@@ -28,6 +28,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - Fixed VM `task_status` returning `"ready"` instead of `"completed"`, achieving 100% status string parity across Interpreter, VM, and Native x86-64 backend.
   - Hardened compile-time sendability checking to recursively detect and reject nested references across `spawn` boundaries (e.g. `[ref String]` or `Map[ref K, V]`).
   - Added comprehensive sendability regression tests.
+
+## What v0.7.3 milestone 3 delivers
+
+- Ownership and lifetime bug fixes:
+  - Validated pattern binding isolation across `match` arms ensuring independent ownership branches.
+  - Hardened structural borrow checking to forbid moving or invalidating root structures while subfield references remain active.
+  - Added targeted ownership regression test suite for match arm isolation and structural borrows.
 
 ## v0.7 milestones (complete)
 
