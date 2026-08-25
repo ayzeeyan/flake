@@ -12,7 +12,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 2 | Concurrency runtime bug fixes & hardening | **done** |
 | 3 | Ownership & lifetime bug fixes | **done** |
 | 4 | Optimizer correctness & safe performance | **done** |
-| 5 | Cross-backend / cross-target consistency & diagnostics | planned |
+| 5 | Cross-backend / cross-target consistency & diagnostics | **done** |
 | 6 | Flake v0.7.3 complete – hardening, optimization, and bug fixes | planned |
 
 ## What v0.7.3 milestone 1 delivers
@@ -42,6 +42,12 @@ There is no LLVM, Cranelift, or C transpilation.
   - Hardened algebraic simplification to inspect local type definitions, restricting integer identities to `IrType::Int` and boolean identities to `IrType::Bool`.
   - Preserved full IEEE-754 semantics (`NaN * 0 = NaN`) and division by zero runtime checks across all optimizations.
   - Added targeted optimizer tests for floating point safety and algebraic identity preservation.
+
+## What v0.7.3 milestone 5 delivers
+
+- Cross-backend and cross-target consistency & diagnostics:
+  - Expanded consistency test suite across Interpreter, Bytecode VM, and Native backend covering pattern matching branch isolation, float NaN/infinity comparisons, and concurrency task state inspection.
+  - Verified 100% execution parity with 0 test failures or warnings across all targets.
 
 ## v0.7 milestones (complete)
 

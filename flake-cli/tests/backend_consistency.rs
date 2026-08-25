@@ -992,3 +992,40 @@ fn main() / io + conc {
     let expected = concat!("pending\n", "false\n", "42\n", "joined\n", "true\n",);
     assert_all_backends("concurrency-task-status", source, expected);
 }
+
+#[test]
+fn pattern_matching_branch_isolation_across_backends() {
+    let source = r#"
+enum Status { Active(Int) Inactive(String) Unknown }
+
+fn describe(s: Status) -> String {
+    match s {
+        Status.Active(code) => "active:{code}",
+        Status.Inactive(reason) => "inactive:{reason}",
+        Status.Unknown => "unknown",
+    }
+}
+
+fn main() {
+    print(describe(Status.Active(200)))
+    print(describe(Status.Inactive("timeout")))
+    print(describe(Status.Unknown))
+}
+"#;
+    let expected = concat!("active:200\n", "inactive:timeout\n", "unknown\n");
+    assert_all_backends("pattern-matching-isolation", source, expected);
+}
+
+#[test]
+fn float_nan_and_infinity_comparisons_across_backends() {
+    let source = r#"
+fn main() {
+    let zero = 0.0
+    let nan = zero / zero
+    print(nan == nan)
+    print(nan != nan)
+}
+"#;
+    let expected = "false\ntrue\n";
+    assert_all_backends("float-nan-comparisons", source, expected);
+}
