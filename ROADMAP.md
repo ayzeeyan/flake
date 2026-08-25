@@ -1,17 +1,17 @@
 # Flake Roadmap
 
-**Flake v0.7.4 in progress.** Theme: **Small, high-quality increment**.
+**Flake v0.7.4 is complete.** Theme: **Small, high-quality increment**.
 
 There is no LLVM, Cranelift, or C transpilation.
 
-## v0.7.4 milestones
+## v0.7.4 milestones (complete)
 
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Bug fixes & consistency improvements | **done** |
 | 2 | Small quality-of-life improvements | **done** |
 | 3 | Tests, examples, docs and v0.7.4 finalization | **done** |
-| 4 | Flake v0.7.4 complete | planned |
+| 4 | Flake v0.7.4 complete | **done** |
 
 ## What v0.7.4 milestone 1 delivers
 
@@ -33,6 +33,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - Added test coverage in `flake-cli/tests/examples.rs` with verification across Interpreter, VM, and Native backends.
   - Published `docs/release-notes-v0.7.4.md` and updated `docs/examples.md` and `README.md`.
   - Bumped workspace version to `0.7.4`.
+
+## What v0.7.4 milestone 4 delivers
+
+- Final verification and release:
+  - Executed full workspace test suite across all 9 crates with 100% pass rate.
+  - Passed strict clippy checks with zero warnings.
+  - Verified code formatting and pushed release to remote `main`.
 
 ## v0.7.3 milestones (complete)
 
