@@ -238,7 +238,7 @@ fn fold_constants_and_propagate(func: &mut Function) -> bool {
                             changed = true;
                         }
                     } else if let Some(simplified) =
-                        simplify_algebraic(op, lhs, rhs, l_opt, r_opt, dest)
+                        simplify_algebraic(op, lhs, rhs, l_opt, r_opt, dest, &func.locals)
                     {
                         *inst = simplified;
                         changed = true;
@@ -328,48 +328,103 @@ fn simplify_algebraic(
     l_const: Option<&Const>,
     r_const: Option<&Const>,
     dest: LocalId,
+    locals: &[Local],
 ) -> Option<Inst> {
+    use crate::ty::IrType;
+    let lhs_ty = locals.iter().find(|l| l.id == lhs).map(|l| &l.ty);
+    let rhs_ty = locals.iter().find(|l| l.id == rhs).map(|l| &l.ty);
+    let dest_ty = locals.iter().find(|l| l.id == dest).map(|l| &l.ty);
+
     match (op, l_const, r_const) {
-        // x + 0 -> x
-        (BinOp::Add, None, Some(Const::Int(0))) => Some(Inst::Move { dest, src: lhs }),
-        // 0 + x -> x
-        (BinOp::Add, Some(Const::Int(0)), None) => Some(Inst::Move { dest, src: rhs }),
-        // x - 0 -> x
-        (BinOp::Sub, None, Some(Const::Int(0))) => Some(Inst::Move { dest, src: lhs }),
-        // x * 1 -> x
-        (BinOp::Mul, None, Some(Const::Int(1))) => Some(Inst::Move { dest, src: lhs }),
-        // 1 * x -> x
-        (BinOp::Mul, Some(Const::Int(1)), None) => Some(Inst::Move { dest, src: rhs }),
-        // x * 0 -> 0
-        (BinOp::Mul, None, Some(Const::Int(0))) | (BinOp::Mul, Some(Const::Int(0)), None) => {
+        // x + 0 -> x (for integer)
+        (BinOp::Add, None, Some(Const::Int(0)))
+            if dest_ty == Some(&IrType::Int) || lhs_ty == Some(&IrType::Int) =>
+        {
+            Some(Inst::Move { dest, src: lhs })
+        }
+        // 0 + x -> x (for integer)
+        (BinOp::Add, Some(Const::Int(0)), None)
+            if dest_ty == Some(&IrType::Int) || rhs_ty == Some(&IrType::Int) =>
+        {
+            Some(Inst::Move { dest, src: rhs })
+        }
+        // x - 0 -> x (for integer)
+        (BinOp::Sub, None, Some(Const::Int(0)))
+            if dest_ty == Some(&IrType::Int) || lhs_ty == Some(&IrType::Int) =>
+        {
+            Some(Inst::Move { dest, src: lhs })
+        }
+        // x * 1 -> x (for integer)
+        (BinOp::Mul, None, Some(Const::Int(1)))
+            if dest_ty == Some(&IrType::Int) || lhs_ty == Some(&IrType::Int) =>
+        {
+            Some(Inst::Move { dest, src: lhs })
+        }
+        // 1 * x -> x (for integer)
+        (BinOp::Mul, Some(Const::Int(1)), None)
+            if dest_ty == Some(&IrType::Int) || rhs_ty == Some(&IrType::Int) =>
+        {
+            Some(Inst::Move { dest, src: rhs })
+        }
+        // x * 0 -> 0 (only for integer, preserving float NaN semantics)
+        (BinOp::Mul, None, Some(Const::Int(0)))
+            if lhs_ty == Some(&IrType::Int) || dest_ty == Some(&IrType::Int) =>
+        {
             Some(Inst::LoadConst {
                 dest,
                 value: Const::Int(0),
             })
         }
-        // x / 1 -> x
-        (BinOp::Div, None, Some(Const::Int(1))) => Some(Inst::Move { dest, src: lhs }),
-        // x && true -> x
-        (BinOp::And, None, Some(Const::Bool(true))) => Some(Inst::Move { dest, src: lhs }),
-        // true && x -> x
-        (BinOp::And, Some(Const::Bool(true)), None) => Some(Inst::Move { dest, src: rhs }),
-        // x && false -> false
+        (BinOp::Mul, Some(Const::Int(0)), None)
+            if rhs_ty == Some(&IrType::Int) || dest_ty == Some(&IrType::Int) =>
+        {
+            Some(Inst::LoadConst {
+                dest,
+                value: Const::Int(0),
+            })
+        }
+        // x / 1 -> x (for integer)
+        (BinOp::Div, None, Some(Const::Int(1)))
+            if dest_ty == Some(&IrType::Int) || lhs_ty == Some(&IrType::Int) =>
+        {
+            Some(Inst::Move { dest, src: lhs })
+        }
+        // x && true -> x (for boolean)
+        (BinOp::And, None, Some(Const::Bool(true)))
+            if dest_ty == Some(&IrType::Bool) || lhs_ty == Some(&IrType::Bool) =>
+        {
+            Some(Inst::Move { dest, src: lhs })
+        }
+        // true && x -> x (for boolean)
+        (BinOp::And, Some(Const::Bool(true)), None)
+            if dest_ty == Some(&IrType::Bool) || rhs_ty == Some(&IrType::Bool) =>
+        {
+            Some(Inst::Move { dest, src: rhs })
+        }
+        // x && false -> false (for boolean)
         (BinOp::And, None, Some(Const::Bool(false)))
         | (BinOp::And, Some(Const::Bool(false)), None) => Some(Inst::LoadConst {
             dest,
             value: Const::Bool(false),
         }),
-        // x || true -> true
-        (BinOp::Or, None, Some(Const::Bool(true))) | (BinOp::Or, Some(Const::Bool(true)), None) => {
-            Some(Inst::LoadConst {
-                dest,
-                value: Const::Bool(true),
-            })
+        // x || true -> true (for boolean)
+        (BinOp::Or, None, Some(Const::Bool(true)))
+        | (BinOp::Or, Some(Const::Bool(true)), None) => Some(Inst::LoadConst {
+            dest,
+            value: Const::Bool(true),
+        }),
+        // x || false -> x (for boolean)
+        (BinOp::Or, None, Some(Const::Bool(false)))
+            if dest_ty == Some(&IrType::Bool) || lhs_ty == Some(&IrType::Bool) =>
+        {
+            Some(Inst::Move { dest, src: lhs })
         }
-        // x || false -> x
-        (BinOp::Or, None, Some(Const::Bool(false))) => Some(Inst::Move { dest, src: lhs }),
-        // false || x -> x
-        (BinOp::Or, Some(Const::Bool(false)), None) => Some(Inst::Move { dest, src: rhs }),
+        // false || x -> x (for boolean)
+        (BinOp::Or, Some(Const::Bool(false)), None)
+            if dest_ty == Some(&IrType::Bool) || rhs_ty == Some(&IrType::Bool) =>
+        {
+            Some(Inst::Move { dest, src: rhs })
+        }
         _ => None,
     }
 }
@@ -1323,5 +1378,72 @@ mod tests {
             )
         });
         assert!(has_zero, "Result should fold to 0");
+    }
+
+    #[test]
+    fn float_multiply_by_zero_is_not_folded() {
+        let func = Function {
+            name: "main".into(),
+            params: vec![],
+            ret: IrType::Float,
+            effects: vec![],
+            effects_specified: false,
+            strict: false,
+            owned: false,
+            locals: vec![
+                Local {
+                    id: LocalId(0),
+                    name: None,
+                    ty: IrType::Int,
+                },
+                Local {
+                    id: LocalId(1),
+                    name: None,
+                    ty: IrType::Float,
+                },
+                Local {
+                    id: LocalId(2),
+                    name: None,
+                    ty: IrType::Float,
+                },
+            ],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                insts: vec![
+                    Inst::LoadConst {
+                        dest: LocalId(0),
+                        value: Const::Int(0),
+                    },
+                    Inst::Binary {
+                        dest: LocalId(2),
+                        op: BinOp::Mul,
+                        lhs: LocalId(1),
+                        rhs: LocalId(0),
+                    },
+                    Inst::Return {
+                        value: Some(LocalId(2)),
+                    },
+                ],
+            }],
+            entry: BlockId(0),
+        };
+
+        let mut module = Module {
+            name: "test".into(),
+            functions: vec![func],
+            structs: vec![],
+        };
+
+        optimize(&mut module);
+
+        let opt_func = &module.functions[0];
+        let has_binop = opt_func.blocks[0]
+            .insts
+            .iter()
+            .any(|i| matches!(i, Inst::Binary { .. }));
+        assert!(
+            has_binop,
+            "Float multiply by 0 must not be blindly folded to 0 because NaN * 0 = NaN"
+        );
     }
 }

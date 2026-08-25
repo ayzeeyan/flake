@@ -11,7 +11,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | 1 | Multi-target native hardening | **done** |
 | 2 | Concurrency runtime bug fixes & hardening | **done** |
 | 3 | Ownership & lifetime bug fixes | **done** |
-| 4 | Optimizer correctness & safe performance | planned |
+| 4 | Optimizer correctness & safe performance | **done** |
 | 5 | Cross-backend / cross-target consistency & diagnostics | planned |
 | 6 | Flake v0.7.3 complete – hardening, optimization, and bug fixes | planned |
 
@@ -35,6 +35,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - Validated pattern binding isolation across `match` arms ensuring independent ownership branches.
   - Hardened structural borrow checking to forbid moving or invalidating root structures while subfield references remain active.
   - Added targeted ownership regression test suite for match arm isolation and structural borrows.
+
+## What v0.7.3 milestone 4 delivers
+
+- Optimizer correctness and safe performance:
+  - Hardened algebraic simplification to inspect local type definitions, restricting integer identities to `IrType::Int` and boolean identities to `IrType::Bool`.
+  - Preserved full IEEE-754 semantics (`NaN * 0 = NaN`) and division by zero runtime checks across all optimizations.
+  - Added targeted optimizer tests for floating point safety and algebraic identity preservation.
 
 ## v0.7 milestones (complete)
 
