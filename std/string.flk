@@ -159,5 +159,9 @@ pub fn truncate(s: String, max_len: Int, suffix: String) -> String {
     }
 }
 
+pub fn is_alphanumeric(ch: String) -> Bool {
+    is_alpha(ch) || is_digit(ch)
+}
+
 
 

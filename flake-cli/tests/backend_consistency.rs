@@ -1029,3 +1029,21 @@ fn main() {
     let expected = "false\ntrue\n";
     assert_all_backends("float-nan-comparisons", source, expected);
 }
+
+#[test]
+fn stdlib_v074_helpers_agree_across_all_backends() {
+    let source = r#"
+import math
+import string
+
+fn main() {
+    print(math.hypot_sq(3, 4))
+    print(math.dist_sq(1, 2, 4, 6))
+    print(string.is_alphanumeric("a"))
+    print(string.is_alphanumeric("9"))
+    print(string.is_alphanumeric("!"))
+}
+"#;
+    let expected = concat!("25\n", "25\n", "true\n", "true\n", "false\n");
+    assert_all_backends("stdlib-v074-helpers", source, expected);
+}

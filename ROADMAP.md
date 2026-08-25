@@ -9,7 +9,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Bug fixes & consistency improvements | **done** |
-| 2 | Small quality-of-life improvements | planned |
+| 2 | Small quality-of-life improvements | **done** |
 | 3 | Tests, examples, docs and v0.7.4 finalization | planned |
 | 4 | Flake v0.7.4 complete | planned |
 
@@ -18,6 +18,13 @@ There is no LLVM, Cranelift, or C transpilation.
 - Bug fixes and consistency improvements:
   - Optimized 64-bit immediate materialization in `aarch64.rs` (`mov_i64`) to only emit `movk` instructions for non-zero halfwords.
   - Added regression test for AArch64 immediate materialization (`aarch64_mov_i64_encodings_verified`).
+
+## What v0.7.4 milestone 2 delivers
+
+- Small quality-of-life improvements:
+  - Added geometric helpers `hypot_sq(a, b)` and `dist_sq(x1, y1, x2, y2)` to `std/math.flk`.
+  - Added character classification helper `is_alphanumeric(ch)` to `std/string.flk`.
+  - Verified cross-backend consistency across all 3 execution backends.
 
 ## v0.7.3 milestones (complete)
 
