@@ -1342,10 +1342,16 @@ impl Checker {
                         ));
                     }
                     let arg_ty = self.check_expr(arg)?;
-                    if matches!(self.resolve(&arg_ty).without_ownership(), Type::Ref { .. }) {
+                    if self.resolve(&arg_ty).contains_ref() {
+                        let err_msg = match arg {
+                            Expr::Ident(id) => {
+                                format!("cannot capture reference `{}` across task boundary into `spawn`", id.name)
+                            }
+                            _ => "cannot capture reference across task boundary into `spawn`".to_string(),
+                        };
                         return Err(TypeError::with_help(
                             arg.span(),
-                            "cannot capture reference across task boundary into `spawn`",
+                            err_msg,
                             "spawned tasks must capture owned values; references cannot outlive their stack frame",
                         ));
                     }

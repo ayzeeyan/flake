@@ -963,6 +963,22 @@ fn main() {}
 }
 
 #[test]
+fn spawn_rejects_nested_reference_arguments() {
+    let msg = err(r#"
+fn work(items: [ref String]) / conc {}
+fn main() / conc {
+    let s = "hello"
+    let list = [&s]
+    let t = spawn work(list)
+}
+"#);
+    assert!(
+        msg.contains("cannot capture reference `list` across task boundary into `spawn`"),
+        "{msg}"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

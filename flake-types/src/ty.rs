@@ -114,6 +114,26 @@ impl Type {
     }
 
     #[must_use]
+    pub fn contains_ref(&self) -> bool {
+        match self {
+            Self::Ref { .. } => true,
+            Self::Owned(inner) | Self::Mut(inner) | Self::Optional(inner) | Self::Task(inner) => {
+                inner.contains_ref()
+            }
+            Self::List(elem) => elem.contains_ref(),
+            Self::Map(k, v) => k.contains_ref() || v.contains_ref(),
+            Self::Struct { fields, .. } => fields.iter().any(|(_, t)| t.contains_ref()),
+            Self::Enum { variants, .. } => {
+                variants.iter().any(|(_, ts)| ts.iter().any(|t| t.contains_ref()))
+            }
+            Self::Fn { params, ret, .. } => {
+                params.iter().any(|t| t.contains_ref()) || ret.contains_ref()
+            }
+            _ => false,
+        }
+    }
+
+    #[must_use]
     pub fn name(&self) -> String {
         format!("{self}")
     }

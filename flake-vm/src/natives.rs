@@ -531,7 +531,7 @@ pub fn call_native(
                 Value::Task(task) => {
                     let status = match &*task.borrow() {
                         TaskState::Pending { .. } => "pending",
-                        TaskState::Ready(_) => "ready",
+                        TaskState::Ready(_) => "completed",
                         TaskState::Running => "running",
                         TaskState::Joined => "joined",
                         TaskState::Cancelled => "cancelled",

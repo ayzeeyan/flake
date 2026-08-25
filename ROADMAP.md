@@ -9,7 +9,7 @@ There is no LLVM, Cranelift, or C transpilation.
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Multi-target native hardening | **done** |
-| 2 | Concurrency runtime bug fixes & hardening | planned |
+| 2 | Concurrency runtime bug fixes & hardening | **done** |
 | 3 | Ownership & lifetime bug fixes | planned |
 | 4 | Optimizer correctness & safe performance | planned |
 | 5 | Cross-backend / cross-target consistency & diagnostics | planned |
@@ -21,6 +21,13 @@ There is no LLVM, Cranelift, or C transpilation.
   - Dynamic `p_flags` and `phdr_count` calculation in standalone pure-Rust ELF64 writer (`flake-codegen/src/elf.rs`), ensuring exact program header compliance for binaries with or without `.rodata`.
   - Hardened AArch64 instruction encodings for ALU operations, branches, and register/frame pointer manipulation.
   - Added structural ELF header and ARM64 instruction opcode regression tests.
+
+## What v0.7.3 milestone 2 delivers
+
+- Concurrency runtime bug fixes and hardening:
+  - Fixed VM `task_status` returning `"ready"` instead of `"completed"`, achieving 100% status string parity across Interpreter, VM, and Native x86-64 backend.
+  - Hardened compile-time sendability checking to recursively detect and reject nested references across `spawn` boundaries (e.g. `[ref String]` or `Map[ref K, V]`).
+  - Added comprehensive sendability regression tests.
 
 ## v0.7 milestones (complete)
 
