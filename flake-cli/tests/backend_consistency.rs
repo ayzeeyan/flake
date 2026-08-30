@@ -1181,6 +1181,73 @@ fn main() / io + alloc {{
 }
 
 #[test]
+fn systems_stdlib_edge_cases_across_all_backends() {
+    let source = r#"
+import fs
+import path
+import bytes
+import option
+import result
+
+fn main() / io + alloc {
+    // 1. Filesystem failure paths return Result.Err without panicking
+    let non_existent = "non_existent_file_12345.xyz"
+    match fs.read_to_string(non_existent) {
+        Result.Ok(_) => print("unexpected success"),
+        Result.Err(_) => print("fs.read_to_string correctly returned err"),
+    }
+    match fs.remove(non_existent) {
+        Result.Ok(_) => print("unexpected remove"),
+        Result.Err(_) => print("fs.remove correctly returned err"),
+    }
+    match fs.file_size(non_existent) {
+        Result.Ok(_) => print("unexpected size"),
+        Result.Err(_) => print("fs.file_size correctly returned err"),
+    }
+
+    // 2. Path edge cases
+    let p1 = "foo/bar/baz.txt"
+    match path.file_name(p1) {
+        Option.Some(name) => print(name),
+        Option.None => print("none"),
+    }
+    match path.parent(p1) {
+        Option.Some(parent_dir) => print(parent_dir),
+        Option.None => print("none"),
+    }
+    match path.extension(p1) {
+        Option.Some(ext) => print(ext),
+        Option.None => print("none"),
+    }
+    print(path.normalize("///a/b/../../c/d/"))
+
+    // 3. ByteBuffer bounds and slicing
+    var b = bytes.new_buffer()
+    b = bytes.append_byte(b, 100)
+    match bytes.get(b, 5) {
+        Option.Some(_) => print("unexpected byte"),
+        Option.None => print("bytes.get out-of-bounds correctly returned none"),
+    }
+    let sl = bytes.slice(b, -2, 10)
+    print(bytes.len_bytes(sl))
+}
+"#;
+    let expected = concat!(
+        "fs.read_to_string correctly returned err\n",
+        "fs.remove correctly returned err\n",
+        "fs.file_size correctly returned err\n",
+        "baz.txt\n",
+        "foo/bar\n",
+        "txt\n",
+        "/c/d\n",
+        "bytes.get out-of-bounds correctly returned none\n",
+        "1\n",
+    );
+    assert_all_backends("systems-stdlib-edge-cases", source, expected);
+}
+
+
+#[test]
 fn concurrency_channels_and_structured_runtime_across_all_backends() {
     let source = r#"
 import channel

@@ -56,9 +56,9 @@ pub fn file_name(p: String) -> option.Option[String] {
         }
     }
     if len(last_non_empty) == 0 {
-        return option.Option.None
+        return Option.None
     }
-    option.Option.Some(last_non_empty)
+    Option.Some(last_non_empty)
 }
 
 pub fn parent(p: String) -> option.Option[String] {
@@ -72,32 +72,32 @@ pub fn parent(p: String) -> option.Option[String] {
     }
     if len(valid_parts) <= 1 {
         if starts_with(norm, "/") {
-            return option.Option.Some("/")
+            return Option.Some("/")
         }
-        return option.Option.None
+        return Option.None
     }
     pop(valid_parts)
     let res = join(valid_parts, "/")
     if starts_with(norm, "/") {
-        return option.Option.Some("/{res}")
+        return Option.Some("/{res}")
     }
-    option.Option.Some(res)
+    Option.Some(res)
 }
 
 pub fn extension(p: String) -> option.Option[String] {
     let name_opt = file_name(p)
     match name_opt {
-        option.Option.Some(name) => {
+        Option.Some(name) => {
             let dot_parts = split(name, ".")
             if len(dot_parts) > 1 {
                 let ext = last(dot_parts)
                 if len(ext) > 0 {
-                    return option.Option.Some(ext)
+                    return Option.Some(ext)
                 }
             }
-            option.Option.None
+            Option.None
         }
-        option.Option.None => option.Option.None,
+        Option.None => Option.None,
     }
 }
 
