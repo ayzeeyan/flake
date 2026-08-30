@@ -1327,5 +1327,82 @@ fn main() / io + conc {
     assert_all_backends("concurrency-channels-runtime", source, expected);
 }
 
+#[test]
+fn concurrency_channel_edge_cases_across_all_backends() {
+    let source = r#"
+import channel
+import result
+import option
 
+fn main() / io + alloc {
+    // 1. Channel capacity limit and full check
+    var ch = channel.new_channel(2)
+    print(channel.is_empty(ch))
+    match channel.try_recv(ch) {
+        Option.Some(_) => print("unexpected"),
+        Option.None => print("try_recv on empty is none"),
+    }
+    match channel.recv(ch) {
+        Result.Ok(_) => print("unexpected"),
+        Result.Err(_) => print("recv on empty is err"),
+    }
 
+    // Fill channel to capacity (2 items)
+    match channel.send(ch, 100) {
+        Result.Ok(c1) => {
+            ch = c1
+            nil
+        },
+        Result.Err(_) => nil,
+    }
+    match channel.send(ch, 200) {
+        Result.Ok(c2) => {
+            ch = c2
+            nil
+        },
+        Result.Err(_) => nil,
+    }
+    print(channel.is_full(ch))
+    print(channel.len_channel(ch))
+
+    // Send on full channel should return Err
+    match channel.send(ch, 300) {
+        Result.Ok(_) => print("unexpected send on full"),
+        Result.Err(_) => print("send on full returned err"),
+    }
+
+    // Close channel
+    ch = channel.close_channel(ch)
+    print(channel.is_closed(ch))
+
+    // Send on closed channel should return Err
+    match channel.send(ch, 400) {
+        Result.Ok(_) => print("unexpected send on closed"),
+        Result.Err(_) => print("send on closed returned err"),
+    }
+
+    // Pop and drain
+    match channel.pop_channel(ch) {
+        Result.Ok(next_ch) => {
+            print(channel.len_channel(next_ch))
+            let rem = channel.drain(next_ch)
+            print(rem[0])
+        }
+        Result.Err(_) => print("unexpected pop err"),
+    }
+}
+"#;
+    let expected = concat!(
+        "true\n",
+        "try_recv on empty is none\n",
+        "recv on empty is err\n",
+        "true\n",
+        "2\n",
+        "send on full returned err\n",
+        "true\n",
+        "send on closed returned err\n",
+        "1\n",
+        "200\n",
+    );
+    assert_all_backends("channel-edge-cases", source, expected);
+}

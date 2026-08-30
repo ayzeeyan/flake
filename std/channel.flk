@@ -80,3 +80,25 @@ pub fn recv[T](ch: Channel[T]) -> result.Result[T, String] {
     }
     Result.Ok(ch.buffer[0])
 }
+
+pub fn pop_channel[T](ch: Channel[T]) -> result.Result[Channel[T], String] {
+    if len(ch.buffer) == 0 {
+        return Result.Err("channel is empty")
+    }
+    var new_buf = []
+    var i = 1
+    while i < len(ch.buffer) {
+        push(new_buf, ch.buffer[i])
+        i += 1
+    }
+    Result.Ok(Channel {
+        buffer: new_buf,
+        capacity: ch.capacity,
+        closed: ch.closed,
+    })
+}
+
+pub fn drain[T](ch: Channel[T]) -> List[T] {
+    ch.buffer
+}
+

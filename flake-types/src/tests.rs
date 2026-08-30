@@ -979,6 +979,26 @@ fn main() / conc {
 }
 
 #[test]
+fn spawn_rejects_generic_struct_with_reference() {
+    let msg = err(r#"
+struct Wrapper[T] {
+    val: T,
+}
+fn work(w: Wrapper[ref String]) / conc {}
+strict fn main() / conc {
+    let s = "hello"
+    let w = Wrapper { val: &s }
+    let t = spawn work(&s)
+}
+"#);
+    assert!(
+        msg.contains("cannot capture reference"),
+        "{msg}"
+    );
+}
+
+
+#[test]
 fn strict_match_arms_are_isolated_branches() {
     let text = r#"
 enum Either { Left(String) Right(String) }
