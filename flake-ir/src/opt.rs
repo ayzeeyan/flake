@@ -18,10 +18,14 @@ pub fn optimize(module: &mut Module) {
         optimize_function(func);
     }
 
-    let inlined = inline_functions(module);
-    if inlined {
-        for func in &mut module.functions {
-            optimize_function(func);
+    for _ in 0..3 {
+        let inlined = inline_functions(module);
+        if inlined {
+            for func in &mut module.functions {
+                optimize_function(func);
+            }
+        } else {
+            break;
         }
     }
 }
@@ -914,7 +918,7 @@ pub fn inline_functions(module: &mut Module) -> bool {
         if !matches!(last, Inst::Return { .. }) {
             continue;
         }
-        if block.insts.len() > 12 {
+        if block.insts.len() > 24 {
             continue;
         }
         let mut is_leaf = true;
