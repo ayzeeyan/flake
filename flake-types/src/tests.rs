@@ -1115,6 +1115,68 @@ strict fn escape_local() -> ref String {
 }
 
 #[test]
+fn generic_nested_containers_and_pattern_matching() {
+    let code = r#"
+enum Option[T] {
+    Some(T),
+    None,
+}
+
+enum Container[T] {
+    Item(T),
+    Empty,
+}
+
+fn unwrap_or[T](opt: Option[T], fallback: T) -> T {
+    match opt {
+        Option.Some(val) => val,
+        Option.None => fallback,
+    }
+}
+
+fn extract_container[T](c: Container[Option[T]], fallback: T) -> T {
+    match c {
+        Container.Item(opt) => unwrap_or(opt, fallback),
+        Container.Empty => fallback,
+    }
+}
+
+fn main() {
+    let c = Container.Item(Option.Some(42))
+    let res = extract_container(c, 0)
+    assert(res == 42)
+}
+"#;
+    ok(code);
+}
+
+#[test]
+fn generic_higher_order_functions() {
+    let code = r#"
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+fn map_pair[A, B, C](p: Pair[A, B], f: fn(A) -> C) -> Pair[C, B] {
+    Pair {
+        first: f(p.first),
+        second: p.second,
+    }
+}
+
+fn add_one(x: Int) -> Int { x + 1 }
+
+fn main() {
+    let p = Pair { first: 10, second: "hello" }
+    let p2 = map_pair(p, add_one)
+    assert(p2.first == 11)
+}
+"#;
+    ok(code);
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
