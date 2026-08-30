@@ -918,7 +918,7 @@ pub fn inline_functions(module: &mut Module) -> bool {
         if !matches!(last, Inst::Return { .. }) {
             continue;
         }
-        if block.insts.len() > 24 {
+        if block.insts.len() > 32 {
             continue;
         }
         let mut is_leaf = true;

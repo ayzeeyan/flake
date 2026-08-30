@@ -1436,6 +1436,7 @@ fn main() {
     print(max("alpha", "zeta"))
     print(same(7, 7))
     print(same("flake", "tools"))
+    print(same("flake", "flake"))
     print(display(42))
     let p = Pair { left: 10, right: 10 }
     print(p.left)
@@ -1446,6 +1447,7 @@ fn main() {
         "zeta\n",
         "true\n",
         "false\n",
+        "true\n",
         "42\n",
         "10\n",
     );
@@ -1480,10 +1482,12 @@ fn main() / io + alloc {{
     print(len(args()))
     print(len(process.program_args()))
     print(list.contains_eq([1, 2, 3], 2))
+    print(list.contains_eq(["a", "b", "c"], "b"))
     print(list.max_ord([1, 9, 3]))
     print(list.min_ord([4, 2, 8]))
     let sorted = list.sort_items([3, 1, 2])
     print("{{sorted[0]}},{{sorted[1]}},{{sorted[2]}}")
+    print(join(list.sort_items(["zeta", "alpha", "mu"]), ","))
 
     match fs.read_dir("{root}") {{
         Result.Ok(names) => print(join(names, ","))
@@ -1525,9 +1529,11 @@ fn main() / io + alloc {{
         "0\n",
         "0\n",
         "true\n",
+        "true\n",
         "9\n",
         "2\n",
         "1,2,3\n",
+        "alpha,mu,zeta\n",
         "a.flk,b.flk,nested\n",
         "missing dir is err\n",
         "true\n",

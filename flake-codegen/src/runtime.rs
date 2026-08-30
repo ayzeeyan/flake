@@ -14,6 +14,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_ftoa(asm);
     emit_streq(asm);
     emit_strcmp(asm);
+    emit_val_cmp(asm);
     emit_starts_with(asm);
     emit_strndup(asm);
     emit_quote(asm);
@@ -479,6 +480,38 @@ fn emit_strcmp(asm: &mut Asm) {
     asm.label(".sc_equal");
     asm.xor_rr(Reg::Rax, Reg::Rax);
     asm.ret();
+}
+
+fn emit_val_cmp(asm: &mut Asm) {
+    // rcx, rdx → signed ordering. Small/negative values compare as ints;
+    // heap/rodata pointers compare as C strings.
+    asm.label("rt_val_cmp");
+    prologue(asm, 32);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.cmp_rr(Reg::Rcx, Reg::Rdx);
+    asm.jcc_label(Cc::E, ".vc_eq");
+    asm.mov_ri(Reg::R10, 0x10000);
+    asm.cmp_rr(Reg::Rcx, Reg::R10);
+    asm.jcc_label(Cc::L, ".vc_int");
+    asm.cmp_rr(Reg::Rdx, Reg::R10);
+    asm.jcc_label(Cc::L, ".vc_int");
+    asm.call_label("rt_strcmp");
+    epilogue(asm);
+    asm.label(".vc_int");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.cmp_rr(Reg::Rcx, Reg::Rdx);
+    asm.jcc_label(Cc::E, ".vc_eq");
+    asm.jcc_label(Cc::L, ".vc_lt");
+    asm.mov_ri(Reg::Rax, 1);
+    epilogue(asm);
+    asm.label(".vc_lt");
+    asm.mov_ri(Reg::Rax, -1);
+    epilogue(asm);
+    asm.label(".vc_eq");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
 }
 
 fn emit_starts_with(asm: &mut Asm) {

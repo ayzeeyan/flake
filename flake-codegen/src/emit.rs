@@ -260,17 +260,31 @@ fn emit_inst(
             frame.store(asm, *dest, Reg::Rax);
         }
         Inst::Binary { dest, op, lhs, rhs } => {
-            if matches!(op, BinOp::Eq | BinOp::Ne)
-                && (is_string_ty(&local_ty(func, *lhs)) || is_string_ty(&local_ty(func, *rhs)))
+            let lhs_ty = local_ty(func, *lhs);
+            let rhs_ty = local_ty(func, *rhs);
+            let stringy = is_string_ty(&lhs_ty) || is_string_ty(&rhs_ty);
+            let dyn_cmp = matches!(lhs_ty, IrType::Dyn) || matches!(rhs_ty, IrType::Dyn);
+            if matches!(
+                op,
+                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+            ) && (stringy || dyn_cmp)
             {
                 frame.load(asm, *lhs, Reg::Rcx);
                 frame.load(asm, *rhs, Reg::Rdx);
-                asm.call_label("rt_streq");
-                if matches!(op, BinOp::Ne) {
-                    asm.test_rr(Reg::Rax, Reg::Rax);
-                    asm.mov_ri(Reg::Rax, 0);
-                    asm.setcc(Cc::Z, Reg::Rax);
-                    asm.movzx_rax_al();
+                if stringy && matches!(op, BinOp::Eq | BinOp::Ne) {
+                    asm.call_label("rt_streq");
+                    if matches!(op, BinOp::Ne) {
+                        asm.test_rr(Reg::Rax, Reg::Rax);
+                        asm.setcc(Cc::Z, Reg::Rax);
+                        asm.movzx_rax_al();
+                    }
+                } else {
+                    if stringy {
+                        asm.call_label("rt_strcmp");
+                    } else {
+                        asm.call_label("rt_val_cmp");
+                    }
+                    emit_signed_cmp_bool(asm, *op);
                 }
                 frame.store(asm, *dest, Reg::Rax);
                 return Ok(());
@@ -1819,6 +1833,21 @@ fn local_ty(func: &Function, id: LocalId) -> IrType {
 
 fn is_string_ty(ty: &IrType) -> bool {
     matches!(ty, IrType::String)
+}
+
+fn emit_signed_cmp_bool(asm: &mut Asm, op: BinOp) {
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    let cc = match op {
+        BinOp::Eq => Cc::Z,
+        BinOp::Ne => Cc::NZ,
+        BinOp::Lt => Cc::L,
+        BinOp::Le => Cc::Le,
+        BinOp::Gt => Cc::G,
+        BinOp::Ge => Cc::Ge,
+        _ => Cc::Z,
+    };
+    asm.setcc(cc, Reg::Rax);
+    asm.movzx_rax_al();
 }
 
 fn map_key_mode(ty: &IrType) -> i64 {

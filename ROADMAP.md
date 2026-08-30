@@ -10,10 +10,17 @@ There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire wor
 | --- | --- | --- |
 | 1 | Generic bounds / minimal traits | **done** |
 | 2 | Stdlib depth for tooling and compilers | **done** |
-| 3 | Native quality and optimizer hardening | planned |
+| 3 | Native quality and optimizer hardening | **done** |
 | 4 | Ownership × generics × concurrency interaction | planned |
 | 5 | Stable subset and flagship tooling example | planned |
 | 6 | Documentation, polish & release | planned |
+
+## What v0.9.0 milestone 3 delivers
+
+- Native ordered/equality compares on `String` use `rt_strcmp` / `rt_streq`.
+- Dynamic (`dyn` / generic) values use `rt_val_cmp` so generic `Eq`/`Ord` helpers match Interpreter/VM on strings and ints.
+- Leaf inlining budget raised from 24 to 32 instructions.
+- Cross-backend coverage for generic string equality, ordering, and `list.sort_items`.
 
 ## What v0.9.0 milestone 2 delivers
 
