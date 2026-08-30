@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**Flake v0.9.0 is in progress.** Theme: **Self-hosting preparation**.
+**Flake v0.9.0 is complete.** Theme: **Self-hosting preparation**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
 
@@ -13,7 +13,12 @@ There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire wor
 | 3 | Native quality and optimizer hardening | **done** |
 | 4 | Ownership × generics × concurrency interaction | **done** |
 | 5 | Stable subset and flagship tooling example | **done** |
-| 6 | Documentation, polish & release | planned |
+| 6 | Documentation, polish & release | **done** |
+
+## What v0.9.0 milestone 6 delivers
+
+- Workspace version **0.9.0**.
+- README, tour, stdlib, ownership, concurrency, architecture, examples, testing, grammar, and [release notes](docs/release-notes-v0.9.0.md) match the implementation.
 
 ## What v0.9.0 milestone 5 delivers
 

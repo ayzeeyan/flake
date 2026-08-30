@@ -18,6 +18,11 @@ backend alone lowers through the custom IR. This separation keeps the
 tree-walker readable as an executable model while making VM and native drift
 visible in cross-backend tests.
 
+v0.9 adds marker traits (`trait` / `impl`) and generic bounds, checked in
+`flake-types`. Traits are compile-time only; backends execute the same
+operators they already had. Native comparison of generic/`dyn` values uses
+`rt_val_cmp` so `Eq`/`Ord` helpers agree with the interpreter.
+
 ## Workspace
 
 | Crate | Responsibility |
@@ -25,7 +30,7 @@ visible in cross-backend tests.
 | `flake-ast` | source spans, AST nodes, and shared source representation |
 | `flake-lexer` | tokens, nested comments, and interpolated strings |
 | `flake-parser` | recursive-descent/Pratt parser and module graph loader |
-| `flake-types` | gradual types, effects, ownership, visibility, and diagnostics |
+| `flake-types` | gradual types, effects, ownership, marker traits/bounds, visibility, and diagnostics |
 | `flake-interpreter` | tree-walking runtime and REPL engine |
 | `flake-vm` | AST-to-bytecode compiler, stack VM, and cooperative tasks |
 | `flake-ir` | typed control-flow-graph IR for native lowering |

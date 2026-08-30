@@ -23,6 +23,8 @@ fn main() / conc + io {
   `T` is the call's result type.
 - `await task` joins that task and returns its `T` result. It is unrelated to
   the `join(list, separator)` string helper.
+- Spawned arguments must be sendable: references, and generic structs that
+  contain references, are rejected at compile time.
 - Both operations perform the `conc` effect.
 - Effects of the child call remain visible. Spawning an `/ io` function needs
   both `conc` and `io` in the parent.

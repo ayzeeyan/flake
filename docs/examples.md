@@ -34,6 +34,7 @@ optional `release.s` diagnostic listing.
 | [`enum.flk`](../examples/enum.flk) | algebraic enums and exhaustive `match` |
 | [`pattern_matching.flk`](../examples/pattern_matching.flk) | nested variant destructuring and list pattern matching |
 | [`geometry.flk`](../examples/geometry.flk) | 2D shape geometry with structs, enums, and stdlib math |
+| [`traits.flk`](../examples/traits.flk) | marker traits, `T: Ord` / `T: Eq` bounds, and `impl` |
 | [`data.flk`](../examples/data.flk) | typed maps, scalar patterns, and Result-style `?` |
 | [`concurrency.flk`](../examples/concurrency.flk) | the smallest `Task[T]`, `spawn`, and `await` program |
 | [`task_pipeline.flk`](../examples/task_pipeline.flk) | several scope-bound tasks returning enum values |
@@ -160,6 +161,12 @@ examples/projects/pkg_workspace/
 - `app` depends on `core_lib` via `{ path = "../core_lib" }` in its `flake.toml`.
 - `app/main.flk` imports `core_lib` and `core_lib.service`.
 - Runs identically on Interpreter, Bytecode VM, and Native x86-64 executable.
+
+### v0.9 flk scan (`examples/projects/v09_flk_scan/`)
+
+A parser-shaped tooling pipeline: source units, a scanner counting `fn` /
+`struct` occurrences, generic `Ord` helpers, and a report. Runs with matching
+output on Interpreter, VM, and Native.
 
 ## Adding an example
 

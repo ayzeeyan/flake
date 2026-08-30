@@ -21,6 +21,22 @@ Filesystem manipulation and I/O.
   Deletes the specified file from disk.
 - `file_size(path: String) -> Result[Int, String] / io + alloc`
   Returns the size of the file in bytes.
+- `is_directory(path: String) -> Bool / io`
+  True if `path` names a directory.
+- `is_regular_file(path: String) -> Bool / io`
+  True if `path` names a regular file.
+- `read_dir(path: String) -> Result[[String], String] / io + alloc`
+  Lists a directory's entries (sorted). Missing paths and files return `Err`.
+- `walk(root: String) -> Result[[String], String] / io + alloc`
+  Recursively lists `root` and all descendants. Missing paths return `Err`.
+- `read_lines(path: String) -> Result[[String], String] / io + alloc`
+  Reads a file and splits it on newlines.
+- `write_lines(path: String, lines: [String]) -> Result[Nil, String] / io + alloc`
+  Joins lines with newlines and writes the file.
+- `append_string(path: String, contents: String) -> Result[Nil, String] / io`
+  Appends to a file, creating it if needed.
+- `create_directory(path: String) -> Result[Nil, String] / io`
+  Creates a single directory (parents must already exist).
 
 ### `import path`
 Cross-platform path manipulation and normalization.
@@ -48,6 +64,11 @@ Process environment and lifecycle utilities.
   Retrieves an environment variable value if set.
 - `exit(code: Int) / panic`
   Terminates process execution with the specified exit code.
+- `program_args() -> [String] / io + alloc`
+  Arguments forwarded to the Flake program (`flake run file.flk -- a b`).
+- `run(command: String) -> Result[ProcessOutput, String] / io + alloc`
+  Runs a shell command and captures stdout, stderr, and exit code.
+  Interpreter and VM are complete; native currently returns an empty capture.
 
 ### `import bytes`
 Efficient byte buffer representations and manipulation.
@@ -88,6 +109,10 @@ Typed concurrent communication channels.
 - `len_channel[T](ch: Channel[T]) -> Int`
 
 ---
+
+Generic list helpers (v0.9): `sort_items[T: Ord]`, `find_eq[T: Eq]`,
+`contains_eq[T: Eq]`, `max_ord[T: Ord]`, `min_ord[T: Ord]` live in
+`import list`.
 
 ## 2. Core Modules
 

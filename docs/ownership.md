@@ -27,6 +27,11 @@ strict fn checked(name: owned String) / io {
 Annotations do not silently enable strict checking in an otherwise gradual
 function. This distinction is intentional and is reflected in diagnostics.
 
+Generic structs keep the same borrow rules. `Box[T: Eq]` cannot be moved
+while a field is borrowed. References stored in generic fields remain
+non-sendable: `spawn` rejects a `Holder[ref String]` the same way it rejects
+a bare `&String`.
+
 ## Moves and control flow
 
 In a checked function, an owned value is moved when it is passed by value,

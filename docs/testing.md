@@ -19,6 +19,10 @@ three-backend suite currently runs on Windows. Lexer, parser, checker,
 interpreter, VM, IR, and assembly-generation unit tests remain ordinary Rust
 tests in their owning crates.
 
+v0.9 adds coverage for marker traits and generic bounds, directory walk /
+`args()` stdlib depth, generic native comparison, and the `v09_flk_scan`
+flagship example.
+
 ## Test layers
 
 - Frontend unit tests cover tokens, parsing, AST shapes, type/effect rules,

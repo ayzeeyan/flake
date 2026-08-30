@@ -51,19 +51,21 @@ between:
 
 ## Status
 
-**Flake v0.7.4 is complete.** Theme: **Small, high-quality increment**.
-- **Backend optimizations**: Immediate materialization optimization for AArch64 machine code generation.
-- **Standard library enhancements**: Squared Euclidean distance/hypotenuse math helpers and alphanumeric character classification.
-- **Example additions**: Added `geometry.flk` showcasing structs, enums, and pattern-matching geometry.
-- **Multi-target native backends**: Standalone pure-Rust 64-bit ELF generator, AArch64 assembler, and Windows PE32+ generator.
-- **100% pure Rust owned pipeline**: Zero external dependencies, no LLVM, no Cranelift, no C transpilation.
+**Flake v0.9.0 is complete.** Theme: **Self-hosting preparation**.
+
+- **Generic bounds / marker traits**: `fn max[T: Ord](a: T, b: T) -> T`, `trait Show {}`, `impl Show for Int {}`.
+- **Stdlib depth for tools**: directory listing and `walk`, program `args()`, process `run`, file line helpers.
+- **Native quality**: generic `Eq`/`Ord` comparisons match Interpreter and VM, including string sort helpers.
+- **Documented [v0.9 stable subset](docs/stable-subset.md)** for a future self-hosted frontend.
+- **Flagship** [v09_flk_scan](examples/projects/v09_flk_scan/main.flk): a parser-shaped scan over `.flk` sources.
+- **100% pure Rust owned pipeline**: no LLVM, no Cranelift, no C transpilation.
 
 See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
 for a language tour. Backend consistency policy and test commands live in
 [docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
 guided example index.
 
-See the [v0.7.4 release notes](docs/release-notes-v0.7.4.md) for the complete
+See the [v0.9.0 release notes](docs/release-notes-v0.9.0.md) for the complete
 feature and compatibility summary.
 
 ## Build and run
@@ -76,8 +78,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 flake run examples/hello.flk
 flake run --vm examples/hello.flk
 flake run --native examples/hello.flk
-flake run examples/modules.flk
-flake run examples/stdlib.flk
+flake run examples/traits.flk
+flake run examples/projects/v09_flk_scan/main.flk
+flake run examples/hello.flk -- extra args here
 flake run examples/enum.flk
 flake run examples/data.flk
 flake run examples/projects/analytics/main.flk
@@ -110,6 +113,13 @@ fn load_config(path: String) -> Config / io + alloc {
 fn add(a: Int, b: Int) -> Int {
     a + b
 }
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+trait Show {}
+impl Show for Int {}
 
 strict fn take(name: owned String) / io {
     print(name)

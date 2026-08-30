@@ -2,13 +2,12 @@
 
 **Clarity, crystallized.**
 
-This tour describes the implemented v0.5 language surface. Flake is a braced,
+This tour describes the implemented v0.9 language surface. Flake is a braced,
 immutable-by-default language with local type inference, an explicit `dyn`
 escape hatch, effect annotations, opt-in ownership, enums and `match`,
-multi-file imports, and a standard library that runs on the interpreter, VM,
-and native x86-64 backend. v0.5 adds typed structured tasks under `conc`,
-Result propagation, stronger patterns, typed-key maps, and hierarchical modules
-with explicit APIs.
+generics with marker-trait bounds, multi-file imports, and a standard library
+that runs on the interpreter, VM, and native x86-64 backend. The v0.9
+[stable subset](stable-subset.md) is what a self-hosted frontend may rely on.
 
 ## Hello
 
@@ -39,7 +38,20 @@ fn add(a: Int, b: Int) -> Int {
 ```
 
 Parameter and return types may be omitted. The checker infers them locally;
-unconstrained bindings become `dyn`.
+unconstrained bindings become `dyn`. Generic parameters use square brackets
+and optional bounds:
+
+```flake
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+trait Show {}
+impl Show for Int {}
+```
+
+`Eq`, `Ord`, and `Hash` are builtin marker bounds. Missing or unsatisfied
+bounds produce diagnostics. Trait bodies are empty in v0.9.
 
 The last expression in a block is the function's value. Use `return` to leave
 early.
