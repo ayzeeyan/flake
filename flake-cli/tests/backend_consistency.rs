@@ -1180,4 +1180,85 @@ fn main() / io + alloc {{
     assert_all_backends("systems-stdlib", &source, expected);
 }
 
+#[test]
+fn concurrency_channels_and_structured_runtime_across_all_backends() {
+    let source = r#"
+import channel
+import result
+import option
+
+fn produce_data(ch: channel.Channel[Int], count: Int) -> channel.Channel[Int] {
+    var c = ch
+    var i = 1
+    while i <= count {
+        let send_res = channel.send(c, i * 10)
+        match send_res {
+            Result.Ok(next_ch) => {
+                c = next_ch
+                nil
+            }
+            Result.Err(msg) => {
+                print(msg)
+                nil
+            }
+        }
+        i = i + 1
+    }
+    c
+}
+
+fn worker(id: Int, mult: Int) -> Int {
+    id * mult
+}
+
+fn main() / io + conc {
+    // 1. Channel creation, send, and recv
+    var ch: channel.Channel[Int] = channel.new_channel(10)
+    print(channel.is_empty(ch))
+    ch = produce_data(ch, 3)
+    print(channel.len_channel(ch))
+    print(channel.is_empty(ch))
+
+    match channel.try_recv(ch) {
+        Option.Some(val) => print(val),
+        Option.None => print(-1),
+    }
+
+    match channel.recv(ch) {
+        Result.Ok(val) => print(val),
+        Result.Err(msg) => print(msg),
+    }
+
+    // 2. Structured nursery with tasks
+    nursery {
+        let t1 = spawn worker(7, 6)
+        let t2 = spawn worker(10, 5)
+        let r1 = await t1
+        let r2 = await t2
+        print(r1)
+        print(r2)
+    }
+
+    // 3. Task status and cancellation
+    let t3 = spawn worker(100, 2)
+    cancel(t3)
+    print(is_cancelled(t3))
+    print(task_status(t3))
+}
+"#;
+    let expected = concat!(
+        "true\n",
+        "3\n",
+        "false\n",
+        "10\n",
+        "10\n",
+        "42\n",
+        "50\n",
+        "true\n",
+        "cancelled\n",
+    );
+    assert_all_backends("concurrency-channels-runtime", source, expected);
+}
+
+
 

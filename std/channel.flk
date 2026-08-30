@@ -1,0 +1,82 @@
+// Typed Channel for concurrent communication. `import channel`.
+import result
+import option
+
+pub struct Channel[T] {
+    buffer: List[T],
+    capacity: Int,
+    closed: Bool,
+}
+
+pub fn new_channel[T](capacity: Int) -> Channel[T] {
+    let cap = if capacity < 0 { 0 } else { capacity }
+    Channel {
+        buffer: [],
+        capacity: cap,
+        closed: false,
+    }
+}
+
+pub fn is_closed[T](ch: Channel[T]) -> Bool {
+    ch.closed
+}
+
+pub fn is_empty[T](ch: Channel[T]) -> Bool {
+    len(ch.buffer) == 0
+}
+
+pub fn is_full[T](ch: Channel[T]) -> Bool {
+    ch.capacity > 0 && len(ch.buffer) >= ch.capacity
+}
+
+pub fn len_channel[T](ch: Channel[T]) -> Int {
+    len(ch.buffer)
+}
+
+pub fn close_channel[T](ch: Channel[T]) -> Channel[T] {
+    Channel {
+        buffer: ch.buffer,
+        capacity: ch.capacity,
+        closed: true,
+    }
+}
+
+pub fn send[T](ch: Channel[T], item: T) -> result.Result[Channel[T], String] {
+    if ch.closed {
+        return Result.Err("cannot send on closed channel")
+    }
+    if ch.capacity > 0 && len(ch.buffer) >= ch.capacity {
+        return Result.Err("channel buffer full")
+    }
+    var new_buf = []
+    for x in ch.buffer {
+        push(new_buf, x)
+    }
+    push(new_buf, item)
+    Result.Ok(Channel {
+        buffer: new_buf,
+        capacity: ch.capacity,
+        closed: ch.closed,
+    })
+}
+
+pub fn try_send[T](ch: Channel[T], item: T) -> result.Result[Channel[T], String] {
+    send(ch, item)
+}
+
+pub fn try_recv[T](ch: Channel[T]) -> option.Option[T] {
+    if len(ch.buffer) == 0 {
+        return Option.None
+    }
+    Option.Some(ch.buffer[0])
+}
+
+pub fn recv[T](ch: Channel[T]) -> result.Result[T, String] {
+    if len(ch.buffer) == 0 {
+        if ch.closed {
+            return Result.Err("channel is empty and closed")
+        }
+        return Result.Err("channel is empty")
+    }
+    Result.Ok(ch.buffer[0])
+}
