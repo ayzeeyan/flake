@@ -1,39 +1,39 @@
 // Optional values. `import option`.
 
-pub enum Option {
-    Some(dyn)
+pub enum Option[T] {
+    Some(T)
     None
 }
 
-pub fn is_some(o: Option) -> Bool {
+pub fn is_some[T](o: Option[T]) -> Bool {
     match o {
         Option.Some(v) => true
         Option.None => false
     }
 }
 
-pub fn unwrap_or(o: Option, fallback: dyn) -> dyn {
+pub fn unwrap_or[T](o: Option[T], fallback: T) -> T {
     match o {
         Option.Some(v) => v
         Option.None => fallback
     }
 }
 
-pub fn is_none(o: Option) -> Bool {
+pub fn is_none[T](o: Option[T]) -> Bool {
     match o {
         Option.Some(v) => false
         Option.None => true
     }
 }
 
-pub fn map_option(o: Option, f: fn(dyn) -> dyn) -> Option {
+pub fn map_option[T, U](o: Option[T], f: fn(T) -> U) -> Option[U] {
     match o {
         Option.Some(v) => Option.Some(f(v))
         Option.None => Option.None
     }
 }
 
-pub fn filter_option(o: Option, pred: fn(dyn) -> Bool) -> Option {
+pub fn filter_option[T](o: Option[T], pred: fn(T) -> Bool) -> Option[T] {
     match o {
         Option.Some(v) => if pred(v) { Option.Some(v) } else { Option.None }
         Option.None => Option.None
@@ -60,28 +60,28 @@ pub fn expect_some(o: Option, msg: String) -> dyn {
     }
 }
 
-pub fn and_then_option(o: Option, f: fn(dyn) -> Option) -> Option {
+pub fn and_then_option[T, U](o: Option[T], f: fn(T) -> Option[U]) -> Option[U] {
     match o {
         Option.Some(v) => f(v)
         Option.None => Option.None
     }
 }
 
-pub fn or_else_option(o: Option, fallback: fn() -> Option) -> Option {
+pub fn or_else_option[T](o: Option[T], fallback: fn() -> Option[T]) -> Option[T] {
     match o {
         Option.Some(v) => Option.Some(v)
         Option.None => fallback()
     }
 }
 
-pub fn is_some_and(o: Option, pred: fn(dyn) -> Bool) -> Bool {
+pub fn is_some_and[T](o: Option[T], pred: fn(T) -> Bool) -> Bool {
     match o {
         Option.Some(v) => pred(v)
         Option.None => false
     }
 }
 
-pub fn unwrap_or_else(o: Option, f: fn() -> dyn) -> dyn {
+pub fn unwrap_or_else[T](o: Option[T], f: fn() -> T) -> T {
     match o {
         Option.Some(v) => v
         Option.None => f()

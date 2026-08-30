@@ -1,32 +1,32 @@
 // Result-style errors. `import result`.
 
-pub enum Result {
-    Ok(dyn)
-    Err(String)
+pub enum Result[T, E] {
+    Ok(T)
+    Err(E)
 }
 
-pub fn is_ok(r: Result) -> Bool {
+pub fn is_ok[T, E](r: Result[T, E]) -> Bool {
     match r {
         Result.Ok(v) => true
         Result.Err(m) => false
     }
 }
 
-pub fn is_err(r: Result) -> Bool {
+pub fn is_err[T, E](r: Result[T, E]) -> Bool {
     match r {
         Result.Ok(v) => false
         Result.Err(m) => true
     }
 }
 
-pub fn unwrap_or(r: Result, fallback: dyn) -> dyn {
+pub fn unwrap_or[T, E](r: Result[T, E], fallback: T) -> T {
     match r {
         Result.Ok(v) => v
         Result.Err(m) => fallback
     }
 }
 
-pub fn error_or(r: Result, fallback: String) -> String {
+pub fn error_or[T, E](r: Result[T, E], fallback: E) -> E {
     match r {
         Result.Ok(v) => fallback
         Result.Err(m) => m
@@ -37,41 +37,41 @@ pub fn unwrap(r: Result) -> dyn / panic {
     match r {
         Result.Ok(v) => v
         Result.Err(m) => {
-            assert(false, m)
+            assert(false, "{m}")
             nil
         }
     }
 }
 
-pub fn map_result(r: Result, f: fn(dyn) -> dyn) -> Result {
+pub fn map_result[T, E, U](r: Result[T, E], f: fn(T) -> U) -> Result[U, E] {
     match r {
         Result.Ok(v) => Result.Ok(f(v))
         Result.Err(m) => Result.Err(m)
     }
 }
 
-pub fn map_err(r: Result, f: fn(String) -> String) -> Result {
+pub fn map_err[T, E, F](r: Result[T, E], f: fn(E) -> F) -> Result[T, F] {
     match r {
         Result.Ok(v) => Result.Ok(v)
         Result.Err(m) => Result.Err(f(m))
     }
 }
 
-pub fn and_then(r: Result, f: fn(dyn) -> Result) -> Result {
+pub fn and_then[T, E, U](r: Result[T, E], f: fn(T) -> Result[U, E]) -> Result[U, E] {
     match r {
         Result.Ok(v) => f(v)
         Result.Err(m) => Result.Err(m)
     }
 }
 
-pub fn is_ok_and(r: Result, pred: fn(dyn) -> Bool) -> Bool {
+pub fn is_ok_and[T, E](r: Result[T, E], pred: fn(T) -> Bool) -> Bool {
     match r {
         Result.Ok(v) => pred(v)
         Result.Err(m) => false
     }
 }
 
-pub fn is_err_and(r: Result, pred: fn(String) -> Bool) -> Bool {
+pub fn is_err_and[T, E](r: Result[T, E], pred: fn(E) -> Bool) -> Bool {
     match r {
         Result.Ok(v) => false
         Result.Err(m) => pred(m)
@@ -97,7 +97,7 @@ pub fn flatten_result(r: Result) -> Result {
     }
 }
 
-pub fn or_else_result(r: Result, f: fn(String) -> Result) -> Result {
+pub fn or_else_result[T, E, F](r: Result[T, E], f: fn(E) -> Result[T, F]) -> Result[T, F] {
     match r {
         Result.Ok(v) => Result.Ok(v)
         Result.Err(m) => f(m)
@@ -111,7 +111,7 @@ pub fn unwrap_or_else(r: Result, f: fn(String) -> dyn) -> dyn {
     }
 }
 
-pub fn inspect_ok(r: Result, f: fn(dyn)) -> Result {
+pub fn inspect_ok[T, E](r: Result[T, E], f: fn(T)) -> Result[T, E] {
     match r {
         Result.Ok(v) => {
             f(v)
@@ -121,14 +121,17 @@ pub fn inspect_ok(r: Result, f: fn(dyn)) -> Result {
     }
 }
 
-pub fn inspect_err(r: Result, f: fn(String)) -> Result {
+pub fn inspect_err[T, E](r: Result[T, E], f: fn(E)) -> Result[T, E] {
     match r {
-        Result.Ok(v) => Result.Ok(v)
+        Result.Ok(v) => {
+            Result.Ok(v)
+        }
         Result.Err(m) => {
             f(m)
             Result.Err(m)
         }
     }
 }
+
 
 

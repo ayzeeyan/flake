@@ -1047,3 +1047,57 @@ fn main() {
     let expected = concat!("25\n", "25\n", "true\n", "true\n", "false\n");
     assert_all_backends("stdlib-v074-helpers", source, expected);
 }
+
+#[test]
+fn generics_and_parametric_polymorphism_across_all_backends() {
+    let source = r#"
+fn id[T](x: T) -> T {
+    x
+}
+
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+fn make_pair[A, B](a: A, b: B) -> Pair[A, B] {
+    Pair { first: a, second: b }
+}
+
+enum Option[T] {
+    Some(T)
+    None
+}
+
+type IntPair[B] = Pair[Int, B]
+
+fn unwrap_or[T](opt: Option[T], fallback: T) -> T {
+    match opt {
+        Option.Some(val) => val,
+        Option.None => fallback,
+    }
+}
+
+fn main() {
+    print(id(42))
+    print(id("flake generics"))
+    let p: IntPair[String] = make_pair(100, "systems")
+    print(p.first)
+    print(p.second)
+    let s: Option[Int] = Option.Some(777)
+    let n: Option[Int] = Option.None
+    print(unwrap_or(s, 0))
+    print(unwrap_or(n, -1))
+}
+"#;
+    let expected = concat!(
+        "42\n",
+        "flake generics\n",
+        "100\n",
+        "systems\n",
+        "777\n",
+        "-1\n"
+    );
+    assert_all_backends("generics-polymorphism", source, expected);
+}
+

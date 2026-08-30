@@ -240,9 +240,25 @@ impl Names {
             .unwrap_or_else(|| name.to_string())
     }
 
+    fn is_known_type(&self, name: &str) -> bool {
+        if let Some((alias, item)) = name.split_once('.') {
+            if let Some(exports) = self.exported.get(alias) {
+                return exports.contains(item);
+            }
+            return self.imports.contains_key(alias);
+        }
+        self.local_types.contains(name) || self.imported_types.contains_key(name)
+    }
+
     fn resolve_type(&self, ty: IrType) -> IrType {
         match ty {
-            IrType::Struct(name) => IrType::Struct(self.type_global(&name)),
+            IrType::Struct(name) => {
+                if self.is_known_type(&name) {
+                    IrType::Struct(self.type_global(&name))
+                } else {
+                    IrType::Dyn
+                }
+            }
             IrType::List(element) => IrType::List(Box::new(self.resolve_type(*element))),
             IrType::Map(key, value) => IrType::Map(
                 Box::new(self.resolve_type(*key)),

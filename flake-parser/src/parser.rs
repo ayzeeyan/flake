@@ -149,6 +149,26 @@ impl<'src> Parser<'src> {
         Err(self.unexpected("top-level item (`fn`, `struct`, `enum`, `type`, or `import`)"))
     }
 
+    fn parse_type_params(&mut self) -> Result<Vec<Ident>, ParseError> {
+        if !self.eat(&TokenKind::LBracket) {
+            return Ok(Vec::new());
+        }
+        let mut params = Vec::new();
+        self.skip_nl();
+        while !matches!(self.kind(), TokenKind::RBracket | TokenKind::Eof) {
+            self.skip_nl();
+            params.push(self.parse_ident()?);
+            self.skip_nl();
+            if self.eat(&TokenKind::Comma) {
+                self.skip_nl();
+                continue;
+            }
+            break;
+        }
+        self.expect(&TokenKind::RBracket, "`]`")?;
+        Ok(params)
+    }
+
     fn parse_fn(
         &mut self,
         start: Span,
@@ -158,6 +178,7 @@ impl<'src> Parser<'src> {
     ) -> Result<FnDecl, ParseError> {
         self.expect(&TokenKind::Fn, "`fn`")?;
         let name = self.parse_ident()?;
+        let type_params = self.parse_type_params()?;
         self.expect(&TokenKind::LParen, "`(`")?;
         let params = self.parse_params()?;
         self.expect(&TokenKind::RParen, "`)`")?;
@@ -179,6 +200,7 @@ impl<'src> Parser<'src> {
             strict,
             owned,
             name,
+            type_params,
             params,
             return_type,
             effects,
@@ -248,6 +270,7 @@ impl<'src> Parser<'src> {
     fn parse_struct(&mut self, start: Span, is_pub: bool) -> Result<StructDecl, ParseError> {
         self.expect(&TokenKind::Struct, "`struct`")?;
         let name = self.parse_ident()?;
+        let type_params = self.parse_type_params()?;
         self.skip_nl();
         self.expect(&TokenKind::LBrace, "`{`")?;
         let mut fields = Vec::new();
@@ -278,6 +301,7 @@ impl<'src> Parser<'src> {
         Ok(StructDecl {
             is_pub,
             name,
+            type_params,
             fields,
             span,
         })
@@ -286,6 +310,7 @@ impl<'src> Parser<'src> {
     fn parse_enum(&mut self, start: Span, is_pub: bool) -> Result<flake_ast::EnumDecl, ParseError> {
         self.expect(&TokenKind::Enum, "`enum`")?;
         let name = self.parse_ident()?;
+        let type_params = self.parse_type_params()?;
         self.skip_nl();
         self.expect(&TokenKind::LBrace, "`{`")?;
         let mut variants = Vec::new();
@@ -331,6 +356,7 @@ impl<'src> Parser<'src> {
         Ok(flake_ast::EnumDecl {
             is_pub,
             name,
+            type_params,
             variants,
             span: start.merge(self.prev().span),
         })
@@ -339,6 +365,7 @@ impl<'src> Parser<'src> {
     fn parse_type_alias(&mut self, start: Span, is_pub: bool) -> Result<TypeAlias, ParseError> {
         self.expect(&TokenKind::Type, "`type`")?;
         let name = self.parse_ident()?;
+        let type_params = self.parse_type_params()?;
         self.skip_nl();
         self.expect(&TokenKind::Eq, "`=`")?;
         self.skip_nl();
@@ -346,6 +373,7 @@ impl<'src> Parser<'src> {
         Ok(TypeAlias {
             is_pub,
             name,
+            type_params,
             span: start.merge(ty.span()),
             ty,
         })

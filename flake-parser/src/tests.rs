@@ -536,6 +536,40 @@ fn lockfile_checksum_crlf_lf_invariance() {
 }
 
 #[test]
+fn generics_parsing_and_pretty_print() {
+    let src = r#"
+struct Box[T] {
+    value: T,
+}
+
+enum Option[T] {
+    Some(T)
+    None
+}
+
+type BoxedOption[T] = Box[Option[T]]
+
+fn wrap[T](val: T) -> Box[T] {
+    Box { value: val }
+}
+
+fn main() {
+    let b = wrap(42)
+}
+"#;
+    let program = parse_ok(src);
+    assert_eq!(program.items.len(), 5);
+    let pretty = print_program(&program);
+    assert!(pretty.contains("struct Box[T]"));
+    assert!(pretty.contains("enum Option[T]"));
+    assert!(pretty.contains("type BoxedOption[T] = Box[Option[T]]"));
+    assert!(pretty.contains("fn wrap[T](val: T) -> Box[T]"));
+    let reparsed = parse_str(&pretty).expect("pretty-printed generics should parse");
+    assert_eq!(reparsed.items.len(), program.items.len());
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+

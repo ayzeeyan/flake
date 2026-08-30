@@ -16,14 +16,106 @@ struct Checker {
     subst: Vec<Option<Type>>,
     scopes: Vec<HashMap<String, Type>>,
     structs: HashMap<String, Type>,
+    struct_type_params: HashMap<String, Vec<String>>,
     aliases: HashMap<String, Type>,
+    alias_type_params: HashMap<String, Vec<String>>,
     functions: HashMap<String, Type>,
+    fn_type_params: HashMap<String, Vec<String>>,
     overloaded_builtins: HashSet<String>,
     enums: HashMap<String, Type>,
+    enum_type_params: HashMap<String, Vec<String>>,
     ambiguous_imports: HashMap<String, Vec<String>>,
     type_context: Option<String>,
     current_returns: Vec<Type>,
     nursery_scopes: Vec<usize>,
+    active_type_params: HashSet<String>,
+}
+
+fn substitute_type(ty: &Type, mapping: &HashMap<String, Type>) -> Type {
+    match ty {
+        Type::Param(name) => mapping.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        Type::List(elem) => Type::List(Box::new(substitute_type(elem, mapping))),
+        Type::Map(k, v) => Type::Map(
+            Box::new(substitute_type(k, mapping)),
+            Box::new(substitute_type(v, mapping)),
+        ),
+        Type::Task(res) => Type::Task(Box::new(substitute_type(res, mapping))),
+        Type::Optional(inner) => Type::Optional(Box::new(substitute_type(inner, mapping))),
+        Type::Owned(inner) => Type::Owned(Box::new(substitute_type(inner, mapping))),
+        Type::Mut(inner) => Type::Mut(Box::new(substitute_type(inner, mapping))),
+        Type::Ref { mutable, inner } => Type::Ref {
+            mutable: *mutable,
+            inner: Box::new(substitute_type(inner, mapping)),
+        },
+        Type::Fn { params, ret, effects } => Type::Fn {
+            params: params.iter().map(|p| substitute_type(p, mapping)).collect(),
+            ret: Box::new(substitute_type(ret, mapping)),
+            effects: effects.clone(),
+        },
+        Type::Struct { name, fields } => Type::Struct {
+            name: name.clone(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type(t, mapping)))
+                .collect(),
+        },
+        Type::Enum { name, variants } => Type::Enum {
+            name: name.clone(),
+            variants: variants
+                .iter()
+                .map(|(n, ts)| (n.clone(), ts.iter().map(|t| substitute_type(t, mapping)).collect()))
+                .collect(),
+        },
+        Type::Module { name, members } => Type::Module {
+            name: name.clone(),
+            members: members
+                .iter()
+                .map(|(n, t)| (n.clone(), substitute_type(t, mapping)))
+                .collect(),
+        },
+        other => other.clone(),
+    }
+}
+
+fn collect_type_params(ty: &Type, set: &mut HashSet<String>) {
+    match ty {
+        Type::Param(name) => {
+            set.insert(name.clone());
+        }
+        Type::List(elem) => collect_type_params(elem, set),
+        Type::Map(k, v) => {
+            collect_type_params(k, set);
+            collect_type_params(v, set);
+        }
+        Type::Task(r) => collect_type_params(r, set),
+        Type::Optional(i) => collect_type_params(i, set),
+        Type::Owned(i) | Type::Mut(i) => collect_type_params(i, set),
+        Type::Ref { inner, .. } => collect_type_params(inner, set),
+        Type::Fn { params, ret, .. } => {
+            for p in params {
+                collect_type_params(p, set);
+            }
+            collect_type_params(ret, set);
+        }
+        Type::Struct { fields, .. } => {
+            for (_, t) in fields {
+                collect_type_params(t, set);
+            }
+        }
+        Type::Enum { variants, .. } => {
+            for (_, ts) in variants {
+                for t in ts {
+                    collect_type_params(t, set);
+                }
+            }
+        }
+        Type::Module { members, .. } => {
+            for (_, t) in members {
+                collect_type_params(t, set);
+            }
+        }
+        _ => {}
+    }
 }
 
 impl Checker {
@@ -32,14 +124,19 @@ impl Checker {
             subst: Vec::new(),
             scopes: vec![HashMap::new()],
             structs: HashMap::new(),
+            struct_type_params: HashMap::new(),
             aliases: HashMap::new(),
+            alias_type_params: HashMap::new(),
             functions: HashMap::new(),
+            fn_type_params: HashMap::new(),
             overloaded_builtins: HashSet::new(),
             enums: HashMap::new(),
+            enum_type_params: HashMap::new(),
             ambiguous_imports: HashMap::new(),
             type_context: None,
             current_returns: Vec::new(),
             nursery_scopes: Vec::new(),
+            active_type_params: HashSet::new(),
         };
         this.install_builtins();
         this
@@ -49,6 +146,19 @@ impl Checker {
         let id = self.subst.len() as u32;
         self.subst.push(None);
         Type::Var(id)
+    }
+
+    fn instantiate_generic(&mut self, ty: &Type) -> Type {
+        let mut params = HashSet::new();
+        collect_type_params(ty, &mut params);
+        if params.is_empty() {
+            return ty.clone();
+        }
+        let mut mapping = HashMap::new();
+        for p in params {
+            mapping.insert(p, self.fresh());
+        }
+        substitute_type(ty, &mapping)
     }
 
     fn install_builtins(&mut self) {
@@ -251,6 +361,21 @@ impl Checker {
                 ret: Box::new(self.resolve(ret)),
                 effects: effects.clone(),
             },
+            Type::Struct { name, fields } => Type::Struct {
+                name: name.clone(),
+                fields: fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), self.resolve(t)))
+                    .collect(),
+            },
+            Type::Enum { name, variants } => Type::Enum {
+                name: name.clone(),
+                variants: variants
+                    .iter()
+                    .map(|(n, ts)| (n.clone(), ts.iter().map(|t| self.resolve(t)).collect()))
+                    .collect(),
+            },
+            Type::Param(p) => Type::Param(p.clone()),
             other => other.clone(),
         }
     }
@@ -263,6 +388,7 @@ impl Checker {
             (Type::Var(i), Type::Var(j)) if i == j => Ok(Type::Var(i)),
             (Type::Var(i), other) => self.bind(i, other, span),
             (other, Type::Var(i)) => self.bind(i, other, span),
+            (Type::Param(p1), Type::Param(p2)) if p1 == p2 => Ok(Type::Param(p1)),
             (Type::Nil, Type::Nil) => Ok(Type::Nil),
             (Type::Bool, Type::Bool) => Ok(Type::Bool),
             (Type::Int, Type::Int) => Ok(Type::Int),
@@ -279,22 +405,95 @@ impl Checker {
                 Ok(Type::Optional(Box::new(self.unify(&x, &y, span)?)))
             }
             (Type::Optional(x), y) | (y, Type::Optional(x)) => self.unify(&x, &y, span),
-            (Type::Struct { name: n1, .. }, Type::Struct { name: n2, .. }) if n1 == n2 => {
-                Ok(Type::Struct {
+            (
+                Type::Struct {
                     name: n1,
-                    fields: Vec::new(),
-                })
+                    fields: f1,
+                },
+                Type::Struct {
+                    name: n2,
+                    fields: f2,
+                },
+            ) if n1 == n2 => {
+                if f1.is_empty() {
+                    Ok(Type::Struct {
+                        name: n1,
+                        fields: f2,
+                    })
+                } else if f2.is_empty() {
+                    Ok(Type::Struct {
+                        name: n1,
+                        fields: f1,
+                    })
+                } else if f1.len() == f2.len() {
+                    let mut unified_fields = Vec::new();
+                    for ((name1, ty1), (name2, ty2)) in f1.iter().zip(f2.iter()) {
+                        if name1 != name2 {
+                            return Err(TypeError::new(
+                                span,
+                                format!("mismatched struct field `{name1}` vs `{name2}` on {n1}"),
+                            ));
+                        }
+                        let u = self.unify(ty1, ty2, span)?;
+                        unified_fields.push((name1.clone(), u));
+                    }
+                    Ok(Type::Struct {
+                        name: n1,
+                        fields: unified_fields,
+                    })
+                } else {
+                    Ok(Type::Struct {
+                        name: n1,
+                        fields: f1,
+                    })
+                }
             }
             (
                 Type::Enum {
                     name: n1,
                     variants: v1,
                 },
-                Type::Enum { name: n2, .. },
-            ) if n1 == n2 => Ok(Type::Enum {
-                name: n1,
-                variants: v1,
-            }),
+                Type::Enum {
+                    name: n2,
+                    variants: v2,
+                },
+            ) if n1 == n2 => {
+                if v1.is_empty() {
+                    Ok(Type::Enum {
+                        name: n1,
+                        variants: v2,
+                    })
+                } else if v2.is_empty() {
+                    Ok(Type::Enum {
+                        name: n1,
+                        variants: v1,
+                    })
+                } else if v1.len() == v2.len() {
+                    let mut unified_variants = Vec::new();
+                    for ((name1, types1), (name2, types2)) in v1.iter().zip(v2.iter()) {
+                        if name1 != name2 || types1.len() != types2.len() {
+                            return Err(TypeError::new(
+                                span,
+                                format!("mismatched enum variants on {n1}"),
+                            ));
+                        }
+                        let mut u_types = Vec::new();
+                        for (t1, t2) in types1.iter().zip(types2.iter()) {
+                            u_types.push(self.unify(t1, t2, span)?);
+                        }
+                        unified_variants.push((name1.clone(), u_types));
+                    }
+                    Ok(Type::Enum {
+                        name: n1,
+                        variants: unified_variants,
+                    })
+                } else {
+                    Ok(Type::Enum {
+                        name: n1,
+                        variants: v1,
+                    })
+                }
+            }
             (
                 Type::Fn {
                     params: p1,
@@ -381,6 +580,9 @@ impl Checker {
             for (item, origin) in graph.exported_items(imported) {
                 match item {
                     Item::Struct(st) => {
+                        let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.clone()).collect();
+                        self.struct_type_params
+                            .insert(format!("{alias}.{}", st.name.name), tparams.clone());
                         let ty = Type::Struct {
                             name: flake_parser::qualify(&origin.name, &st.name.name),
                             fields: Vec::new(),
@@ -388,10 +590,14 @@ impl Checker {
                         self.structs
                             .insert(format!("{alias}.{}", st.name.name), ty.clone());
                         if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
+                            self.struct_type_params.insert(st.name.name.clone(), tparams);
                             self.structs.insert(st.name.name.clone(), ty.clone());
                         }
                     }
                     Item::Enum(en) => {
+                        let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.clone()).collect();
+                        self.enum_type_params
+                            .insert(format!("{alias}.{}", en.name.name), tparams.clone());
                         let ty = Type::Enum {
                             name: flake_parser::qualify(&origin.name, &en.name.name),
                             variants: Vec::new(),
@@ -399,6 +605,7 @@ impl Checker {
                         self.enums
                             .insert(format!("{alias}.{}", en.name.name), ty.clone());
                         if graph.unqualified_import_is_unambiguous(module, &en.name.name) {
+                            self.enum_type_params.insert(en.name.name.clone(), tparams);
                             self.enums.insert(en.name.name.clone(), ty.clone());
                         }
                     }
@@ -413,19 +620,36 @@ impl Checker {
             for (item, origin) in graph.exported_items(imported) {
                 match item {
                     Item::Type(alias_item) => {
+                        let tparams: Vec<String> = alias_item.type_params.iter().map(|p| p.name.clone()).collect();
+                        self.alias_type_params
+                            .insert(format!("{alias}.{}", alias_item.name.name), tparams.clone());
+                        for tp in &tparams {
+                            self.active_type_params.insert(tp.clone());
+                        }
                         let ty = self.lower_type(&alias_item.ty)?;
+                        for tp in &tparams {
+                            self.active_type_params.remove(tp);
+                        }
                         self.aliases
                             .insert(format!("{alias}.{}", alias_item.name.name), ty.clone());
                         if graph.unqualified_import_is_unambiguous(module, &alias_item.name.name) {
+                            self.alias_type_params.insert(alias_item.name.name.clone(), tparams);
                             self.aliases.insert(alias_item.name.name.clone(), ty);
                         }
                     }
                     Item::Struct(st) => {
+                        let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.clone()).collect();
+                        for tp in &tparams {
+                            self.active_type_params.insert(tp.clone());
+                        }
                         let fields = st
                             .fields
                             .iter()
                             .map(|field| Ok((field.name.name.clone(), self.lower_type(&field.ty)?)))
                             .collect::<Result<Vec<_>, TypeError>>()?;
+                        for tp in &tparams {
+                            self.active_type_params.remove(tp);
+                        }
                         let ty = Type::Struct {
                             name: flake_parser::qualify(&origin.name, &st.name.name),
                             fields,
@@ -441,6 +665,10 @@ impl Checker {
                             .push((st.name.name.clone(), ty));
                     }
                     Item::Enum(en) => {
+                        let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.clone()).collect();
+                        for tp in &tparams {
+                            self.active_type_params.insert(tp.clone());
+                        }
                         let variants = en
                             .variants
                             .iter()
@@ -453,6 +681,9 @@ impl Checker {
                                 Ok((variant.name.name.clone(), fields))
                             })
                             .collect::<Result<Vec<_>, TypeError>>()?;
+                        for tp in &tparams {
+                            self.active_type_params.remove(tp);
+                        }
                         let ty = Type::Enum {
                             name: flake_parser::qualify(&origin.name, &en.name.name),
                             variants,
@@ -478,10 +709,20 @@ impl Checker {
                 let Item::Fn(func) = item else {
                     continue;
                 };
+                let tparams: Vec<String> = func.type_params.iter().map(|p| p.name.clone()).collect();
+                self.fn_type_params
+                    .insert(format!("{alias}.{}", func.name.name), tparams.clone());
+                for tp in &tparams {
+                    self.active_type_params.insert(tp.clone());
+                }
                 let ty = self.lower_fn_type(func)?;
+                for tp in &tparams {
+                    self.active_type_params.remove(tp);
+                }
                 if graph.unqualified_import_is_unambiguous(module, &func.name.name)
                     && !self.functions.contains_key(&func.name.name)
                 {
+                    self.fn_type_params.insert(func.name.name.clone(), tparams);
                     self.functions.insert(func.name.name.clone(), ty.clone());
                 }
                 module_members
@@ -560,13 +801,29 @@ impl Checker {
         for item in &program.items {
             match item {
                 Item::Type(alias) => {
+                    let tparams: Vec<String> = alias.type_params.iter().map(|p| p.name.clone()).collect();
+                    self.alias_type_params.insert(alias.name.name.clone(), tparams.clone());
+                    for tp in &tparams {
+                        self.active_type_params.insert(tp.clone());
+                    }
                     let ty = self.lower_type(&alias.ty)?;
+                    for tp in &tparams {
+                        self.active_type_params.remove(tp);
+                    }
                     self.aliases.insert(alias.name.name.clone(), ty);
                 }
                 Item::Struct(st) => {
+                    let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.clone()).collect();
+                    self.struct_type_params.insert(st.name.name.clone(), tparams.clone());
+                    for tp in &tparams {
+                        self.active_type_params.insert(tp.clone());
+                    }
                     let mut fields = Vec::new();
                     for field in &st.fields {
                         fields.push((field.name.name.clone(), self.lower_type(&field.ty)?));
+                    }
+                    for tp in &tparams {
+                        self.active_type_params.remove(tp);
                     }
                     let ty = Type::Struct {
                         name: st.name.name.clone(),
@@ -581,6 +838,11 @@ impl Checker {
                             format!("enum `{}` has no variants", en.name.name),
                             "declare at least one variant",
                         ));
+                    }
+                    let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.clone()).collect();
+                    self.enum_type_params.insert(en.name.name.clone(), tparams.clone());
+                    for tp in &tparams {
+                        self.active_type_params.insert(tp.clone());
                     }
                     let mut variants = Vec::new();
                     let mut seen = HashSet::new();
@@ -602,6 +864,9 @@ impl Checker {
                             .collect::<Result<Vec<_>, _>>()?;
                         variants.push((v.name.name.clone(), fields));
                     }
+                    for tp in &tparams {
+                        self.active_type_params.remove(tp);
+                    }
                     let ty = Type::Enum {
                         name: en.name.name.clone(),
                         variants,
@@ -614,7 +879,15 @@ impl Checker {
 
         for item in &program.items {
             if let Item::Fn(func) = item {
+                let tparams: Vec<String> = func.type_params.iter().map(|p| p.name.clone()).collect();
+                self.fn_type_params.insert(func.name.name.clone(), tparams.clone());
+                for tp in &tparams {
+                    self.active_type_params.insert(tp.clone());
+                }
                 let ty = self.lower_fn_type(func)?;
+                for tp in &tparams {
+                    self.active_type_params.remove(tp);
+                }
                 self.overloaded_builtins.remove(&func.name.name);
                 self.functions.insert(func.name.name.clone(), ty);
             }
@@ -702,8 +975,10 @@ impl Checker {
                         }
                     }
                 };
+                let enum_ty = self.instantiate_generic(&enum_ty);
                 self.unify(ty, &enum_ty, *span)?;
-                let Type::Enum { name, variants } = enum_ty.without_ownership() else {
+                let enum_ty_res = self.resolve(&enum_ty);
+                let Type::Enum { name, variants } = enum_ty_res.without_ownership() else {
                     return Err(TypeError::with_help(
                         *span,
                         "match variant on a non-enum value",
@@ -951,30 +1226,116 @@ impl Checker {
                     Type::Task(Box::new(result))
                 }
                 other => {
-                    let contextual = self.type_context.as_ref().and_then(|alias| {
-                        let qualified = format!("{alias}.{other}");
-                        self.aliases
-                            .get(&qualified)
-                            .or_else(|| self.structs.get(&qualified))
-                            .or_else(|| self.enums.get(&qualified))
-                            .cloned()
-                    });
-                    if let Some(contextual) = contextual {
-                        contextual
-                    } else if let Some(alias) = self.aliases.get(other) {
-                        alias.clone()
-                    } else if let Some(st) = self.structs.get(other) {
-                        st.clone()
-                    } else if let Some(en) = self.enums.get(other) {
-                        en.clone()
+                    if args.is_empty() && self.active_type_params.contains(other) {
+                        return Ok(Type::Param(other.to_string()));
+                    }
+                    let contextual = self.type_context.as_ref().map(|alias| format!("{alias}.{other}"));
+                    let (target_key, tparams, base_ty) = if let Some(ref q) = contextual {
+                        if let Some(alias) = self.aliases.get(q).cloned() {
+                            (
+                                q.clone(),
+                                self.alias_type_params.get(q).cloned(),
+                                alias,
+                            )
+                        } else if let Some(st) = self.structs.get(q).cloned() {
+                            (
+                                q.clone(),
+                                self.struct_type_params.get(q).cloned(),
+                                st,
+                            )
+                        } else if let Some(en) = self.enums.get(q).cloned() {
+                            (
+                                q.clone(),
+                                self.enum_type_params.get(q).cloned(),
+                                en,
+                            )
+                        } else if let Some(alias) = self.aliases.get(other).cloned() {
+                            (
+                                other.to_string(),
+                                self.alias_type_params.get(other).cloned(),
+                                alias,
+                            )
+                        } else if let Some(st) = self.structs.get(other).cloned() {
+                            (
+                                other.to_string(),
+                                self.struct_type_params.get(other).cloned(),
+                                st,
+                            )
+                        } else if let Some(en) = self.enums.get(other).cloned() {
+                            (
+                                other.to_string(),
+                                self.enum_type_params.get(other).cloned(),
+                                en,
+                            )
+                        } else if let Some(error) = self.ambiguous_import_error(other, *span) {
+                            return Err(error);
+                        } else {
+                            (
+                                other.to_string(),
+                                None,
+                                Type::Struct {
+                                    name: other.to_string(),
+                                    fields: Vec::new(),
+                                },
+                            )
+                        }
+                    } else if let Some(alias) = self.aliases.get(other).cloned() {
+                        (
+                            other.to_string(),
+                            self.alias_type_params.get(other).cloned(),
+                            alias,
+                        )
+                    } else if let Some(st) = self.structs.get(other).cloned() {
+                        (
+                            other.to_string(),
+                            self.struct_type_params.get(other).cloned(),
+                            st,
+                        )
+                    } else if let Some(en) = self.enums.get(other).cloned() {
+                        (
+                            other.to_string(),
+                            self.enum_type_params.get(other).cloned(),
+                            en,
+                        )
                     } else if let Some(error) = self.ambiguous_import_error(other, *span) {
                         return Err(error);
                     } else {
-                        Type::Struct {
-                            name: other.to_string(),
-                            fields: Vec::new(),
+                        (
+                            other.to_string(),
+                            None,
+                            Type::Struct {
+                                name: other.to_string(),
+                                fields: Vec::new(),
+                            },
+                        )
+                    };
+
+                    if let Some(tparams) = tparams {
+                        if !args.is_empty() {
+                            if args.len() != tparams.len() {
+                                return Err(TypeError::new(
+                                    *span,
+                                    format!(
+                                        "type `{target_key}` expects {} type argument(s), got {}",
+                                        tparams.len(),
+                                        args.len()
+                                    ),
+                                ));
+                            }
+                            let mut lowered_args = Vec::new();
+                            for arg in args {
+                                lowered_args.push(self.lower_type(arg)?);
+                            }
+                            let mapping: HashMap<String, Type> =
+                                tparams.into_iter().zip(lowered_args).collect();
+                            return Ok(substitute_type(&base_ty, &mapping));
+                        } else if !tparams.is_empty() {
+                            let mapping: HashMap<String, Type> =
+                                tparams.into_iter().map(|p| (p, Type::Dyn)).collect();
+                            return Ok(substitute_type(&base_ty, &mapping));
                         }
                     }
+                    base_ty
                 }
             },
             TypeExpr::List { element, .. } => Type::list(self.lower_type(element)?),
@@ -1014,6 +1375,9 @@ impl Checker {
         else {
             return Err(TypeError::new(func.span, "internal: not a function type"));
         };
+        for tp in &func.type_params {
+            self.active_type_params.insert(tp.name.clone());
+        }
         self.push_scope();
         for (param, ty) in func.params.iter().zip(params.iter()) {
             self.define(param.name.name.clone(), ty.clone());
@@ -1032,6 +1396,9 @@ impl Checker {
         }
         self.current_returns.pop();
         self.pop_scope();
+        for tp in &func.type_params {
+            self.active_type_params.remove(&tp.name);
+        }
         Ok(())
     }
 
@@ -1283,6 +1650,7 @@ impl Checker {
             }
             Expr::Call { callee, args, span } => {
                 let fty = self.check_expr(callee)?;
+                let fty = self.instantiate_generic(&fty);
                 let fty = self.resolve(&fty);
                 match fty.without_ownership() {
                     Type::Fn { params, ret, .. } => {
@@ -1305,7 +1673,7 @@ impl Checker {
                                 self.unify(pt, &at, arg.span())?;
                             }
                         }
-                        Ok(*ret)
+                        Ok(self.resolve(&ret))
                     }
                     Type::Dyn | Type::Var(_) => {
                         for arg in args {
@@ -1488,6 +1856,8 @@ impl Checker {
                             )
                         }),
                     Type::Enum { name, variants } => {
+                        let instantiated = self.instantiate_generic(&Type::Enum { name, variants });
+                        let Type::Enum { name, variants } = instantiated else { unreachable!() };
                         let Some((_, fields)) = variants.iter().find(|(n, _)| n == &field.name)
                         else {
                             let listed: Vec<_> = variants.iter().map(|(n, _)| n.as_str()).collect();
@@ -1584,6 +1954,7 @@ impl Checker {
                 let st = self.structs.get(&name.name).cloned().ok_or_else(|| {
                     TypeError::new(*span, format!("unknown struct `{}`", name.name))
                 })?;
+                let st = self.instantiate_generic(&st);
                 let Type::Struct {
                     fields: decl,
                     name: n,
@@ -1602,10 +1973,10 @@ impl Checker {
                         ));
                     }
                 }
-                Ok(Type::Struct {
+                Ok(self.resolve(&Type::Struct {
                     name: n,
                     fields: decl,
-                })
+                }))
             }
         }
     }
@@ -2356,6 +2727,10 @@ fn occurs(id: u32, ty: &Type) -> bool {
         Type::Ref { inner, .. } => occurs(id, inner),
         Type::Map(k, v) => occurs(id, k) || occurs(id, v),
         Type::Fn { params, ret, .. } => params.iter().any(|p| occurs(id, p)) || occurs(id, ret),
+        Type::Struct { fields, .. } => fields.iter().any(|(_, t)| occurs(id, t)),
+        Type::Enum { variants, .. } => variants
+            .iter()
+            .any(|(_, ts)| ts.iter().any(|t| occurs(id, t))),
         Type::Module { members, .. } => members.iter().any(|(_, t)| occurs(id, t)),
         _ => false,
     }
@@ -2391,6 +2766,7 @@ fn contains_task(ty: &Type) -> bool {
         | Type::Range
         | Type::Dyn
         | Type::Var(_)
+        | Type::Param(_)
         | Type::Module { .. } => false,
     }
 }

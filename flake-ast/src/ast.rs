@@ -68,6 +68,7 @@ pub struct FnDecl {
     /// Function is an `owned` ownership context.
     pub owned: bool,
     pub name: Ident,
+    pub type_params: Vec<Ident>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
     pub effects: EffectSet,
@@ -111,6 +112,7 @@ impl EffectSet {
 pub struct StructDecl {
     pub is_pub: bool,
     pub name: Ident,
+    pub type_params: Vec<Ident>,
     pub fields: Vec<StructField>,
     pub span: Span,
 }
@@ -126,6 +128,7 @@ pub struct StructField {
 pub struct TypeAlias {
     pub is_pub: bool,
     pub name: Ident,
+    pub type_params: Vec<Ident>,
     pub ty: TypeExpr,
     pub span: Span,
 }
@@ -142,6 +145,7 @@ pub struct ImportDecl {
 pub struct EnumDecl {
     pub is_pub: bool,
     pub name: Ident,
+    pub type_params: Vec<Ident>,
     pub variants: Vec<EnumVariant>,
     pub span: Span,
 }

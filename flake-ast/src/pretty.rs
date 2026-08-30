@@ -19,6 +19,20 @@ pub fn print_program(program: &Program) -> String {
     out
 }
 
+fn print_type_params(params: &[crate::ast::Ident], out: &mut String) {
+    if params.is_empty() {
+        return;
+    }
+    out.push('[');
+    for (i, p) in params.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&p.name);
+    }
+    out.push(']');
+}
+
 fn print_item(item: &Item, out: &mut String) {
     match item {
         Item::Fn(f) => print_fn(f, out),
@@ -28,6 +42,7 @@ fn print_item(item: &Item, out: &mut String) {
             }
             out.push_str("struct ");
             out.push_str(&s.name.name);
+            print_type_params(&s.type_params, out);
             out.push_str(" {\n");
             for field in &s.fields {
                 out.push_str("    ");
@@ -44,6 +59,7 @@ fn print_item(item: &Item, out: &mut String) {
             }
             out.push_str("enum ");
             out.push_str(&e.name.name);
+            print_type_params(&e.type_params, out);
             out.push_str(" {\n");
             for v in &e.variants {
                 out.push_str("    ");
@@ -68,6 +84,7 @@ fn print_item(item: &Item, out: &mut String) {
             }
             out.push_str("type ");
             out.push_str(&t.name.name);
+            print_type_params(&t.type_params, out);
             out.push_str(" = ");
             print_type(&t.ty, out);
         }
@@ -94,6 +111,7 @@ fn print_fn(f: &FnDecl, out: &mut String) {
     }
     out.push_str("fn ");
     out.push_str(&f.name.name);
+    print_type_params(&f.type_params, out);
     out.push('(');
     for (i, p) in f.params.iter().enumerate() {
         if i > 0 {

@@ -44,6 +44,8 @@ pub enum Type {
         name: String,
         variants: Vec<(String, Vec<Type>)>,
     },
+    /// Generic type parameter (e.g. `T`, `U`).
+    Param(String),
 }
 
 impl Type {
@@ -153,6 +155,7 @@ impl fmt::Display for Type {
             Self::Struct { name, .. } => f.write_str(name),
             Self::Module { name, .. } => write!(f, "module {name}"),
             Self::Enum { name, .. } => f.write_str(name),
+            Self::Param(name) => f.write_str(name),
             Self::Fn {
                 params,
                 ret,

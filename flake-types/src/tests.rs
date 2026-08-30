@@ -1019,6 +1019,89 @@ fn main() {}
 }
 
 #[test]
+fn generic_function_identity_and_pair() {
+    ok(r#"
+fn id[T](x: T) -> T {
+    x
+}
+
+fn make_pair[A, B](first: A, second: B) -> Pair[A, B] {
+    Pair { first: first, second: second }
+}
+
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+fn main() {
+    let a: Int = id(42)
+    let b: String = id("hello")
+    let p: Pair[Int, String] = make_pair(10, "flake")
+}
+"#);
+}
+
+#[test]
+fn generic_enum_and_pattern_matching() {
+    ok(r#"
+enum Option[T] {
+    Some(T)
+    None
+}
+
+fn unwrap_or[T](opt: Option[T], default_val: T) -> T {
+    match opt {
+        Option.Some(val) => val,
+        Option.None => default_val,
+    }
+}
+
+fn main() {
+    let s: Option[Int] = Option.Some(100)
+    let res: Int = unwrap_or(s, 0)
+    let n: Option[String] = Option.None
+    let s_res: String = unwrap_or(n, "fallback")
+}
+"#);
+}
+
+#[test]
+fn generic_type_alias() {
+    ok(r#"
+enum Result[T, E] {
+    Ok(T)
+    Err(E)
+}
+
+type IoResult[T] = Result[T, String]
+
+fn produce() -> IoResult[Int] {
+    Result.Ok(42)
+}
+
+fn main() {
+    let res: IoResult[Int] = produce()
+}
+"#);
+}
+
+#[test]
+fn generic_type_arity_mismatch() {
+    let msg = err(r#"
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+fn test(p: Pair[Int]) {}
+fn main() {}
+"#);
+    assert!(msg.contains("expects 2 type argument(s), got 1"), "{msg}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+
