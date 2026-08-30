@@ -1003,6 +1003,13 @@ pub fn inline_functions(module: &mut Module) -> bool {
                                                 src: mapped_ret,
                                             });
                                         }
+                                    } else if let Inst::Return { value: None } = target_inst {
+                                        if let Some(caller_dest) = dest {
+                                            new_insts.push(Inst::LoadConst {
+                                                dest: *caller_dest,
+                                                value: Const::Nil,
+                                            });
+                                        }
                                     }
                                 } else {
                                     let mut cloned_inst = target_inst.clone();
