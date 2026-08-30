@@ -158,6 +158,7 @@ fn add_two(result: Result) -> Result {
 | [examples/projects/inventory/main.flk](examples/projects/inventory/main.flk) | Hierarchical imports, public enums, and qualified types |
 | [examples/projects/telemetry/main.flk](examples/projects/telemetry/main.flk) | Transitive modules and isolated private helpers |
 | [examples/projects/release/main.flk](examples/projects/release/main.flk) | Native-ready modules, tasks, Result propagation, and exhaustive patterns |
+| [examples/projects/v08_systems_engine/main.flk](examples/projects/v08_systems_engine/main.flk) | Generics, systems stdlib, channels, and nursery concurrency pipeline |
 
 ## Workspace
 
@@ -170,12 +171,13 @@ fn add_two(result: Result) -> Result {
 | `flake-interpreter` | Tree-walking interpreter |
 | `flake-ir` | Custom CFG intermediate representation |
 | `flake-vm` | Stack-based bytecode VM (interpreter parity) |
-| `flake-codegen` | Pure-Rust x86-64 encoder and PE writer |
+| `flake-codegen` | Pure-Rust multi-target native compiler (Windows PE, Linux ELF, AArch64) |
 | `flake-cli` | `flake` command-line interface |
 
 ## Docs
 
 - [Language tour](docs/tour.md)
+- [Standard library reference](docs/stdlib.md)
 - [Ownership](docs/ownership.md)
 - [Structured concurrency](docs/concurrency.md)
 - [Packages and manifests](docs/packages.md)

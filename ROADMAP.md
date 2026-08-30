@@ -1,8 +1,62 @@
 # Flake Roadmap
 
-**Flake v0.7.4 is complete.** Theme: **Small, high-quality increment**.
+**Flake v0.8.0 is complete.** Theme: **The Largest Capability Jump – Systems & Generics Leap**.
 
-There is no LLVM, Cranelift, or C transpilation.
+There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
+
+## v0.8.0 milestones (complete)
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Generics and parametric polymorphism | **done** |
+| 2 | Systems standard library (`fs`, `path`, `process`, `bytes`) | **done** |
+| 3 | Real concurrency runtime foundations (`channel`, cancellation cascades) | **done** |
+| 4 | Compiler performance leap (inlining, peephole optimizations) | **done** |
+| 5 | Ownership + package maturity (escape analysis, borrow checks) | **done** |
+| 6 | Integration, showcase, testing and hardening | **done** |
+| 7 | Documentation, polish & release | **done** |
+
+## What v0.8.0 milestone 1 delivers
+
+- Parametric polymorphism across function signatures, struct declarations, enum declarations, and type aliases.
+- Generic type inference, substitution, and instantiation at call and construct sites.
+- Generic enum variant pattern matching with automatic type variable binding and propagation.
+
+## What v0.8.0 milestone 2 delivers
+
+- Full systems standard library:
+  - `std/fs.flk`: Filesystem operations (`read_to_string`, `write_string`, `exists`, `remove`, `file_size`).
+  - `std/path.flk`: Cross-platform path operations (`join_path`, `is_absolute`, `file_name`, `parent`, `extension`, `normalize`).
+  - `std/process.flk`: Process environment and lifecycle (`ProcessOutput`, `current_dir`, `env_var`, `exit`).
+  - `std/bytes.flk`: Byte buffer operations (`ByteBuffer`, `new_buffer`, `from_string`, `append_byte`, `append_bytes`, `get`, `slice`, `len_bytes`).
+
+## What v0.8.0 milestone 3 delivers
+
+- Real concurrency runtime foundations:
+  - `std/channel.flk`: Typed concurrent channels (`Channel[T]`, `send`, `recv`, `try_recv`, `close_channel`, `is_closed`, `is_empty`, `is_full`).
+  - Nursery cancellation cascades and task inspection (`is_cancelled`, `is_completed`, `task_status`, `cancel`).
+  - Strict compile-time sendability verification preventing reference escape across `spawn` boundaries.
+
+## What v0.8.0 milestone 4 delivers
+
+- Multi-tier IR function inlining pass (up to 3 passes, budget of 24 instructions per small/leaf function).
+- Machine-level peephole optimization, jump threading, and register allocation enhancements.
+
+## What v0.8.0 milestone 5 delivers
+
+- Reference escape analysis in `flake-types/src/ownership.rs` preventing local stack variable and field references from escaping functions or blocks.
+- Structural borrow checking across generic structures.
+
+## What v0.8.0 milestone 6 delivers
+
+- Flagship systems showcase project: `examples/projects/v08_systems_engine/`.
+- Full cross-backend verification across Interpreter, Bytecode VM, and Native compiler.
+
+## What v0.8.0 milestone 7 delivers
+
+- Standard library reference documentation (`docs/stdlib.md`).
+- Release notes for v0.8.0 (`docs/release-notes-v0.8.0.md`).
+- Version bump to `0.8.0` and final release verification.
 
 ## v0.7.4 milestones (complete)
 
