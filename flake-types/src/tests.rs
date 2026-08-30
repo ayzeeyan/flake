@@ -963,6 +963,21 @@ fn main() {}
 }
 
 #[test]
+fn ownership_diagnostics_and_field_sensitive_moves() {
+    let msg = err(r#"
+fn consume(s: owned String) {}
+
+strict fn test(s: owned String) {
+    consume(s)
+    consume(s)
+}
+fn main() {}
+"#);
+    assert!(msg.contains("use of moved value `s`"), "{msg}");
+}
+
+
+#[test]
 fn spawn_rejects_nested_reference_arguments() {
     let msg = err(r#"
 fn work(items: [ref String]) / conc {}
