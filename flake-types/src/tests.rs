@@ -1101,7 +1101,22 @@ fn main() {}
 }
 
 #[test]
+fn local_reference_escape_is_rejected() {
+    let msg = err(r#"
+strict fn escape_local() -> ref String {
+    let s = "local value"
+    return &s
+}
+"#);
+    assert!(
+        msg.contains("cannot return reference to local variable `s`"),
+        "{msg}"
+    );
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+
 

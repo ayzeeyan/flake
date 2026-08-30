@@ -118,6 +118,15 @@ impl OwnCx {
         );
     }
 
+    fn lookup_depth(&self, name: &str) -> Option<usize> {
+        for (i, scope) in self.scopes.iter().enumerate().rev() {
+            if scope.contains_key(name) {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     fn lookup_mut(&mut self, name: &str) -> Option<&mut Binding> {
         for scope in self.scopes.iter_mut().rev() {
             if scope.contains_key(name) {
@@ -207,6 +216,26 @@ fn check_block(cx: &mut OwnCx, block: &Block) -> Result<(), TypeError> {
         check_stmt(cx, stmt)?;
     }
     if let Some(tail) = &block.tail {
+        if cx.depth() == 1 {
+            if let Expr::Unary {
+                op: UnOp::Ref | UnOp::RefMut,
+                expr,
+                span,
+            } = tail.as_ref()
+            {
+                if let Expr::Ident(id) = expr.as_ref() {
+                    if let Some(depth) = cx.lookup_depth(&id.name) {
+                        if depth > 0 {
+                            return Err(TypeError::with_help(
+                                *span,
+                                format!("cannot return reference to local variable `{}`", id.name),
+                                "references cannot outlive their stack frame; return an owned value instead",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         check_expr(cx, tail, true)?;
     }
     cx.pop();
@@ -222,7 +251,25 @@ fn check_stmt(cx: &mut OwnCx, stmt: &Stmt) -> Result<(), TypeError> {
             cx.pin_temps();
             Ok(())
         }
-        Stmt::Return { value: Some(v), .. } => {
+        Stmt::Return { value: Some(v), span } => {
+            if let Expr::Unary {
+                op: UnOp::Ref | UnOp::RefMut,
+                expr,
+                ..
+            } = v
+            {
+                if let Expr::Ident(id) = expr.as_ref() {
+                    if let Some(depth) = cx.lookup_depth(&id.name) {
+                        if depth > 0 {
+                            return Err(TypeError::with_help(
+                                *span,
+                                format!("cannot return reference to local variable `{}`", id.name),
+                                "references cannot outlive their stack frame; return an owned value instead",
+                            ));
+                        }
+                    }
+                }
+            }
             check_expr(cx, v, true)?;
             cx.clear_temps();
             Ok(())
