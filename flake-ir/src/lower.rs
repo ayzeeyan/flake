@@ -1693,19 +1693,29 @@ fn is_native_name(name: &str) -> bool {
             | "is_cancelled"
             | "is_completed"
             | "task_status"
+            | "args"
+            | "list_dir"
+            | "is_dir"
+            | "is_file"
+            | "append_file"
+            | "create_dir"
+            | "run_cmd"
     )
 }
 
 fn native_result_ty(name: &str) -> IrType {
     match name {
-        "print" | "push" | "assert" | "write_file" | "remove_file" | "cancel" => IrType::Nil,
+        "print" | "push" | "assert" | "write_file" | "remove_file" | "cancel" | "append_file" => {
+            IrType::Nil
+        }
         "len" | "int" => IrType::Int,
         "str" | "join" | "type_of" | "read_file" | "trim" | "upper" | "lower" | "env" | "cwd"
         | "task_status" => IrType::String,
         "contains" | "starts_with" | "ends_with" | "file_exists" | "is_empty" | "has_key"
-        | "is_cancelled" | "is_completed" => IrType::Bool,
+        | "is_cancelled" | "is_completed" | "is_dir" | "is_file" | "create_dir" => IrType::Bool,
         "range" => IrType::Range,
-        "split" => IrType::List(Box::new(IrType::String)),
+        "split" | "args" | "list_dir" => IrType::List(Box::new(IrType::String)),
+        "run_cmd" => IrType::List(Box::new(IrType::Dyn)),
         "keys" | "values" => IrType::List(Box::new(IrType::Dyn)),
         "entries" => IrType::List(Box::new(IrType::List(Box::new(IrType::Dyn)))),
         "float" => IrType::Float,

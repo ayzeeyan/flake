@@ -307,12 +307,18 @@ pub fn write_executable_with_asm(
 
 /// Compile, write a temp exe, run it, return stdout.
 pub fn run_native(source: &Source) -> Result<String, CodegenError> {
+    run_native_with_args(source, &[])
+}
+
+/// Compile and run a native executable, forwarding `args` to the program.
+pub fn run_native_with_args(source: &Source, args: &[String]) -> Result<String, CodegenError> {
     let dir = std::env::temp_dir();
     let n = UNIQUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let exe = dir.join(format!("flake-native-{}-{n}.exe", std::process::id()));
     write_executable(source, &exe)?;
     let _remove_exe = RemoveOnDrop(exe.clone());
     let output = Command::new(&exe)
+        .args(args)
         .output()
         .map_err(|e| CodegenError::new(format!("failed to run native binary: {e}")))?;
     if !output.status.success() {

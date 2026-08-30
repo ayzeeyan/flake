@@ -45,6 +45,9 @@ enum Commands {
         /// Compile to native x86-64 and run the executable
         #[arg(long, conflicts_with = "vm")]
         native: bool,
+        /// Arguments forwarded to the Flake program (`args()`). Pass after `--`.
+        #[arg(last = true)]
+        program_args: Vec<String>,
     },
     /// Compile a Flake program or local package to a native executable
     Build {
@@ -106,8 +109,9 @@ fn main() -> ExitCode {
             skip_check,
             vm,
             native,
+            program_args,
         } => match resolve_target_path(file.as_ref()) {
-            Ok(target) => run_file(&target, skip_check, vm, native),
+            Ok(target) => run_file(&target, skip_check, vm, native, &program_args),
             Err(code) => code,
         },
         Commands::Build {
@@ -416,7 +420,13 @@ fn load_source(path: &PathBuf) -> Result<Source, ExitCode> {
     }
 }
 
-fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> ExitCode {
+fn run_file(
+    path: &PathBuf,
+    skip_check: bool,
+    use_vm: bool,
+    native: bool,
+    program_args: &[String],
+) -> ExitCode {
     if !skip_check {
         if let Err(code) = verify_lockfile_if_present(path) {
             return code;
@@ -432,8 +442,10 @@ fn run_file(path: &PathBuf, skip_check: bool, use_vm: bool, native: bool) -> Exi
             return ExitCode::from(1);
         }
     }
+    flake_interpreter::set_program_args(program_args.to_vec());
+    flake_vm::set_program_args(program_args.to_vec());
     if native {
-        match flake_codegen::run_native(&source) {
+        match flake_codegen::run_native_with_args(&source, program_args) {
             Ok(out) => {
                 print!("{out}");
                 ExitCode::SUCCESS

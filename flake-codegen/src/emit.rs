@@ -30,6 +30,11 @@ pub enum Import {
     GetEnvironmentVariableA = 10,
     GetCurrentDirectoryA = 11,
     DeleteFileA = 12,
+    FindFirstFileA = 13,
+    FindNextFileA = 14,
+    FindClose = 15,
+    GetCommandLineA = 16,
+    CreateDirectoryA = 17,
 }
 
 pub const IMPORTS: &[&str] = &[
@@ -46,6 +51,11 @@ pub const IMPORTS: &[&str] = &[
     "GetEnvironmentVariableA",
     "GetCurrentDirectoryA",
     "DeleteFileA",
+    "FindFirstFileA",
+    "FindNextFileA",
+    "FindClose",
+    "GetCommandLineA",
+    "CreateDirectoryA",
 ];
 
 pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
@@ -965,6 +975,48 @@ fn emit_call(
         }
         Callee::Static(name) if name == "remove_file" => {
             emit_unary_rt(frame, "rt_remove_file", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "is_dir" => {
+            emit_unary_rt(frame, "rt_is_dir", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "is_file" => {
+            emit_unary_rt(frame, "rt_is_file", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "list_dir" => {
+            emit_unary_rt(frame, "rt_list_dir", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "args" => {
+            asm.call_label("rt_args");
+            store_rax(frame, dest, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "append_file" => {
+            if args.len() < 2 {
+                return Err(CodegenError::new("append_file() expected 2 arguments"));
+            }
+            let spill = frame.spill;
+            load_as_cstr(func, frame, args[1], asm, strings, strs, uniq);
+            asm.mov_mr_rbp(spill, Reg::Rax);
+            load_as_cstr(func, frame, args[0], asm, strings, strs, uniq);
+            asm.mov_rr(Reg::Rcx, Reg::Rax);
+            asm.mov_rm_rbp(Reg::Rdx, spill);
+            asm.call_label("rt_append_file");
+            if let Some(d) = dest {
+                asm.xor_rr(Reg::Rax, Reg::Rax);
+                frame.store(asm, *d, Reg::Rax);
+            }
+            Ok(())
+        }
+        Callee::Static(name) if name == "create_dir" => {
+            emit_unary_rt(frame, "rt_create_dir", dest, args, asm);
+            Ok(())
+        }
+        Callee::Static(name) if name == "run_cmd" => {
+            emit_unary_rt(frame, "rt_run_cmd", dest, args, asm);
             Ok(())
         }
         Callee::Static(name) if name == "keys" => {

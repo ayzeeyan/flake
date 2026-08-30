@@ -1451,3 +1451,97 @@ fn main() {
     );
     assert_all_backends("generic-bounds-traits", source, expected);
 }
+
+#[test]
+fn stdlib_depth_directory_walk_and_helpers_across_all_backends() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let temp_dir = std::env::temp_dir().join(format!("flake-m2-walk-{nonce}"));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    std::fs::write(temp_dir.join("b.flk"), "fn b() {}\n").unwrap();
+    std::fs::write(temp_dir.join("a.flk"), "fn a() {}\n").unwrap();
+    let nested = temp_dir.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("c.flk"), "fn c() {}\n").unwrap();
+    let root = temp_dir.to_str().unwrap().replace('\\', "/");
+
+    let source = format!(
+        r#"
+import fs
+import path
+import list
+import process
+import option
+import result
+
+fn main() / io + alloc {{
+    print(len(args()))
+    print(len(process.program_args()))
+    print(list.contains_eq([1, 2, 3], 2))
+    print(list.max_ord([1, 9, 3]))
+    print(list.min_ord([4, 2, 8]))
+    let sorted = list.sort_items([3, 1, 2])
+    print("{{sorted[0]}},{{sorted[1]}},{{sorted[2]}}")
+
+    match fs.read_dir("{root}") {{
+        Result.Ok(names) => print(join(names, ","))
+        Result.Err(e) => print(e)
+    }}
+    match fs.read_dir("{root}/missing-dir") {{
+        Result.Ok(_) => print("unexpected dir")
+        Result.Err(_) => print("missing dir is err")
+    }}
+    match fs.walk("{root}") {{
+        Result.Ok(paths) => {{
+            print(len(paths) >= 3)
+            var saw_a = false
+            for p in paths {{
+                match path.file_name(p) {{
+                    Option.Some(name) => {{
+                        if name == "a.flk" {{
+                            saw_a = true
+                        }}
+                        nil
+                    }}
+                    Option.None => nil
+                }}
+            }}
+            print(saw_a)
+        }}
+        Result.Err(e) => print(e)
+    }}
+    match fs.read_lines("{root}/a.flk") {{
+        Result.Ok(lines) => print(lines[0])
+        Result.Err(e) => print(e)
+    }}
+    print(fs.is_directory("{root}"))
+    print(fs.is_regular_file("{root}/a.flk"))
+}}
+"#
+    );
+    let expected = concat!(
+        "0\n",
+        "0\n",
+        "true\n",
+        "9\n",
+        "2\n",
+        "1,2,3\n",
+        "a.flk,b.flk,nested\n",
+        "missing dir is err\n",
+        "true\n",
+        "true\n",
+        "fn a() {}\n",
+        "true\n",
+        "true\n",
+    );
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(temp_dir);
+    assert_all_backends("stdlib-depth-walk", &source, expected);
+}

@@ -24,3 +24,19 @@ pub fn env_var(name: String) -> option.Option[String] / io + alloc {
 pub fn exit(code: Int) / panic {
     assert(false, "process exit with code {code}")
 }
+
+pub fn program_args() -> [String] / io + alloc {
+    args()
+}
+
+pub fn run(command: String) -> result.Result[ProcessOutput, String] / io + alloc {
+    let captured = run_cmd(command)
+    if len(captured) < 3 {
+        return Result.Err("failed to start process: {command}")
+    }
+    Result.Ok(ProcessOutput {
+        stdout: str(captured[0]),
+        stderr: str(captured[1]),
+        exit_code: int(captured[2]),
+    })
+}

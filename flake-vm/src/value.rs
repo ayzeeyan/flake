@@ -149,10 +149,17 @@ pub enum Native {
     IsCancelled,
     IsCompleted,
     TaskStatus,
+    Args,
+    ListDir,
+    IsDir,
+    IsFile,
+    AppendFile,
+    CreateDir,
+    RunCmd,
 }
 
 impl Native {
-    pub fn all() -> [Native; 38] {
+    pub fn all() -> [Native; 45] {
         [
             Native::Print,
             Native::Len,
@@ -192,6 +199,13 @@ impl Native {
             Native::IsCancelled,
             Native::IsCompleted,
             Native::TaskStatus,
+            Native::Args,
+            Native::ListDir,
+            Native::IsDir,
+            Native::IsFile,
+            Native::AppendFile,
+            Native::CreateDir,
+            Native::RunCmd,
         ]
     }
 
@@ -236,6 +250,13 @@ impl Native {
             Self::IsCancelled => "is_cancelled",
             Self::IsCompleted => "is_completed",
             Self::TaskStatus => "task_status",
+            Self::Args => "args",
+            Self::ListDir => "list_dir",
+            Self::IsDir => "is_dir",
+            Self::IsFile => "is_file",
+            Self::AppendFile => "append_file",
+            Self::CreateDir => "create_dir",
+            Self::RunCmd => "run_cmd",
         }
     }
 }

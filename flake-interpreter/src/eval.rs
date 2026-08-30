@@ -17,6 +17,21 @@ use crate::value::{Function, MapKey, NativeFn, TaskRef, TaskState, Value};
 
 const MAX_CALL_DEPTH: usize = 10_000;
 
+thread_local! {
+    static PROGRAM_ARGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Arguments forwarded to the running Flake program (`args()` builtin).
+pub fn set_program_args(args: Vec<String>) {
+    PROGRAM_ARGS.with(|slot| {
+        *slot.borrow_mut() = args;
+    });
+}
+
+fn program_args() -> Vec<String> {
+    PROGRAM_ARGS.with(|slot| slot.borrow().clone())
+}
+
 enum Control {
     Return(Value),
     Break,
@@ -200,6 +215,13 @@ fn install_builtins(env: &Env) {
         NativeFn::IsCancelled,
         NativeFn::IsCompleted,
         NativeFn::TaskStatus,
+        NativeFn::Args,
+        NativeFn::ListDir,
+        NativeFn::IsDir,
+        NativeFn::IsFile,
+        NativeFn::AppendFile,
+        NativeFn::CreateDir,
+        NativeFn::RunCmd,
     ] {
         env.define(native.name(), Value::Native(native), false);
     }
@@ -1530,7 +1552,108 @@ impl<'io> Interpreter<'io> {
                     .into()),
                 }
             }
+            NativeFn::Args => {
+                expect_arity("args", args, 0, span)?;
+                let values: Vec<_> = program_args()
+                    .into_iter()
+                    .map(Value::from_string)
+                    .collect();
+                Ok(Value::List(Rc::new(RefCell::new(values))))
+            }
+            NativeFn::ListDir => {
+                expect_arity("list_dir", args, 1, span)?;
+                let path = expect_string("list_dir", &args[0], span)?;
+                match sys_list_dir(&path) {
+                    Ok(names) => {
+                        let values: Vec<_> = names.into_iter().map(Value::from_string).collect();
+                        Ok(Value::List(Rc::new(RefCell::new(values))))
+                    }
+                    Err(e) => Err(RuntimeError::new(span, e).into()),
+                }
+            }
+            NativeFn::IsDir => {
+                expect_arity("is_dir", args, 1, span)?;
+                let path = expect_string("is_dir", &args[0], span)?;
+                Ok(Value::Bool(std::path::Path::new(&path).is_dir()))
+            }
+            NativeFn::IsFile => {
+                expect_arity("is_file", args, 1, span)?;
+                let path = expect_string("is_file", &args[0], span)?;
+                Ok(Value::Bool(std::path::Path::new(&path).is_file()))
+            }
+            NativeFn::AppendFile => {
+                expect_arity("append_file", args, 2, span)?;
+                let path = expect_string("append_file", &args[0], span)?;
+                let contents = args[1].display_value();
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .and_then(|mut f| f.write_all(contents.as_bytes()))
+                    .map_err(|e| RuntimeError::new(span, format!("append_file() failed: {e}")))?;
+                Ok(Value::Nil)
+            }
+            NativeFn::CreateDir => {
+                expect_arity("create_dir", args, 1, span)?;
+                let path = expect_string("create_dir", &args[0], span)?;
+                Ok(Value::Bool(std::fs::create_dir(&path).is_ok()))
+            }
+            NativeFn::RunCmd => {
+                expect_arity("run_cmd", args, 1, span)?;
+                let cmd = expect_string("run_cmd", &args[0], span)?;
+                Ok(sys_run_cmd(&cmd))
+            }
         }
+    }
+}
+
+fn expect_string(name: &str, value: &Value, span: Span) -> EvalResult<String> {
+    match value {
+        Value::String(s) => Ok(s.to_string()),
+        other => Err(RuntimeError::new(
+            span,
+            format!("{name}() expected String, found {}", other.type_name()),
+        )
+        .into()),
+    }
+}
+
+fn sys_list_dir(path: &str) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    let entries = std::fs::read_dir(path).map_err(|e| format!("list_dir() failed: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("list_dir() failed: {e}"))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name != "." && name != ".." {
+            names.push(name);
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+fn sys_run_cmd(cmd: &str) -> Value {
+    let output = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/C", cmd])
+            .output()
+    } else {
+        std::process::Command::new("sh")
+            .args(["-c", cmd])
+            .output()
+    };
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).replace('\r', "");
+            let stderr = String::from_utf8_lossy(&out.stderr).replace('\r', "");
+            let code = i64::from(out.status.code().unwrap_or(-1));
+            Value::List(Rc::new(RefCell::new(vec![
+                Value::from_string(stdout),
+                Value::from_string(stderr),
+                Value::Int(code),
+            ])))
+        }
+        Err(_) => Value::List(Rc::new(RefCell::new(Vec::new()))),
     }
 }
 

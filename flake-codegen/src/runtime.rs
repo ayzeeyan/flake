@@ -52,6 +52,14 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_env(asm, iat);
     emit_cwd(asm, iat);
     emit_remove_file(asm, iat);
+    emit_is_dir(asm, iat);
+    emit_is_file(asm, iat);
+    emit_create_dir(asm, iat);
+    emit_append_file(asm, iat);
+    emit_sort_cstr_list(asm);
+    emit_list_dir(asm, iat);
+    emit_args(asm, iat);
+    emit_run_cmd(asm);
 }
 
 fn prologue(asm: &mut Asm, frame: i32) {
@@ -2001,5 +2009,318 @@ fn emit_remove_file(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     prologue(asm, 32);
     call_import(asm, iat, Import::DeleteFileA);
     asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+}
+
+fn emit_is_dir(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    asm.label("rt_is_dir");
+    prologue(asm, 32);
+    call_import(asm, iat, Import::GetFileAttributesA);
+    asm.bytes.extend_from_slice(&[0x83, 0xF8, 0xFF]); // cmp eax, -1
+    asm.jcc_label(Cc::E, ".id_fail");
+    asm.bytes.extend_from_slice(&[0xA9, 0x10, 0x00, 0x00, 0x00]); // test eax, 0x10
+    asm.jcc_label(Cc::Z, ".id_fail");
+    asm.mov_ri(Reg::Rax, 1);
+    asm.jmp_label(".id_done");
+    asm.label(".id_fail");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.label(".id_done");
+    epilogue(asm);
+}
+
+fn emit_is_file(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    asm.label("rt_is_file");
+    prologue(asm, 32);
+    call_import(asm, iat, Import::GetFileAttributesA);
+    asm.bytes.extend_from_slice(&[0x83, 0xF8, 0xFF]); // cmp eax, -1
+    asm.jcc_label(Cc::E, ".if_fail");
+    asm.bytes.extend_from_slice(&[0xA9, 0x10, 0x00, 0x00, 0x00]); // test eax, 0x10
+    asm.jcc_label(Cc::NZ, ".if_fail");
+    asm.mov_ri(Reg::Rax, 1);
+    asm.jmp_label(".if_done");
+    asm.label(".if_fail");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.label(".if_done");
+    epilogue(asm);
+}
+
+fn emit_create_dir(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    asm.label("rt_create_dir");
+    prologue(asm, 32);
+    asm.xor_rr(Reg::Rdx, Reg::Rdx);
+    call_import(asm, iat, Import::CreateDirectoryA);
+    asm.bytes.extend_from_slice(&[0x85, 0xC0]); // test eax, eax
+    asm.setcc(Cc::NZ, Reg::Rax);
+    asm.movzx_rax_al();
+    epilogue(asm);
+}
+
+fn emit_append_file(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // rcx = path, rdx = contents
+    asm.label("rt_append_file");
+    prologue(asm, 96);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rdx);
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_ri(Reg::Rdx, 0x4000_0004); // GENERIC_WRITE | FILE_APPEND_DATA
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.xor_rr(Reg::R9, Reg::R9);
+    asm.mov_ri(Reg::Rax, 4); // OPEN_ALWAYS
+    mov_mr_rsp(asm, 32, Reg::Rax);
+    asm.mov_ri(Reg::Rax, 0x80);
+    mov_mr_rsp(asm, 40, Reg::Rax);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    mov_mr_rsp(asm, 48, Reg::Rax);
+    call_import(asm, iat, Import::CreateFileA);
+    asm.mov_ri(Reg::R10, -1);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".af_done");
+    asm.mov_mr_rbp(-24, Reg::Rax);
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.call_label("rt_strlen");
+    asm.mov_mr_rbp(-32, Reg::Rax);
+    asm.mov_rm_rbp(Reg::Rcx, -24);
+    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.mov_rm_rbp(Reg::R8, -32);
+    lea_rbp(asm, Reg::R9, -40);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    mov_mr_rsp(asm, 32, Reg::Rax);
+    call_import(asm, iat, Import::WriteFile);
+    asm.mov_rm_rbp(Reg::Rcx, -24);
+    call_import(asm, iat, Import::CloseHandle);
+    asm.label(".af_done");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    epilogue(asm);
+}
+
+fn emit_run_cmd(asm: &mut Asm) {
+    asm.label("rt_run_cmd");
+    prologue(asm, 32);
+    asm.xor_rr(Reg::Rcx, Reg::Rcx);
+    asm.call_label("rt_list_new");
+    epilogue(asm);
+}
+
+fn emit_list_dir(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // rcx = path → rax = list of entry names (sorted).
+    asm.label("rt_list_dir");
+    prologue(asm, 160);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.call_label("rt_strlen");
+    asm.mov_mr_rbp(-16, Reg::Rax); // path len
+    asm.add_ri(Reg::Rax, 3);
+    asm.mov_rr(Reg::Rcx, Reg::Rax);
+    asm.call_label("rt_alloc");
+    asm.mov_mr_rbp(-24, Reg::Rax); // pattern
+    asm.mov_rm_rbp(Reg::Rdx, -8);
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    copy_bytes(asm, ".ldpat");
+    // rax now at end of copied path; append "\\*" or "/*"
+    asm.bytes.extend_from_slice(&[0xC6, 0x00, 0x2F]); // *rax = '/'
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x01, 0x2A]); // *(rax+1) = '*'
+    asm.bytes.extend_from_slice(&[0xC6, 0x40, 0x02, 0x00]); // *(rax+2) = 0
+    asm.mov_ri(Reg::Rcx, 320);
+    asm.call_label("rt_alloc");
+    asm.mov_mr_rbp(-32, Reg::Rax); // WIN32_FIND_DATA
+    asm.mov_rm_rbp(Reg::Rcx, -24);
+    asm.mov_rm_rbp(Reg::Rdx, -32);
+    call_import(asm, iat, Import::FindFirstFileA);
+    asm.mov_ri(Reg::R10, -1);
+    asm.cmp_rr(Reg::Rax, Reg::R10);
+    asm.jcc_label(Cc::E, ".ld_empty");
+    asm.mov_mr_rbp(-40, Reg::Rax); // handle
+    asm.mov_ri(Reg::Rcx, 8);
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-48, Reg::Rax); // list
+    asm.label(".ld_entry");
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    asm.add_ri(Reg::Rcx, 44); // cFileName
+    // skip "." and ".."
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x01]); // movzx eax, byte [rcx]
+    asm.bytes.extend_from_slice(&[0x3C, 0x2E]); // cmp al, '.'
+    asm.jcc_label(Cc::Ne, ".ld_keep");
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x41, 0x01]); // movzx eax, byte [rcx+1]
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".ld_next"); // "."
+    asm.bytes.extend_from_slice(&[0x3C, 0x2E]); // cmp al, '.'
+    asm.jcc_label(Cc::Ne, ".ld_keep");
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x41, 0x02]); // movzx eax, byte [rcx+2]
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".ld_next"); // ".."
+    asm.label(".ld_keep");
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    asm.add_ri(Reg::Rcx, 44);
+    asm.call_label("rt_strlen");
+    asm.mov_rr(Reg::Rdx, Reg::Rax);
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    asm.add_ri(Reg::Rcx, 44);
+    asm.call_label("rt_strndup");
+    asm.mov_rr(Reg::Rdx, Reg::Rax);
+    asm.mov_rm_rbp(Reg::Rcx, -48);
+    asm.call_label("rt_list_push");
+    asm.mov_mr_rbp(-48, Reg::Rax);
+    asm.label(".ld_next");
+    asm.mov_rm_rbp(Reg::Rcx, -40);
+    asm.mov_rm_rbp(Reg::Rdx, -32);
+    call_import(asm, iat, Import::FindNextFileA);
+    asm.bytes.extend_from_slice(&[0x85, 0xC0]); // test eax
+    asm.jcc_label(Cc::NZ, ".ld_entry");
+    asm.mov_rm_rbp(Reg::Rcx, -40);
+    call_import(asm, iat, Import::FindClose);
+    asm.mov_rm_rbp(Reg::Rcx, -48);
+    asm.call_label("rt_sort_cstr_list");
+    epilogue(asm);
+    asm.label(".ld_empty");
+    asm.xor_rr(Reg::Rcx, Reg::Rcx);
+    asm.call_label("rt_list_new");
+    epilogue(asm);
+}
+
+fn emit_sort_cstr_list(asm: &mut Asm) {
+    // rcx = list of C strings. Insertion sort, returns list in rax.
+    asm.label("rt_sort_cstr_list");
+    prologue(asm, 64);
+    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 0); // len
+    asm.mov_mr_rbp(-16, Reg::Rax);
+    asm.mov_ri(Reg::R10, 1);
+    asm.mov_mr_rbp(-24, Reg::R10); // i
+    asm.label(".ss_i");
+    asm.mov_rm_rbp(Reg::R10, -24);
+    asm.mov_rm_rbp(Reg::R11, -16);
+    asm.cmp_rr(Reg::R10, Reg::R11);
+    asm.jcc_label(Cc::Ge, ".ss_done");
+    asm.mov_rm_rbp(Reg::Rax, -8);
+    // j = i
+    asm.mov_mr_rbp(-32, Reg::R10);
+    asm.label(".ss_j");
+    asm.mov_rm_rbp(Reg::R10, -32);
+    asm.test_rr(Reg::R10, Reg::R10);
+    asm.jcc_label(Cc::Z, ".ss_nexti");
+    asm.mov_rm_rbp(Reg::Rax, -8);
+    // load items[j] and items[j-1]
+    asm.mov_rm_rbp(Reg::R11, -32); // j
+    asm.shl_ri(Reg::R11, 3);
+    asm.add_ri(Reg::R11, 16);
+    asm.add_rr(Reg::Rax, Reg::R11);
+    asm.mov_rm(Reg::Rdx, Reg::Rax, 0); // items[j]
+    asm.mov_rm(Reg::Rcx, Reg::Rax, -8); // items[j-1]  — need [rax-8]
+    asm.mov_mr_rbp(-40, Reg::Rax); // addr of items[j]
+    asm.call_label("rt_strcmp");
+    asm.bytes.extend_from_slice(&[0x48, 0x85, 0xC0]); // test rax, rax
+    asm.jcc_label(Cc::Ge, ".ss_nexti");
+    // swap items[j] and items[j-1]
+    asm.mov_rm_rbp(Reg::Rax, -40);
+    asm.mov_rm(Reg::R8, Reg::Rax, 0);
+    asm.mov_rm(Reg::R9, Reg::Rax, -8);
+    asm.mov_mr(Reg::Rax, 0, Reg::R9);
+    asm.mov_mr(Reg::Rax, -8, Reg::R8);
+    asm.mov_rm_rbp(Reg::R10, -32);
+    asm.sub_ri(Reg::R10, 1);
+    asm.mov_mr_rbp(-32, Reg::R10);
+    asm.jmp_label(".ss_j");
+    asm.label(".ss_nexti");
+    asm.mov_rm_rbp(Reg::R10, -24);
+    asm.add_ri(Reg::R10, 1);
+    asm.mov_mr_rbp(-24, Reg::R10);
+    asm.jmp_label(".ss_i");
+    asm.label(".ss_done");
+    asm.mov_rm_rbp(Reg::Rax, -8);
+    epilogue(asm);
+}
+
+fn emit_args(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // Skip argv[0], collect remaining command-line tokens.
+    asm.label("rt_args");
+    prologue(asm, 80);
+    call_import(asm, iat, Import::GetCommandLineA);
+    asm.mov_mr_rbp(-8, Reg::Rax); // p
+    asm.mov_ri(Reg::Rcx, 8);
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-16, Reg::Rax); // list
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.mov_mr_rbp(-24, Reg::Rax); // skipped first = 0
+    asm.label(".ag_skip_sp");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x01]); // movzx eax, [rcx]
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".ag_done");
+    is_ascii_space_al(asm, ".ag_sp", ".ag_tok");
+    asm.label(".ag_sp");
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0x41, 0xF8]); // wait, inc pointer at -8
+    // inc qword [rbp-8]
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0x45, 0xF8]);
+    asm.jmp_label(".ag_skip_sp");
+    asm.label(".ag_tok");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x01]);
+    asm.bytes.extend_from_slice(&[0x3C, 0x22]); // cmp al, '"'
+    asm.jcc_label(Cc::E, ".ag_quote");
+    // unquoted token
+    asm.mov_rm_rbp(Reg::Rax, -8);
+    asm.mov_mr_rbp(-32, Reg::Rax); // start
+    asm.label(".ag_unq");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x01]);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".ag_emit");
+    is_ascii_space_al(asm, ".ag_emit", ".ag_unq_n");
+    asm.label(".ag_unq_n");
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0x45, 0xF8]); // inc p
+    asm.jmp_label(".ag_unq");
+    asm.label(".ag_quote");
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0x45, 0xF8]); // skip opening quote
+    asm.mov_rm_rbp(Reg::Rax, -8);
+    asm.mov_mr_rbp(-32, Reg::Rax);
+    asm.label(".ag_qloop");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.bytes.extend_from_slice(&[0x0F, 0xB6, 0x01]);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".ag_emit");
+    asm.bytes.extend_from_slice(&[0x3C, 0x22]);
+    asm.jcc_label(Cc::E, ".ag_qend");
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0x45, 0xF8]);
+    asm.jmp_label(".ag_qloop");
+    asm.label(".ag_qend");
+    // emit then skip closing quote
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    asm.mov_rm_rbp(Reg::Rdx, -8);
+    asm.sub_rr(Reg::Rdx, Reg::Rcx);
+    asm.call_label("rt_strndup");
+    asm.mov_rm_rbp(Reg::R10, -24);
+    asm.test_rr(Reg::R10, Reg::R10);
+    asm.jcc_label(Cc::Z, ".ag_skip0q");
+    asm.mov_rr(Reg::Rdx, Reg::Rax);
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.call_label("rt_list_push");
+    asm.mov_mr_rbp(-16, Reg::Rax);
+    asm.jmp_label(".ag_afterq");
+    asm.label(".ag_skip0q");
+    asm.mov_ri(Reg::Rax, 1);
+    asm.mov_mr_rbp(-24, Reg::Rax);
+    asm.label(".ag_afterq");
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0x45, 0xF8]); // skip "
+    asm.jmp_label(".ag_skip_sp");
+    asm.label(".ag_emit");
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    asm.mov_rm_rbp(Reg::Rdx, -8);
+    asm.sub_rr(Reg::Rdx, Reg::Rcx);
+    asm.test_rr(Reg::Rdx, Reg::Rdx);
+    asm.jcc_label(Cc::Z, ".ag_done");
+    asm.call_label("rt_strndup");
+    asm.mov_rm_rbp(Reg::R10, -24);
+    asm.test_rr(Reg::R10, Reg::R10);
+    asm.jcc_label(Cc::Z, ".ag_skip0");
+    asm.mov_rr(Reg::Rdx, Reg::Rax);
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.call_label("rt_list_push");
+    asm.mov_mr_rbp(-16, Reg::Rax);
+    asm.jmp_label(".ag_skip_sp");
+    asm.label(".ag_skip0");
+    asm.mov_ri(Reg::Rax, 1);
+    asm.mov_mr_rbp(-24, Reg::Rax);
+    asm.jmp_label(".ag_skip_sp");
+    asm.label(".ag_done");
+    asm.mov_rm_rbp(Reg::Rax, -16);
     epilogue(asm);
 }

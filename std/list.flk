@@ -319,4 +319,71 @@ pub fn flat_map(xs, f: fn(dyn) -> [dyn]) -> [dyn] {
     out
 }
 
+pub fn sort_items[T: Ord](xs: [T]) -> [T] {
+    var out = []
+    for x in xs {
+        push(out, x)
+    }
+    var i = 1
+    while i < len(out) {
+        var j = i
+        while j > 0 && out[j] < out[j - 1] {
+            let tmp = out[j]
+            out[j] = out[j - 1]
+            out[j - 1] = tmp
+            j = j - 1
+        }
+        i = i + 1
+    }
+    out
+}
+
+pub fn find_eq[T: Eq](xs: [T], item: T) -> dyn {
+    for x in xs {
+        if x == item {
+            return x
+        }
+    }
+    nil
+}
+
+pub fn contains_eq[T: Eq](xs: [T], item: T) -> Bool {
+    for x in xs {
+        if x == item {
+            return true
+        }
+    }
+    false
+}
+
+pub fn max_ord[T: Ord](xs: [T]) -> dyn {
+    if len(xs) == 0 {
+        return nil
+    }
+    var m = xs[0]
+    var i = 1
+    while i < len(xs) {
+        if xs[i] > m {
+            m = xs[i]
+        }
+        i = i + 1
+    }
+    m
+}
+
+pub fn min_ord[T: Ord](xs: [T]) -> dyn {
+    if len(xs) == 0 {
+        return nil
+    }
+    var m = xs[0]
+    var i = 1
+    while i < len(xs) {
+        if xs[i] < m {
+            m = xs[i]
+        }
+        i = i + 1
+    }
+    m
+}
+
 

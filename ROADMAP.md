@@ -8,12 +8,21 @@ There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire wor
 
 | # | Milestone | Status |
 | --- | --- | --- |
-| 1 | Generic bounds / minimal traits | **in progress** |
-| 2 | Stdlib depth for tooling and compilers | planned |
+| 1 | Generic bounds / minimal traits | **done** |
+| 2 | Stdlib depth for tooling and compilers | **done** |
 | 3 | Native quality and optimizer hardening | planned |
 | 4 | Ownership × generics × concurrency interaction | planned |
 | 5 | Stable subset and flagship tooling example | planned |
 | 6 | Documentation, polish & release | planned |
+
+## What v0.9.0 milestone 2 delivers
+
+- Directory listing (`fs.read_dir`) and recursive `fs.walk` with `Result` error paths.
+- Program arguments: builtin `args()` and `process.program_args()`, forwarded after `--` on `flake run`.
+- Process capture via `process.run` (`run_cmd` builtin) on Interpreter and VM.
+- File helpers: `read_lines`, `write_lines`, `append_string`, `create_directory`, `is_directory`, `is_regular_file`.
+- Generic list helpers: `sort_items[T: Ord]`, `find_eq[T: Eq]`, `contains_eq`, `max_ord`, `min_ord`.
+- Native x86-64 support for `args`, `list_dir`, `is_dir`, `is_file`, `append_file`, and `create_dir`.
 
 ## What v0.9.0 milestone 1 delivers
 

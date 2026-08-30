@@ -6,7 +6,7 @@ mod eval;
 mod value;
 
 pub use error::{RunError, RuntimeError};
-pub use eval::{Engine, execute, execute_captured, execute_program};
+pub use eval::{Engine, execute, execute_captured, execute_program, set_program_args};
 pub use value::{Function, NativeFn, Value};
 
 /// Current crate version, matching the workspace.

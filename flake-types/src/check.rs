@@ -436,6 +436,42 @@ impl Checker {
             "task_status".into(),
             mk(vec![Type::Task(Box::new(Type::Dyn))], Type::String, &[]),
         );
+        self.functions.insert(
+            "args".into(),
+            mk(vec![], Type::list(Type::String), &["io", "alloc"]),
+        );
+        self.functions.insert(
+            "list_dir".into(),
+            mk(
+                vec![Type::String],
+                Type::list(Type::String),
+                &["io", "alloc"],
+            ),
+        );
+        self.functions.insert(
+            "is_dir".into(),
+            mk(vec![Type::String], Type::Bool, &["io"]),
+        );
+        self.functions.insert(
+            "is_file".into(),
+            mk(vec![Type::String], Type::Bool, &["io"]),
+        );
+        self.functions.insert(
+            "append_file".into(),
+            mk(vec![Type::String, Type::Dyn], Type::Nil, &["io"]),
+        );
+        self.functions.insert(
+            "create_dir".into(),
+            mk(vec![Type::String], Type::Bool, &["io"]),
+        );
+        self.functions.insert(
+            "run_cmd".into(),
+            mk(
+                vec![Type::String],
+                Type::list(Type::Dyn),
+                &["io", "alloc"],
+            ),
+        );
         self.overloaded_builtins.extend(
             [
                 "print",

@@ -5,6 +5,21 @@ use std::cmp::Ordering;
 use std::io::Write;
 use std::rc::Rc;
 
+thread_local! {
+    static PROGRAM_ARGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Arguments forwarded to the running Flake program (`args()` builtin).
+pub fn set_program_args(args: Vec<String>) {
+    PROGRAM_ARGS.with(|slot| {
+        *slot.borrow_mut() = args;
+    });
+}
+
+fn program_args() -> Vec<String> {
+    PROGRAM_ARGS.with(|slot| slot.borrow().clone())
+}
+
 use flake_ast::Span;
 
 use crate::error::VmError;
@@ -544,6 +559,106 @@ pub fn call_native(
                 )),
             }
         }
+        Native::Args => {
+            expect_arity("args", args, 0)?;
+            let values: Vec<_> = program_args()
+                .into_iter()
+                .map(Value::from_string)
+                .collect();
+            Ok(Value::List(Rc::new(RefCell::new(values))))
+        }
+        Native::ListDir => {
+            expect_arity("list_dir", args, 1)?;
+            let path = expect_string("list_dir", &args[0])?;
+            match sys_list_dir(&path) {
+                Ok(names) => {
+                    let values: Vec<_> = names.into_iter().map(Value::from_string).collect();
+                    Ok(Value::List(Rc::new(RefCell::new(values))))
+                }
+                Err(e) => Err(VmError::new(span, e)),
+            }
+        }
+        Native::IsDir => {
+            expect_arity("is_dir", args, 1)?;
+            let path = expect_string("is_dir", &args[0])?;
+            Ok(Value::Bool(std::path::Path::new(&path).is_dir()))
+        }
+        Native::IsFile => {
+            expect_arity("is_file", args, 1)?;
+            let path = expect_string("is_file", &args[0])?;
+            Ok(Value::Bool(std::path::Path::new(&path).is_file()))
+        }
+        Native::AppendFile => {
+            expect_arity("append_file", args, 2)?;
+            let path = expect_string("append_file", &args[0])?;
+            let contents = args[1].display_value();
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut f| f.write_all(contents.as_bytes()))
+                .map_err(|e| VmError::new(span, format!("append_file() failed: {e}")))?;
+            Ok(Value::Nil)
+        }
+        Native::CreateDir => {
+            expect_arity("create_dir", args, 1)?;
+            let path = expect_string("create_dir", &args[0])?;
+            Ok(Value::Bool(std::fs::create_dir(&path).is_ok()))
+        }
+        Native::RunCmd => {
+            expect_arity("run_cmd", args, 1)?;
+            let cmd = expect_string("run_cmd", &args[0])?;
+            Ok(sys_run_cmd(&cmd))
+        }
+    }
+}
+
+fn expect_string(name: &str, value: &Value) -> Result<String, VmError> {
+    match value {
+        Value::String(s) => Ok(s.to_string()),
+        other => Err(VmError::new(
+            Span::DUMMY,
+            format!("{name}() expected String, found {}", other.type_name()),
+        )),
+    }
+}
+
+fn sys_list_dir(path: &str) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    let entries = std::fs::read_dir(path).map_err(|e| format!("list_dir() failed: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("list_dir() failed: {e}"))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name != "." && name != ".." {
+            names.push(name);
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+fn sys_run_cmd(cmd: &str) -> Value {
+    let output = if cfg!(windows) {
+        std::process::Command::new("cmd")
+            .args(["/C", cmd])
+            .output()
+    } else {
+        std::process::Command::new("sh")
+            .args(["-c", cmd])
+            .output()
+    };
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).replace('\r', "");
+            let stderr = String::from_utf8_lossy(&out.stderr).replace('\r', "");
+            let code = i64::from(out.status.code().unwrap_or(-1));
+            Value::List(Rc::new(RefCell::new(vec![
+                Value::from_string(stdout),
+                Value::from_string(stderr),
+                Value::Int(code),
+            ])))
+        }
+        Err(_) => Value::List(Rc::new(RefCell::new(Vec::new()))),
     }
 }
 

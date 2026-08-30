@@ -1,5 +1,7 @@
 // Filesystem operations. `import fs`.
 import result
+import path
+import list
 
 pub fn read_to_string(path: String) -> result.Result[String, String] / io + alloc {
     if !file_exists(path) {
@@ -32,5 +34,76 @@ pub fn file_size(path: String) -> result.Result[Int, String] / io + alloc {
     }
     let content = read_file(path)
     Result.Ok(len(content))
+}
+
+pub fn is_directory(path: String) -> Bool / io {
+    is_dir(path)
+}
+
+pub fn is_regular_file(path: String) -> Bool / io {
+    is_file(path)
+}
+
+pub fn read_dir(path: String) -> result.Result[[String], String] / io + alloc {
+    if !file_exists(path) {
+        return Result.Err("directory not found: {path}")
+    }
+    if !is_dir(path) {
+        return Result.Err("not a directory: {path}")
+    }
+    Result.Ok(list.sort_items(list_dir(path)))
+}
+
+pub fn create_directory(path: String) -> result.Result[Nil, String] / io {
+    if create_dir(path) {
+        return Result.Ok(nil)
+    }
+    Result.Err("cannot create directory: {path}")
+}
+
+pub fn append_string(path: String, contents: String) -> result.Result[Nil, String] / io {
+    append_file(path, contents)
+    Result.Ok(nil)
+}
+
+pub fn read_lines(path: String) -> result.Result[[String], String] / io + alloc {
+    match read_to_string(path) {
+        Result.Err(e) => Result.Err(e)
+        Result.Ok(text) => Result.Ok(split(text, "\n"))
+    }
+}
+
+pub fn write_lines(path: String, lines: [String]) -> result.Result[Nil, String] / io + alloc {
+    write_string(path, join(lines, "\n"))
+}
+
+fn walk_collect(current: String, out: [String]) -> result.Result[[String], String] / io + alloc {
+    push(out, current)
+    if !is_dir(current) {
+        return Result.Ok(out)
+    }
+    match read_dir(current) {
+        Result.Err(e) => Result.Err(e)
+        Result.Ok(names) => {
+            for name in names {
+                let child = path.join_path(current, name)
+                match walk_collect(child, out) {
+                    Result.Err(e) => {
+                        return Result.Err(e)
+                    }
+                    Result.Ok(_) => nil
+                }
+            }
+            Result.Ok(out)
+        }
+    }
+}
+
+pub fn walk(root: String) -> result.Result[[String], String] / io + alloc {
+    if !file_exists(root) {
+        return Result.Err("path not found: {root}")
+    }
+    var out = []
+    walk_collect(root, out)
 }
 

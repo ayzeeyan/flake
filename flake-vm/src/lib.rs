@@ -13,6 +13,7 @@ use flake_ast::Source;
 use flake_parser::load_graph;
 
 pub use error::{ExecuteError, VmError};
+pub use natives::set_program_args;
 pub use opcode::{Chunk, Op};
 pub use value::{Function, Native, Value};
 pub use vm::Vm;
