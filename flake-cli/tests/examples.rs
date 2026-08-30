@@ -31,6 +31,7 @@ const EXAMPLES: &[&str] = &[
     "projects/service_hub/hub_app/main.flk",
     "projects/v07_showcase/main.flk",
     "projects/v08_systems_engine/main.flk",
+    "projects/v09_flk_scan/main.flk",
 ];
 
 fn flake_bin() -> Command {
@@ -345,6 +346,23 @@ fn v08_systems_engine_project_output() {
     assert_eq!(
         run_example("projects/v08_systems_engine/main.flk"),
         "Flake v0.8 Systems Engine Output: 123\n"
+    );
+}
+
+#[test]
+fn v09_flk_scan_project_output() {
+    assert_eq!(
+        run_example("projects/v09_flk_scan/main.flk"),
+        concat!(
+            "Flake v0.9 flk scan\n",
+            "files: check.flk, lexer.flk, parser.flk\n",
+            "lexer.flk: lines=3 fns=2 structs=0\n",
+            "parser.flk: lines=4 fns=2 structs=1\n",
+            "check.flk: lines=3 fns=2 structs=0\n",
+            "total fns: 6\n",
+            "widest: 7\n",
+            "scanned 3 units\n",
+        )
     );
 }
 

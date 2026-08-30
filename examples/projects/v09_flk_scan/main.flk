@@ -1,0 +1,42 @@
+import domain.unit as unit
+import services.scan as scan
+import list
+import result
+
+fn main() / io + alloc {
+    print("Flake v0.9 flk scan")
+
+    let lexer = unit.source_file(
+        "lexer.flk",
+        "fn tokenize(src: String) -> [String]\nfn next_token() -> String\n"
+    )
+    let parser = unit.source_file(
+        "parser.flk",
+        "struct Program\nfn parse(tokens: [String]) -> Program\nfn parse_item() -> String\n"
+    )
+    let check = unit.source_file(
+        "check.flk",
+        "fn check(p: String) -> Bool\nfn report(ok: Bool)\n"
+    )
+
+    let files = [lexer, parser, check]
+    let names = list.sort_items(["check.flk", "parser.flk", "lexer.flk"])
+    let sep = ", "
+    print("files: {join(names, sep)}")
+
+    var reports = []
+    for file in files {
+        let report = scan.scan_file(file)
+        push(reports, report)
+        print("{report.path}: lines={report.lines} fns={report.fns} structs={report.structs}")
+    }
+
+    print("total fns: {scan.total_fns(reports)}")
+    print("widest: {scan.max_lines(3, 7)}")
+
+    let ok = Result.Ok(reports)
+    match ok {
+        Result.Ok(items) => print("scanned {len(items)} units")
+        Result.Err(_) => print("scan failed")
+    }
+}

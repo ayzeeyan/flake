@@ -1,0 +1,15 @@
+pub struct SourceFile {
+    path: String,
+    text: String,
+}
+
+pub struct ScanReport {
+    path: String,
+    lines: Int,
+    fns: Int,
+    structs: Int,
+}
+
+pub fn source_file(path: String, text: String) -> SourceFile {
+    SourceFile { path: path, text: text }
+}

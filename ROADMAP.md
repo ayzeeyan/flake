@@ -12,8 +12,14 @@ There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire wor
 | 2 | Stdlib depth for tooling and compilers | **done** |
 | 3 | Native quality and optimizer hardening | **done** |
 | 4 | Ownership × generics × concurrency interaction | **done** |
-| 5 | Stable subset and flagship tooling example | planned |
+| 5 | Stable subset and flagship tooling example | **done** |
 | 6 | Documentation, polish & release | planned |
+
+## What v0.9.0 milestone 5 delivers
+
+- Flagship [v09_flk_scan](examples/projects/v09_flk_scan/main.flk): a parser-shaped pipeline over `.flk` sources with generic `Ord` helpers.
+- Documented [v0.9 stable subset](docs/stable-subset.md).
+- Cross-backend coverage of traits, stdlib depth, and the flagship example.
 
 ## What v0.9.0 milestone 4 delivers
 

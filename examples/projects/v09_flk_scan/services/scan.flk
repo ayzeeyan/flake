@@ -1,0 +1,32 @@
+import domain.unit as unit
+import string
+import list
+
+pub fn scan_text(path: String, text: String) -> unit.ScanReport {
+    unit.ScanReport {
+        path: path,
+        lines: len(string.lines(text)),
+        fns: string.count_occurrences(text, "fn "),
+        structs: string.count_occurrences(text, "struct "),
+    }
+}
+
+pub fn scan_file(file: unit.SourceFile) -> unit.ScanReport {
+    scan_text(file.path, file.text)
+}
+
+pub fn total_fns(reports: [unit.ScanReport]) -> Int {
+    var n = 0
+    for r in reports {
+        n = n + r.fns
+    }
+    n
+}
+
+pub fn max_lines[T: Ord](a: T, b: T) -> T {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}

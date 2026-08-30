@@ -2,16 +2,20 @@
 
 ```
 program     := item*
-item        := fn | struct | enum | type-alias | import
-fn          := "pub"? "strict"? "owned"? "fn" ident "(" params? ")"
+item        := fn | struct | enum | type-alias | import | trait | impl
+fn          := "pub"? "strict"? "owned"? "fn" ident type-params? "(" params? ")"
                ("->" type)? ("/" effects)? block
 params      := param ("," param)* ","?
 param       := ident (":" type)?
 effects     := ident ("+" ident)*
-struct      := "pub"? "struct" ident "{" (ident ":" type)* "}"
-enum        := "pub"? "enum" ident "{" variant* "}"
+struct      := "pub"? "struct" ident type-params? "{" (ident ":" type)* "}"
+enum        := "pub"? "enum" ident type-params? "{" variant* "}"
 variant     := ident ("(" type ("," type)* ")")?
-type-alias  := "pub"? "type" ident "=" type
+type-alias  := "pub"? "type" ident type-params? "=" type
+type-params := "[" type-param ("," type-param)* "]"
+type-param  := ident (":" bound ("+" bound)*)?
+trait       := "pub"? "trait" ident "{" "}"
+impl        := "impl" type-params? ident "for" type "{" "}"
 import      := "import" path ("as" ident)?
 path        := ident ("." ident)*
 
