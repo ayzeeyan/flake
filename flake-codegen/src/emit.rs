@@ -910,7 +910,8 @@ fn emit_call(
             let spill = frame.spill;
             load_as_cstr(func, frame, args[1], asm, strings, strs, uniq);
             asm.mov_mr_rbp(spill, Reg::Rax);
-            frame.load(asm, args[0], Reg::Rcx);
+            load_as_cstr(func, frame, args[0], asm, strings, strs, uniq);
+            asm.mov_rr(Reg::Rcx, Reg::Rax);
             asm.mov_rm_rbp(Reg::Rdx, spill);
             asm.call_label("rt_write_file");
             if let Some(d) = dest {

@@ -1,0 +1,26 @@
+// Process and environment utilities. `import process`.
+import result
+import option
+
+pub struct ProcessOutput {
+    stdout: String,
+    stderr: String,
+    exit_code: Int,
+}
+
+pub fn current_dir() -> result.Result[String, String] / io + alloc {
+    let dir = cwd()
+    Result.Ok(dir)
+}
+
+pub fn env_var(name: String) -> option.Option[String] / io + alloc {
+    let val = env(name)
+    if len(val) == 0 {
+        return Option.None
+    }
+    Option.Some(val)
+}
+
+pub fn exit(code: Int) / panic {
+    assert(false, "process exit with code {code}")
+}

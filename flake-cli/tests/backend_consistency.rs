@@ -1101,3 +1101,83 @@ fn main() {
     assert_all_backends("generics-polymorphism", source, expected);
 }
 
+#[test]
+fn systems_standard_library_across_all_backends() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("flake-sys-test-{nonce}.txt"));
+    let test_file_posix = test_file.to_str().unwrap().replace('\\', "/");
+
+    let source = format!(
+        r#"
+import fs
+import path
+import process
+import bytes
+import option
+import result
+
+fn main() / io + alloc {{
+    // 1. Path manipulation
+    let p = path.join_path("src/core", "engine.flk")
+    print(p)
+    print(path.is_absolute(p))
+    print(path.normalize("a/b/../c/./d.flk"))
+
+    // 2. Byte buffer manipulation
+    var buf = bytes.new_buffer()
+    buf = bytes.append_byte(buf, 65)
+    buf = bytes.append_byte(buf, 66)
+    let buf2 = bytes.append_byte(bytes.new_buffer(), 67)
+    let merged = bytes.append_bytes(buf, buf2)
+    print(bytes.len_bytes(merged))
+    match bytes.get(merged, 1) {{
+        Option.Some(b) => print(b),
+        Option.None => print(-1),
+    }}
+
+    // 3. Filesystem operations
+    let test_path = "{test_file_posix}"
+    let w_res = fs.write_string(test_path, "systems standard library")
+    print(fs.exists(test_path))
+    let r_res = fs.read_to_string(test_path)
+    match r_res {{
+        Result.Ok(content) => print(content),
+        Result.Err(err) => print(err),
+    }}
+    let s_res = fs.file_size(test_path)
+    match s_res {{
+        Result.Ok(sz) => print(sz),
+        Result.Err(err) => print(err),
+    }}
+    let rm_res = fs.remove(test_path)
+    print(fs.exists(test_path))
+
+    // 4. Process operations
+    let d_res = process.current_dir()
+    match d_res {{
+        Result.Ok(d) => print(len(d) > 0),
+        Result.Err(_) => print(false),
+    }}
+}}
+"#
+    );
+    let expected = concat!(
+        "src/core/engine.flk\n",
+        "false\n",
+        "a/c/d.flk\n",
+        "3\n",
+        "66\n",
+        "true\n",
+        "systems standard library\n",
+        "24\n",
+        "false\n",
+        "true\n",
+    );
+    assert_all_backends("systems-stdlib", &source, expected);
+}
+
+

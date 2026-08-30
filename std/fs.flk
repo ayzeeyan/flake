@@ -1,0 +1,36 @@
+// Filesystem operations. `import fs`.
+import result
+
+pub fn read_to_string(path: String) -> result.Result[String, String] / io + alloc {
+    if !file_exists(path) {
+        return Result.Err("file not found: {path}")
+    }
+    let content = read_file(path)
+    Result.Ok(content)
+}
+
+pub fn write_string(path: String, contents: String) -> result.Result[Nil, String] / io {
+    write_file(path, contents)
+    Result.Ok(nil)
+}
+
+pub fn exists(path: String) -> Bool / io {
+    file_exists(path)
+}
+
+pub fn remove(path: String) -> result.Result[Nil, String] / io {
+    if !file_exists(path) {
+        return Result.Err("file not found: {path}")
+    }
+    remove_file(path)
+    Result.Ok(nil)
+}
+
+pub fn file_size(path: String) -> result.Result[Int, String] / io + alloc {
+    if !file_exists(path) {
+        return Result.Err("file not found: {path}")
+    }
+    let content = read_file(path)
+    Result.Ok(len(content))
+}
+

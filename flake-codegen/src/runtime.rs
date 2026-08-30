@@ -1940,9 +1940,11 @@ fn emit_file_exists(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     prologue(asm, 32);
     call_import(asm, iat, Import::GetFileAttributesA);
     asm.bytes.extend_from_slice(&[0x83, 0xF8, 0xFF]); // cmp eax, -1
-    asm.mov_ri(Reg::Rax, 0);
-    asm.jcc_label(Cc::E, ".fe_done");
+    asm.jcc_label(Cc::E, ".fe_fail");
     asm.mov_ri(Reg::Rax, 1);
+    asm.jmp_label(".fe_done");
+    asm.label(".fe_fail");
+    asm.xor_rr(Reg::Rax, Reg::Rax);
     asm.label(".fe_done");
     epilogue(asm);
 }

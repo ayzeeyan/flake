@@ -1,0 +1,82 @@
+// Raw byte buffer manipulation. `import bytes`.
+import option
+import string
+
+pub struct ByteBuffer {
+    data: List[Int],
+    length: Int,
+}
+
+pub fn new_buffer() -> ByteBuffer {
+    ByteBuffer {
+        data: [],
+        length: 0,
+    }
+}
+
+pub fn len_bytes(buf: ByteBuffer) -> Int {
+    buf.length
+}
+
+pub fn from_string(s: String) -> ByteBuffer {
+    var data = []
+    let l = len(s)
+    var i = 0
+    while i < l {
+        let ch = string.char_at(s, i)
+        push(data, len(ch))
+        i += 1
+    }
+    ByteBuffer {
+        data: data,
+        length: l,
+    }
+}
+
+pub fn append_byte(buf: ByteBuffer, b: Int) -> ByteBuffer {
+    var new_data = []
+    for item in buf.data {
+        push(new_data, item)
+    }
+    push(new_data, b)
+    ByteBuffer {
+        data: new_data,
+        length: buf.length + 1,
+    }
+}
+
+pub fn append_bytes(buf: ByteBuffer, other: ByteBuffer) -> ByteBuffer {
+    var new_data = []
+    for item in buf.data {
+        push(new_data, item)
+    }
+    for item in other.data {
+        push(new_data, item)
+    }
+    ByteBuffer {
+        data: new_data,
+        length: buf.length + other.length,
+    }
+}
+
+pub fn get(buf: ByteBuffer, index: Int) -> option.Option[Int] {
+    if index < 0 || index >= buf.length {
+        return Option.None
+    }
+    Option.Some(buf.data[index])
+}
+
+pub fn slice(buf: ByteBuffer, start: Int, end: Int) -> ByteBuffer {
+    let s = if start < 0 { 0 } else { start }
+    let e = if end > buf.length { buf.length } else { end }
+    var new_data = []
+    var i = s
+    while i < e {
+        push(new_data, buf.data[i])
+        i += 1
+    }
+    ByteBuffer {
+        data: new_data,
+        length: if e > s { e - s } else { 0 },
+    }
+}

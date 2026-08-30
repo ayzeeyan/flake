@@ -73,6 +73,10 @@ pub fn slice(s: String, start: Int, end: Int) -> String {
     out
 }
 
+pub fn substring(s: String, start: Int, end: Int) -> String {
+    slice(s, start, end)
+}
+
 pub fn char_at(s: String, idx: Int) -> String {
     s[idx]
 }
