@@ -1,0 +1,6 @@
+import engine.processor as proc
+
+fn main() / conc + io {
+    let result = proc.process_channel_batch(5)
+    print("Flake v0.8 Systems Engine Output: {result}")
+}

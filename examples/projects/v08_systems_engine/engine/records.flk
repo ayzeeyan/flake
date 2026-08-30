@@ -1,0 +1,19 @@
+// Generic Record structures for Systems Engine
+pub struct Record[T] {
+    id: Int,
+    payload: T,
+    checksum: Int,
+}
+
+pub struct Summary[T] {
+    total_records: Int,
+    last_item: T,
+}
+
+pub fn make_record[T](id: Int, payload: T, cs: Int) -> Record[T] {
+    Record {
+        id: id,
+        payload: payload,
+        checksum: cs,
+    }
+}

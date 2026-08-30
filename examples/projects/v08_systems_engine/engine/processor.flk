@@ -1,0 +1,49 @@
+import channel
+import path
+import bytes
+import result
+import option
+import engine.records as records
+
+pub fn process_channel_batch(count: Int) -> Int / conc + io {
+    var ch: channel.Channel[records.Record[Int]] = channel.new_channel(16)
+    var i = 1
+    while i <= count {
+        let rec = records.make_record(i, i * 100, i * 7)
+        let s_res = channel.send(ch, rec)
+        match s_res {
+            Result.Ok(next_ch) => {
+                ch = next_ch
+                nil
+            }
+            Result.Err(_) => nil,
+        }
+        i = i + 1
+    }
+
+    var total = 0
+    nursery {
+        let t1 = spawn compute_checksum_total(count)
+        let t2 = spawn verify_buffer_path("var/log", "engine.bin")
+        let r1 = await t1
+        let r2 = await t2
+        total = r1 + r2
+    }
+    total
+}
+
+fn compute_checksum_total(count: Int) -> Int {
+    var sum = 0
+    var i = 1
+    while i <= count {
+        sum = sum + (i * 7)
+        i = i + 1
+    }
+    sum
+}
+
+fn verify_buffer_path(dir: String, file: String) -> Int {
+    let p = path.join_path(dir, file)
+    let b = bytes.from_string(p)
+    bytes.len_bytes(b)
+}
