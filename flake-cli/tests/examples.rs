@@ -20,6 +20,7 @@ const EXAMPLES: &[&str] = &[
     "task_pipeline.flk",
     "pattern_matching.flk",
     "geometry.flk",
+    "traits.flk",
     "projects/inventory/main.flk",
     "projects/telemetry/main.flk",
     "projects/release/main.flk",

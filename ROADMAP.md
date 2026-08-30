@@ -1,8 +1,28 @@
 # Flake Roadmap
 
-**Flake v0.8.1 is complete.** Theme: **Patch, Harden, and Optimize – Making the v0.8 Leap Rock-Solid**.
+**Flake v0.9.0 is in progress.** Theme: **Self-hosting preparation**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
+
+## v0.9.0 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Generic bounds / minimal traits | **in progress** |
+| 2 | Stdlib depth for tooling and compilers | planned |
+| 3 | Native quality and optimizer hardening | planned |
+| 4 | Ownership × generics × concurrency interaction | planned |
+| 5 | Stable subset and flagship tooling example | planned |
+| 6 | Documentation, polish & release | planned |
+
+## What v0.9.0 milestone 1 delivers
+
+- Marker traits (`trait Eq {}`) and implementations (`impl Eq for Point {}`).
+- Bounds on generic type parameters: `fn max[T: Ord](a: T, b: T) -> T`.
+- Builtin bounds `Eq`, `Ord`, and `Hash` for primitives; `Ord` implies `Eq`.
+- Diagnostics when a bound is missing or a type does not implement it.
+
+**Flake v0.8.1 is complete.** Theme: **Patch, Harden, and Optimize – Making the v0.8 Leap Rock-Solid**.
 
 ## v0.8.1 milestones (complete)
 

@@ -17,6 +17,8 @@ pub enum Item {
     Enum(EnumDecl),
     Type(TypeAlias),
     Import(ImportDecl),
+    Trait(TraitDecl),
+    Impl(ImplDecl),
 }
 
 impl Item {
@@ -28,6 +30,8 @@ impl Item {
             Self::Enum(e) => e.span,
             Self::Type(t) => t.span,
             Self::Import(i) => i.span,
+            Self::Trait(t) => t.span,
+            Self::Impl(i) => i.span,
         }
     }
 
@@ -40,6 +44,8 @@ impl Item {
             Self::Enum(e) => e.is_pub,
             Self::Type(t) => t.is_pub,
             Self::Import(i) => i.is_pub,
+            Self::Trait(t) => t.is_pub,
+            Self::Impl(_) => false,
         }
     }
 }
@@ -60,6 +66,38 @@ impl Ident {
     }
 }
 
+/// A generic type parameter, optionally constrained by trait bounds (`T: Eq + Ord`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeParam {
+    pub name: Ident,
+    pub bounds: Vec<Ident>,
+    pub span: Span,
+}
+
+impl TypeParam {
+    #[must_use]
+    pub fn name_str(&self) -> &str {
+        &self.name.name
+    }
+}
+
+/// A marker trait declaration (`trait Eq {}`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitDecl {
+    pub is_pub: bool,
+    pub name: Ident,
+    pub span: Span,
+}
+
+/// An implementation of a trait for a type (`impl Eq for Point {}` or `impl[T: Eq] Eq for Box[T] {}`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplDecl {
+    pub type_params: Vec<TypeParam>,
+    pub trait_name: Ident,
+    pub ty: TypeExpr,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDecl {
     pub is_pub: bool,
@@ -68,7 +106,7 @@ pub struct FnDecl {
     /// Function is an `owned` ownership context.
     pub owned: bool,
     pub name: Ident,
-    pub type_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
     pub effects: EffectSet,
@@ -112,7 +150,7 @@ impl EffectSet {
 pub struct StructDecl {
     pub is_pub: bool,
     pub name: Ident,
-    pub type_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     pub fields: Vec<StructField>,
     pub span: Span,
 }
@@ -128,7 +166,7 @@ pub struct StructField {
 pub struct TypeAlias {
     pub is_pub: bool,
     pub name: Ident,
-    pub type_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     pub ty: TypeExpr,
     pub span: Span,
 }
@@ -145,7 +183,7 @@ pub struct ImportDecl {
 pub struct EnumDecl {
     pub is_pub: bool,
     pub name: Ident,
-    pub type_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     pub variants: Vec<EnumVariant>,
     pub span: Span,
 }

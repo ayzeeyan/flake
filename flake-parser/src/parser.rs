@@ -3,9 +3,9 @@
 use std::mem::discriminant;
 
 use flake_ast::{
-    AssignOp, BinOp, Block, EffectSet, Expr, FnDecl, Ident, ImportDecl, InterpPart, Item, LetStmt,
-    Literal, Param, Pattern, Program, Source, Span, Stmt, StructDecl, StructField, TypeAlias,
-    TypeExpr, UnOp,
+    AssignOp, BinOp, Block, EffectSet, Expr, FnDecl, Ident, ImplDecl, ImportDecl, InterpPart, Item,
+    LetStmt, Literal, Param, Pattern, Program, Source, Span, Stmt, StructDecl, StructField,
+    TraitDecl, TypeAlias, TypeExpr, TypeParam, UnOp,
 };
 use flake_lexer::{Token, TokenKind, tokenize};
 
@@ -82,6 +82,8 @@ impl<'src> Parser<'src> {
                 | TokenKind::Pub
                 | TokenKind::Strict
                 | TokenKind::Owned
+                | TokenKind::Trait
+                | TokenKind::Impl
         )
     }
 
@@ -141,15 +143,26 @@ impl<'src> Parser<'src> {
         if matches!(self.kind(), TokenKind::Import) {
             return Ok(Item::Import(self.parse_import(start, is_pub)?));
         }
-        if is_pub {
-            return Err(
-                self.error("expected `fn`, `struct`, `enum`, `type`, or `import` after `pub`")
-            );
+        if matches!(self.kind(), TokenKind::Trait) {
+            return Ok(Item::Trait(self.parse_trait(start, is_pub)?));
         }
-        Err(self.unexpected("top-level item (`fn`, `struct`, `enum`, `type`, or `import`)"))
+        if matches!(self.kind(), TokenKind::Impl) {
+            if is_pub {
+                return Err(self.error("`impl` cannot be marked `pub`"));
+            }
+            return Ok(Item::Impl(self.parse_impl(start)?));
+        }
+        if is_pub {
+            return Err(self.error(
+                "expected `fn`, `struct`, `enum`, `type`, `trait`, or `import` after `pub`",
+            ));
+        }
+        Err(self.unexpected(
+            "top-level item (`fn`, `struct`, `enum`, `type`, `trait`, `impl`, or `import`)",
+        ))
     }
 
-    fn parse_type_params(&mut self) -> Result<Vec<Ident>, ParseError> {
+    fn parse_type_params(&mut self) -> Result<Vec<TypeParam>, ParseError> {
         if !self.eat(&TokenKind::LBracket) {
             return Ok(Vec::new());
         }
@@ -157,7 +170,7 @@ impl<'src> Parser<'src> {
         self.skip_nl();
         while !matches!(self.kind(), TokenKind::RBracket | TokenKind::Eof) {
             self.skip_nl();
-            params.push(self.parse_ident()?);
+            params.push(self.parse_type_param()?);
             self.skip_nl();
             if self.eat(&TokenKind::Comma) {
                 self.skip_nl();
@@ -167,6 +180,68 @@ impl<'src> Parser<'src> {
         }
         self.expect(&TokenKind::RBracket, "`]`")?;
         Ok(params)
+    }
+
+    fn parse_type_param(&mut self) -> Result<TypeParam, ParseError> {
+        let name = self.parse_ident()?;
+        let mut span = name.span;
+        let mut bounds = Vec::new();
+        self.skip_nl();
+        if self.eat(&TokenKind::Colon) {
+            self.skip_nl();
+            loop {
+                let bound = self.parse_ident()?;
+                span = span.merge(bound.span);
+                bounds.push(bound);
+                self.skip_nl();
+                if self.eat(&TokenKind::Plus) {
+                    self.skip_nl();
+                    continue;
+                }
+                break;
+            }
+        }
+        Ok(TypeParam { name, bounds, span })
+    }
+
+    fn parse_trait(&mut self, start: Span, is_pub: bool) -> Result<TraitDecl, ParseError> {
+        self.expect(&TokenKind::Trait, "`trait`")?;
+        let name = self.parse_ident()?;
+        self.skip_nl();
+        self.expect(&TokenKind::LBrace, "`{`")?;
+        self.skip_nl();
+        if !self.eat(&TokenKind::RBrace) {
+            return Err(self.error("trait bodies must be empty; v0.9 traits are marker bounds"));
+        }
+        Ok(TraitDecl {
+            is_pub,
+            name,
+            span: start.merge(self.prev().span),
+        })
+    }
+
+    fn parse_impl(&mut self, start: Span) -> Result<ImplDecl, ParseError> {
+        self.expect(&TokenKind::Impl, "`impl`")?;
+        self.skip_nl();
+        let type_params = self.parse_type_params()?;
+        self.skip_nl();
+        let trait_name = self.parse_ident()?;
+        self.skip_nl();
+        self.expect(&TokenKind::For, "`for`")?;
+        self.skip_nl();
+        let ty = self.parse_type()?;
+        self.skip_nl();
+        self.expect(&TokenKind::LBrace, "`{`")?;
+        self.skip_nl();
+        if !self.eat(&TokenKind::RBrace) {
+            return Err(self.error("impl bodies must be empty; v0.9 impls are marker bounds"));
+        }
+        Ok(ImplDecl {
+            type_params,
+            trait_name,
+            ty,
+            span: start.merge(self.prev().span),
+        })
     }
 
     fn parse_fn(

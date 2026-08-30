@@ -1406,3 +1406,48 @@ fn main() / io + alloc {
     );
     assert_all_backends("channel-edge-cases", source, expected);
 }
+
+#[test]
+fn generic_bounds_and_traits_across_all_backends() {
+    let source = r#"
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+fn same[T: Eq](a: T, b: T) -> Bool {
+    a == b
+}
+
+trait Show {}
+impl Show for Int {}
+impl Show for String {}
+
+fn display[T: Show](value: T) -> T {
+    value
+}
+
+struct Pair[T: Eq] {
+    left: T,
+    right: T,
+}
+
+fn main() {
+    print(max(3, 9))
+    print(max("alpha", "zeta"))
+    print(same(7, 7))
+    print(same("flake", "tools"))
+    print(display(42))
+    let p = Pair { left: 10, right: 10 }
+    print(p.left)
+}
+"#;
+    let expected = concat!(
+        "9\n",
+        "zeta\n",
+        "true\n",
+        "false\n",
+        "42\n",
+        "10\n",
+    );
+    assert_all_backends("generic-bounds-traits", source, expected);
+}

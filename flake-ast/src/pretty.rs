@@ -19,7 +19,7 @@ pub fn print_program(program: &Program) -> String {
     out
 }
 
-fn print_type_params(params: &[crate::ast::Ident], out: &mut String) {
+fn print_type_params(params: &[crate::ast::TypeParam], out: &mut String) {
     if params.is_empty() {
         return;
     }
@@ -28,7 +28,16 @@ fn print_type_params(params: &[crate::ast::Ident], out: &mut String) {
         if i > 0 {
             out.push_str(", ");
         }
-        out.push_str(&p.name);
+        out.push_str(&p.name.name);
+        if !p.bounds.is_empty() {
+            out.push_str(": ");
+            for (j, bound) in p.bounds.iter().enumerate() {
+                if j > 0 {
+                    out.push_str(" + ");
+                }
+                out.push_str(&bound.name);
+            }
+        }
     }
     out.push(']');
 }
@@ -95,6 +104,23 @@ fn print_item(item: &Item, out: &mut String) {
                 out.push_str(" as ");
                 out.push_str(&alias.name);
             }
+        }
+        Item::Trait(t) => {
+            if t.is_pub {
+                out.push_str("pub ");
+            }
+            out.push_str("trait ");
+            out.push_str(&t.name.name);
+            out.push_str(" {}");
+        }
+        Item::Impl(i) => {
+            out.push_str("impl");
+            print_type_params(&i.type_params, out);
+            out.push(' ');
+            out.push_str(&i.trait_name.name);
+            out.push_str(" for ");
+            print_type(&i.ty, out);
+            out.push_str(" {}");
         }
     }
 }

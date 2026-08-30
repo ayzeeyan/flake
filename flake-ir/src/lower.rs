@@ -398,7 +398,7 @@ fn lower_program_with(
                 });
             }
             Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets, enums, structs)),
-            Item::Type(_) | Item::Import(_) | Item::Enum(_) => {}
+            Item::Type(_) | Item::Import(_) | Item::Enum(_) | Item::Trait(_) | Item::Impl(_) => {}
         }
     }
     Module {

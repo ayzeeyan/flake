@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use flake_ast::{
-    AssignOp, BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, Source, Span, Stmt,
-    TypeExpr, UnOp,
+    AssignOp, BinOp, Block, Expr, FnDecl, ImplDecl, InterpPart, Item, Literal, Program, Source,
+    Span, Stmt, TypeExpr, TypeParam, UnOp,
 };
 use flake_parser::{ModuleGraph, import_alias, load_graph};
 
@@ -24,11 +24,25 @@ struct Checker {
     overloaded_builtins: HashSet<String>,
     enums: HashMap<String, Type>,
     enum_type_params: HashMap<String, Vec<String>>,
+    fn_param_bounds: HashMap<String, Vec<(String, Vec<String>)>>,
+    struct_param_bounds: HashMap<String, Vec<(String, Vec<String>)>>,
+    enum_param_bounds: HashMap<String, Vec<(String, Vec<String>)>>,
+    alias_param_bounds: HashMap<String, Vec<(String, Vec<String>)>>,
+    traits: HashSet<String>,
+    impls: Vec<TraitImpl>,
     ambiguous_imports: HashMap<String, Vec<String>>,
     type_context: Option<String>,
     current_returns: Vec<Type>,
     nursery_scopes: Vec<usize>,
     active_type_params: HashSet<String>,
+    active_param_bounds: HashMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+struct TraitImpl {
+    trait_name: String,
+    type_ctor: String,
+    param_bounds: Vec<(String, Vec<String>)>,
 }
 
 fn substitute_type(ty: &Type, mapping: &HashMap<String, Type>) -> Type {
@@ -74,6 +88,106 @@ fn substitute_type(ty: &Type, mapping: &HashMap<String, Type>) -> Type {
                 .collect(),
         },
         other => other.clone(),
+    }
+}
+
+fn type_param_bound_list(params: &[TypeParam]) -> Vec<(String, Vec<String>)> {
+    params
+        .iter()
+        .map(|p| {
+            (
+                p.name.name.clone(),
+                p.bounds.iter().map(|b| b.name.clone()).collect(),
+            )
+        })
+        .collect()
+}
+
+fn primitive_ctor(ty: &Type) -> &'static str {
+    match ty {
+        Type::Int => "Int",
+        Type::Float => "Float",
+        Type::String => "String",
+        Type::Bool => "Bool",
+        Type::Nil => "Nil",
+        _ => "",
+    }
+}
+
+fn impl_target(ty: &TypeExpr) -> Result<(String, Vec<String>), TypeError> {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            let type_args = args
+                .iter()
+                .filter_map(|arg| match arg {
+                    TypeExpr::Named {
+                        name: arg_name,
+                        args: nested,
+                        ..
+                    } if nested.is_empty() => Some(arg_name.name.clone()),
+                    _ => None,
+                })
+                .collect();
+            Ok((name.name.clone(), type_args))
+        }
+        TypeExpr::List { element, .. } => {
+            let type_args = match element.as_ref() {
+                TypeExpr::Named {
+                    name,
+                    args,
+                    ..
+                } if args.is_empty() => vec![name.name.clone()],
+                _ => Vec::new(),
+            };
+            Ok(("List".into(), type_args))
+        }
+        other => Err(TypeError::new(
+            other.span(),
+            "cannot implement a trait for this type",
+        )),
+    }
+}
+
+fn recover_param_mapping(original: &Type, inst: &Type) -> HashMap<String, Type> {
+    let mut mapping = HashMap::new();
+    recover_params(original, inst, &mut mapping);
+    mapping
+}
+
+fn recover_params(original: &Type, inst: &Type, mapping: &mut HashMap<String, Type>) {
+    match (original, inst) {
+        (Type::Param(name), other) => {
+            mapping.entry(name.clone()).or_insert_with(|| other.clone());
+        }
+        (Type::List(a), Type::List(b))
+        | (Type::Task(a), Type::Task(b))
+        | (Type::Optional(a), Type::Optional(b))
+        | (Type::Owned(a), Type::Owned(b))
+        | (Type::Mut(a), Type::Mut(b)) => recover_params(a, b, mapping),
+        (Type::Ref { inner: a, .. }, Type::Ref { inner: b, .. }) => recover_params(a, b, mapping),
+        (Type::Map(ak, av), Type::Map(bk, bv)) => {
+            recover_params(ak, bk, mapping);
+            recover_params(av, bv, mapping);
+        }
+        (Type::Struct { fields: fa, .. }, Type::Struct { fields: fb, .. }) => {
+            for ((_, a), (_, b)) in fa.iter().zip(fb.iter()) {
+                recover_params(a, b, mapping);
+            }
+        }
+        (Type::Enum { variants: va, .. }, Type::Enum { variants: vb, .. }) => {
+            for ((_, a), (_, b)) in va.iter().zip(vb.iter()) {
+                for (x, y) in a.iter().zip(b.iter()) {
+                    recover_params(x, y, mapping);
+                }
+            }
+        }
+        (Type::Fn { params: pa, ret: ra, .. }, Type::Fn { params: pb, ret: rb, .. }) => {
+            for (a, b) in pa.iter().zip(pb.iter()) {
+                recover_params(a, b, mapping);
+            }
+            recover_params(ra, rb, mapping);
+        }
+        _ => {}
     }
 }
 
@@ -132,11 +246,18 @@ impl Checker {
             overloaded_builtins: HashSet::new(),
             enums: HashMap::new(),
             enum_type_params: HashMap::new(),
+            fn_param_bounds: HashMap::new(),
+            struct_param_bounds: HashMap::new(),
+            enum_param_bounds: HashMap::new(),
+            alias_param_bounds: HashMap::new(),
+            traits: ["Eq", "Ord", "Hash"].into_iter().map(str::to_string).collect(),
+            impls: Vec::new(),
             ambiguous_imports: HashMap::new(),
             type_context: None,
             current_returns: Vec::new(),
             nursery_scopes: Vec::new(),
             active_type_params: HashSet::new(),
+            active_param_bounds: HashMap::new(),
         };
         this.install_builtins();
         this
@@ -580,9 +701,12 @@ impl Checker {
             for (item, origin) in graph.exported_items(imported) {
                 match item {
                     Item::Struct(st) => {
-                        let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.clone()).collect();
+                        let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.name.clone()).collect();
+                        let bounds = type_param_bound_list(&st.type_params);
                         self.struct_type_params
                             .insert(format!("{alias}.{}", st.name.name), tparams.clone());
+                        self.struct_param_bounds
+                            .insert(format!("{alias}.{}", st.name.name), bounds.clone());
                         let ty = Type::Struct {
                             name: flake_parser::qualify(&origin.name, &st.name.name),
                             fields: Vec::new(),
@@ -591,13 +715,17 @@ impl Checker {
                             .insert(format!("{alias}.{}", st.name.name), ty.clone());
                         if graph.unqualified_import_is_unambiguous(module, &st.name.name) {
                             self.struct_type_params.insert(st.name.name.clone(), tparams);
+                            self.struct_param_bounds.insert(st.name.name.clone(), bounds);
                             self.structs.insert(st.name.name.clone(), ty.clone());
                         }
                     }
                     Item::Enum(en) => {
-                        let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.clone()).collect();
+                        let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.name.clone()).collect();
+                        let bounds = type_param_bound_list(&en.type_params);
                         self.enum_type_params
                             .insert(format!("{alias}.{}", en.name.name), tparams.clone());
+                        self.enum_param_bounds
+                            .insert(format!("{alias}.{}", en.name.name), bounds.clone());
                         let ty = Type::Enum {
                             name: flake_parser::qualify(&origin.name, &en.name.name),
                             variants: Vec::new(),
@@ -606,10 +734,11 @@ impl Checker {
                             .insert(format!("{alias}.{}", en.name.name), ty.clone());
                         if graph.unqualified_import_is_unambiguous(module, &en.name.name) {
                             self.enum_type_params.insert(en.name.name.clone(), tparams);
+                            self.enum_param_bounds.insert(en.name.name.clone(), bounds);
                             self.enums.insert(en.name.name.clone(), ty.clone());
                         }
                     }
-                    Item::Fn(_) | Item::Type(_) | Item::Import(_) => {}
+                    Item::Fn(_) | Item::Type(_) | Item::Import(_) | Item::Trait(_) | Item::Impl(_) => {}
                 }
             }
         }
@@ -620,7 +749,7 @@ impl Checker {
             for (item, origin) in graph.exported_items(imported) {
                 match item {
                     Item::Type(alias_item) => {
-                        let tparams: Vec<String> = alias_item.type_params.iter().map(|p| p.name.clone()).collect();
+                        let tparams: Vec<String> = alias_item.type_params.iter().map(|p| p.name.name.clone()).collect();
                         self.alias_type_params
                             .insert(format!("{alias}.{}", alias_item.name.name), tparams.clone());
                         for tp in &tparams {
@@ -638,7 +767,7 @@ impl Checker {
                         }
                     }
                     Item::Struct(st) => {
-                        let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.clone()).collect();
+                        let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.name.clone()).collect();
                         for tp in &tparams {
                             self.active_type_params.insert(tp.clone());
                         }
@@ -665,7 +794,7 @@ impl Checker {
                             .push((st.name.name.clone(), ty));
                     }
                     Item::Enum(en) => {
-                        let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.clone()).collect();
+                        let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.name.clone()).collect();
                         for tp in &tparams {
                             self.active_type_params.insert(tp.clone());
                         }
@@ -698,7 +827,7 @@ impl Checker {
                             .or_default()
                             .push((en.name.name.clone(), ty));
                     }
-                    Item::Fn(_) | Item::Import(_) => {}
+                    Item::Fn(_) | Item::Import(_) | Item::Trait(_) | Item::Impl(_) => {}
                 }
             }
         }
@@ -709,9 +838,12 @@ impl Checker {
                 let Item::Fn(func) = item else {
                     continue;
                 };
-                let tparams: Vec<String> = func.type_params.iter().map(|p| p.name.clone()).collect();
+                let tparams: Vec<String> = func.type_params.iter().map(|p| p.name.name.clone()).collect();
+                let bounds = type_param_bound_list(&func.type_params);
                 self.fn_type_params
                     .insert(format!("{alias}.{}", func.name.name), tparams.clone());
+                self.fn_param_bounds
+                    .insert(format!("{alias}.{}", func.name.name), bounds.clone());
                 for tp in &tparams {
                     self.active_type_params.insert(tp.clone());
                 }
@@ -723,6 +855,8 @@ impl Checker {
                     && !self.functions.contains_key(&func.name.name)
                 {
                     self.fn_type_params.insert(func.name.name.clone(), tparams);
+                    self.fn_param_bounds
+                        .insert(func.name.name.clone(), bounds);
                     self.functions.insert(func.name.name.clone(), ty.clone());
                 }
                 module_members
@@ -732,6 +866,20 @@ impl Checker {
             }
         }
         self.type_context = None;
+
+        for (_alias, imported) in &resolved_imports {
+            for item in &imported.program.items {
+                match item {
+                    Item::Trait(tr) => {
+                        self.traits.insert(tr.name.name.clone());
+                    }
+                    Item::Impl(imp) => {
+                        self.register_impl(imp)?;
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         for (alias, imported) in resolved_imports {
             self.define(
@@ -799,31 +947,59 @@ impl Checker {
     fn check_program(&mut self, program: &Program) -> Result<(), TypeError> {
         validate_public_api(program)?;
         for item in &program.items {
+            if let Item::Trait(tr) = item {
+                if !self.traits.insert(tr.name.name.clone())
+                    && !matches!(tr.name.name.as_str(), "Eq" | "Ord" | "Hash")
+                {
+                    return Err(TypeError::new(
+                        tr.name.span,
+                        format!("duplicate trait `{}`", tr.name.name),
+                    ));
+                }
+            }
+        }
+        for item in &program.items {
             match item {
                 Item::Type(alias) => {
-                    let tparams: Vec<String> = alias.type_params.iter().map(|p| p.name.clone()).collect();
+                    self.check_type_param_bounds(&alias.type_params)?;
+                    let tparams: Vec<String> = alias.type_params.iter().map(|p| p.name.name.clone()).collect();
                     self.alias_type_params.insert(alias.name.name.clone(), tparams.clone());
-                    for tp in &tparams {
-                        self.active_type_params.insert(tp.clone());
+                    self.alias_param_bounds
+                        .insert(alias.name.name.clone(), type_param_bound_list(&alias.type_params));
+                    for tp in &alias.type_params {
+                        self.active_type_params.insert(tp.name.name.clone());
+                        self.active_param_bounds.insert(
+                            tp.name.name.clone(),
+                            tp.bounds.iter().map(|b| b.name.clone()).collect(),
+                        );
                     }
                     let ty = self.lower_type(&alias.ty)?;
-                    for tp in &tparams {
-                        self.active_type_params.remove(tp);
+                    for tp in &alias.type_params {
+                        self.active_type_params.remove(&tp.name.name);
+                        self.active_param_bounds.remove(&tp.name.name);
                     }
                     self.aliases.insert(alias.name.name.clone(), ty);
                 }
                 Item::Struct(st) => {
-                    let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.clone()).collect();
+                    self.check_type_param_bounds(&st.type_params)?;
+                    let tparams: Vec<String> = st.type_params.iter().map(|p| p.name.name.clone()).collect();
                     self.struct_type_params.insert(st.name.name.clone(), tparams.clone());
-                    for tp in &tparams {
-                        self.active_type_params.insert(tp.clone());
+                    self.struct_param_bounds
+                        .insert(st.name.name.clone(), type_param_bound_list(&st.type_params));
+                    for tp in &st.type_params {
+                        self.active_type_params.insert(tp.name.name.clone());
+                        self.active_param_bounds.insert(
+                            tp.name.name.clone(),
+                            tp.bounds.iter().map(|b| b.name.clone()).collect(),
+                        );
                     }
                     let mut fields = Vec::new();
                     for field in &st.fields {
                         fields.push((field.name.name.clone(), self.lower_type(&field.ty)?));
                     }
-                    for tp in &tparams {
-                        self.active_type_params.remove(tp);
+                    for tp in &st.type_params {
+                        self.active_type_params.remove(&tp.name.name);
+                        self.active_param_bounds.remove(&tp.name.name);
                     }
                     let ty = Type::Struct {
                         name: st.name.name.clone(),
@@ -839,10 +1015,17 @@ impl Checker {
                             "declare at least one variant",
                         ));
                     }
-                    let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.clone()).collect();
+                    self.check_type_param_bounds(&en.type_params)?;
+                    let tparams: Vec<String> = en.type_params.iter().map(|p| p.name.name.clone()).collect();
                     self.enum_type_params.insert(en.name.name.clone(), tparams.clone());
-                    for tp in &tparams {
-                        self.active_type_params.insert(tp.clone());
+                    self.enum_param_bounds
+                        .insert(en.name.name.clone(), type_param_bound_list(&en.type_params));
+                    for tp in &en.type_params {
+                        self.active_type_params.insert(tp.name.name.clone());
+                        self.active_param_bounds.insert(
+                            tp.name.name.clone(),
+                            tp.bounds.iter().map(|b| b.name.clone()).collect(),
+                        );
                     }
                     let mut variants = Vec::new();
                     let mut seen = HashSet::new();
@@ -864,8 +1047,9 @@ impl Checker {
                             .collect::<Result<Vec<_>, _>>()?;
                         variants.push((v.name.name.clone(), fields));
                     }
-                    for tp in &tparams {
-                        self.active_type_params.remove(tp);
+                    for tp in &en.type_params {
+                        self.active_type_params.remove(&tp.name.name);
+                        self.active_param_bounds.remove(&tp.name.name);
                     }
                     let ty = Type::Enum {
                         name: en.name.name.clone(),
@@ -873,20 +1057,34 @@ impl Checker {
                     };
                     self.enums.insert(en.name.name.clone(), ty);
                 }
-                Item::Fn(_) | Item::Import(_) => {}
+                Item::Fn(_) | Item::Import(_) | Item::Trait(_) | Item::Impl(_) => {}
+            }
+        }
+
+        for item in &program.items {
+            if let Item::Impl(imp) = item {
+                self.register_impl(imp)?;
             }
         }
 
         for item in &program.items {
             if let Item::Fn(func) = item {
-                let tparams: Vec<String> = func.type_params.iter().map(|p| p.name.clone()).collect();
+                self.check_type_param_bounds(&func.type_params)?;
+                let tparams: Vec<String> = func.type_params.iter().map(|p| p.name.name.clone()).collect();
                 self.fn_type_params.insert(func.name.name.clone(), tparams.clone());
-                for tp in &tparams {
-                    self.active_type_params.insert(tp.clone());
+                self.fn_param_bounds
+                    .insert(func.name.name.clone(), type_param_bound_list(&func.type_params));
+                for tp in &func.type_params {
+                    self.active_type_params.insert(tp.name.name.clone());
+                    self.active_param_bounds.insert(
+                        tp.name.name.clone(),
+                        tp.bounds.iter().map(|b| b.name.clone()).collect(),
+                    );
                 }
                 let ty = self.lower_fn_type(func)?;
-                for tp in &tparams {
-                    self.active_type_params.remove(tp);
+                for tp in &func.type_params {
+                    self.active_type_params.remove(&tp.name.name);
+                    self.active_param_bounds.remove(&tp.name.name);
                 }
                 self.overloaded_builtins.remove(&func.name.name);
                 self.functions.insert(func.name.name.clone(), ty);
@@ -896,7 +1094,12 @@ impl Checker {
         for item in &program.items {
             match item {
                 Item::Fn(func) => self.check_fn(func)?,
-                Item::Import(_) | Item::Struct(_) | Item::Enum(_) | Item::Type(_) => {}
+                Item::Import(_)
+                | Item::Struct(_)
+                | Item::Enum(_)
+                | Item::Type(_)
+                | Item::Trait(_)
+                | Item::Impl(_) => {}
             }
         }
         self.check_effects(program)?;
@@ -1328,6 +1531,8 @@ impl Checker {
                             }
                             let mapping: HashMap<String, Type> =
                                 tparams.into_iter().zip(lowered_args).collect();
+                            let bounds = self.bounds_for_named(&target_key);
+                            self.check_applied_bounds(&mapping, &bounds, *span)?;
                             return Ok(substitute_type(&base_ty, &mapping));
                         } else if !tparams.is_empty() {
                             let mapping: HashMap<String, Type> =
@@ -1376,7 +1581,11 @@ impl Checker {
             return Err(TypeError::new(func.span, "internal: not a function type"));
         };
         for tp in &func.type_params {
-            self.active_type_params.insert(tp.name.clone());
+            self.active_type_params.insert(tp.name.name.clone());
+            self.active_param_bounds.insert(
+                tp.name.name.clone(),
+                tp.bounds.iter().map(|b| b.name.clone()).collect(),
+            );
         }
         self.push_scope();
         for (param, ty) in func.params.iter().zip(params.iter()) {
@@ -1397,9 +1606,236 @@ impl Checker {
         self.current_returns.pop();
         self.pop_scope();
         for tp in &func.type_params {
-            self.active_type_params.remove(&tp.name);
+            self.active_type_params.remove(&tp.name.name);
+            self.active_param_bounds.remove(&tp.name.name);
         }
         Ok(())
+    }
+
+    fn check_type_param_bounds(&self, params: &[TypeParam]) -> Result<(), TypeError> {
+        for param in params {
+            let mut seen = HashSet::new();
+            for bound in &param.bounds {
+                if !self.is_known_trait(&bound.name) {
+                    return Err(TypeError::with_help(
+                        bound.span,
+                        format!("unknown trait `{}`", bound.name),
+                        "declare the trait or use a builtin bound (`Eq`, `Ord`, `Hash`)",
+                    ));
+                }
+                if !seen.insert(bound.name.as_str()) {
+                    return Err(TypeError::new(
+                        bound.span,
+                        format!("duplicate bound `{}` on `{}`", bound.name, param.name.name),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn is_known_trait(&self, name: &str) -> bool {
+        self.traits.contains(name)
+    }
+
+    fn register_impl(&mut self, imp: &ImplDecl) -> Result<(), TypeError> {
+        self.check_type_param_bounds(&imp.type_params)?;
+        if !self.is_known_trait(&imp.trait_name.name) {
+            return Err(TypeError::with_help(
+                imp.trait_name.span,
+                format!("unknown trait `{}`", imp.trait_name.name),
+                "declare the trait before implementing it",
+            ));
+        }
+        let (type_ctor, _) = impl_target(&imp.ty)?;
+        let key = (imp.trait_name.name.clone(), type_ctor.clone());
+        if self
+            .impls
+            .iter()
+            .any(|existing| existing.trait_name == key.0 && existing.type_ctor == key.1)
+        {
+            return Err(TypeError::new(
+                imp.span,
+                format!("duplicate implementation of `{}` for `{}`", key.0, key.1),
+            ));
+        }
+        self.impls.push(TraitImpl {
+            trait_name: imp.trait_name.name.clone(),
+            type_ctor,
+            param_bounds: type_param_bound_list(&imp.type_params),
+        });
+        Ok(())
+    }
+
+    fn param_has_bound(&self, param: &str, trait_name: &str) -> bool {
+        let Some(bounds) = self.active_param_bounds.get(param) else {
+            return false;
+        };
+        if bounds.iter().any(|b| b == trait_name) {
+            return true;
+        }
+        trait_name == "Eq" && bounds.iter().any(|b| b == "Ord")
+    }
+
+    fn instantiate_generic_mapped(&mut self, ty: &Type) -> (Type, HashMap<String, Type>) {
+        let mut params = HashSet::new();
+        collect_type_params(ty, &mut params);
+        if params.is_empty() {
+            return (ty.clone(), HashMap::new());
+        }
+        let mut mapping = HashMap::new();
+        for p in params {
+            mapping.insert(p, self.fresh());
+        }
+        (substitute_type(ty, &mapping), mapping)
+    }
+
+    fn check_applied_bounds(
+        &mut self,
+        mapping: &HashMap<String, Type>,
+        bounds: &[(String, Vec<String>)],
+        span: Span,
+    ) -> Result<(), TypeError> {
+        for (param, traits) in bounds {
+            let Some(ty) = mapping.get(param) else {
+                continue;
+            };
+            let ty = self.resolve(ty);
+            for tr in traits {
+                self.ensure_bound(&ty, tr, span)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn bounds_for_named(&self, key: &str) -> Vec<(String, Vec<String>)> {
+        self.struct_param_bounds
+            .get(key)
+            .cloned()
+            .or_else(|| self.enum_param_bounds.get(key).cloned())
+            .or_else(|| self.alias_param_bounds.get(key).cloned())
+            .unwrap_or_default()
+    }
+
+    fn callee_bound_key(callee: &Expr) -> Option<String> {
+        match callee {
+            Expr::Ident(id) => Some(id.name.clone()),
+            Expr::Field { target, field, .. } => {
+                let Expr::Ident(module) = target.as_ref() else {
+                    return Some(field.name.clone());
+                };
+                Some(format!("{}.{}", module.name, field.name))
+            }
+            _ => None,
+        }
+    }
+
+    fn ensure_bound(&mut self, ty: &Type, trait_name: &str, span: Span) -> Result<(), TypeError> {
+        let ty = self.resolve(ty).without_ownership();
+        if self.type_implements(&ty, trait_name) {
+            return Ok(());
+        }
+        let help = match &ty {
+            Type::Param(name) => {
+                format!("add a `{trait_name}` bound: `{name}: {trait_name}`")
+            }
+            other => format!("write `impl {trait_name} for {other} {{}}`"),
+        };
+        Err(TypeError::with_help(
+            span,
+            format!("type `{ty}` does not implement `{trait_name}`"),
+            help,
+        ))
+    }
+
+    fn type_implements(&mut self, ty: &Type, trait_name: &str) -> bool {
+        let ty = self.resolve(ty).without_ownership();
+        match ty {
+            Type::Dyn | Type::Var(_) => true,
+            Type::Param(name) => self.param_has_bound(&name, trait_name),
+            Type::Int | Type::Float | Type::String => {
+                matches!(trait_name, "Eq" | "Ord" | "Hash")
+                    || self.has_named_impl(trait_name, primitive_ctor(&ty))
+            }
+            Type::Bool => {
+                matches!(trait_name, "Eq" | "Hash")
+                    || self.has_named_impl(trait_name, "Bool")
+            }
+            Type::Nil => trait_name == "Eq" || self.has_named_impl(trait_name, "Nil"),
+            Type::List(elem) => {
+                if matches!(trait_name, "Eq" | "Ord" | "Hash") {
+                    self.type_implements(&elem, trait_name)
+                } else {
+                    self.has_named_impl(trait_name, "List")
+                }
+            }
+            Type::Struct { name, fields } => {
+                if self.has_named_impl(trait_name, &name)
+                    && self.generic_impl_args_ok(trait_name, &name, &Type::Struct { name: name.clone(), fields })
+                {
+                    return true;
+                }
+                false
+            }
+            Type::Enum { name, variants } => {
+                if self.has_named_impl(trait_name, &name)
+                    && self.generic_impl_args_ok(
+                        trait_name,
+                        &name,
+                        &Type::Enum {
+                            name: name.clone(),
+                            variants,
+                        },
+                    )
+                {
+                    return true;
+                }
+                false
+            }
+            _ => self.has_named_impl(trait_name, &ty.name()),
+        }
+    }
+
+    fn has_named_impl(&self, trait_name: &str, type_ctor: &str) -> bool {
+        let ctor = type_ctor.rsplit('.').next().unwrap_or(type_ctor);
+        self.impls
+            .iter()
+            .any(|imp| imp.trait_name == trait_name && (imp.type_ctor == type_ctor || imp.type_ctor == ctor))
+    }
+
+    fn generic_impl_args_ok(&mut self, trait_name: &str, type_ctor: &str, inst: &Type) -> bool {
+        let ctor = type_ctor.rsplit('.').next().unwrap_or(type_ctor);
+        let Some(imp) = self.impls.iter().find(|imp| {
+            imp.trait_name == trait_name && (imp.type_ctor == type_ctor || imp.type_ctor == ctor)
+        }) else {
+            return false;
+        };
+        if imp.param_bounds.is_empty() {
+            return true;
+        }
+        let original = self
+            .structs
+            .get(type_ctor)
+            .cloned()
+            .or_else(|| self.structs.get(ctor).cloned())
+            .or_else(|| self.enums.get(type_ctor).cloned())
+            .or_else(|| self.enums.get(ctor).cloned());
+        let Some(original) = original else {
+            return true;
+        };
+        let mapping = recover_param_mapping(&original, inst);
+        let bounds = imp.param_bounds.clone();
+        for (param, traits) in bounds {
+            let Some(arg) = mapping.get(&param) else {
+                continue;
+            };
+            for tr in traits {
+                if !self.type_implements(arg, &tr) {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     fn check_block(&mut self, block: &Block) -> Result<Type, TypeError> {
@@ -1650,7 +2086,7 @@ impl Checker {
             }
             Expr::Call { callee, args, span } => {
                 let fty = self.check_expr(callee)?;
-                let fty = self.instantiate_generic(&fty);
+                let (fty, mapping) = self.instantiate_generic_mapped(&fty);
                 let fty = self.resolve(&fty);
                 match fty.without_ownership() {
                     Type::Fn { params, ret, .. } => {
@@ -1672,6 +2108,24 @@ impl Checker {
                             if let Some(pt) = params.get(i) {
                                 self.unify(pt, &at, arg.span())?;
                             }
+                        }
+                        if let Some(name) = Self::callee_bound_key(callee) {
+                            if let Some(bounds) = self.fn_param_bounds.get(&name).cloned() {
+                                self.check_applied_bounds(&mapping, &bounds, *span)?;
+                            }
+                        }
+                        match self.resolve(&ret).without_ownership() {
+                            Type::Enum { name, .. } => {
+                                if let Some(bounds) = self.enum_param_bounds.get(&name).cloned() {
+                                    self.check_applied_bounds(&mapping, &bounds, *span)?;
+                                }
+                            }
+                            Type::Struct { name, .. } => {
+                                if let Some(bounds) = self.struct_param_bounds.get(&name).cloned() {
+                                    self.check_applied_bounds(&mapping, &bounds, *span)?;
+                                }
+                            }
+                            _ => {}
                         }
                         Ok(self.resolve(&ret))
                     }
@@ -1954,7 +2408,7 @@ impl Checker {
                 let st = self.structs.get(&name.name).cloned().ok_or_else(|| {
                     TypeError::new(*span, format!("unknown struct `{}`", name.name))
                 })?;
-                let st = self.instantiate_generic(&st);
+                let (st, mapping) = self.instantiate_generic_mapped(&st);
                 let Type::Struct {
                     fields: decl,
                     name: n,
@@ -1972,6 +2426,9 @@ impl Checker {
                             format!("unknown field `{}` on {n}", field.name),
                         ));
                     }
+                }
+                if let Some(bounds) = self.struct_param_bounds.get(&name.name).cloned() {
+                    self.check_applied_bounds(&mapping, &bounds, *span)?;
                 }
                 Ok(self.resolve(&Type::Struct {
                     name: n,
@@ -2219,11 +2676,34 @@ impl Checker {
             }
             BinOp::Eq | BinOp::Ne => {
                 self.unify(&l, &r, span)?;
+                let resolved = self.resolve(&l).without_ownership();
+                if matches!(resolved, Type::Param(_)) {
+                    self.ensure_bound(&resolved, "Eq", span)?;
+                }
                 Ok(Type::Bool)
             }
             BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                let _ = numeric_result(self, &l, &r, span)?;
-                Ok(Type::Bool)
+                let l_ty = self.resolve(&l).without_ownership();
+                let r_ty = self.resolve(&r).without_ownership();
+                match (&l_ty, &r_ty) {
+                    (Type::Param(_), _) | (_, Type::Param(_)) => {
+                        self.unify(&l, &r, span)?;
+                        self.ensure_bound(&l_ty, "Ord", span)?;
+                        Ok(Type::Bool)
+                    }
+                    (Type::String, Type::String)
+                    | (Type::String, Type::Dyn)
+                    | (Type::Dyn, Type::String)
+                    | (Type::String, Type::Var(_))
+                    | (Type::Var(_), Type::String) => {
+                        self.unify(&l, &r, span)?;
+                        Ok(Type::Bool)
+                    }
+                    _ => {
+                        let _ = numeric_result(self, &l, &r, span)?;
+                        Ok(Type::Bool)
+                    }
+                }
             }
             BinOp::And | BinOp::Or => {
                 self.unify(&l, &Type::Bool, span)?;
@@ -2495,7 +2975,7 @@ fn validate_public_api(program: &Program) -> Result<(), TypeError> {
             Item::Struct(st) => Some(st.name.name.as_str()),
             Item::Enum(en) => Some(en.name.name.as_str()),
             Item::Type(alias) => Some(alias.name.name.as_str()),
-            Item::Fn(_) | Item::Import(_) => None,
+            Item::Fn(_) | Item::Import(_) | Item::Trait(_) | Item::Impl(_) => None,
         })
         .collect();
     if private_types.is_empty() {
@@ -2528,7 +3008,7 @@ fn validate_public_api(program: &Program) -> Result<(), TypeError> {
                     .collect(),
             ),
             Item::Type(alias) => (format!("type alias `{}`", alias.name.name), vec![&alias.ty]),
-            Item::Import(_) => continue,
+            Item::Import(_) | Item::Trait(_) | Item::Impl(_) => continue,
         };
         for ty in types {
             if let Some((name, span)) = private_type_in(ty, &private_types) {

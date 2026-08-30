@@ -1050,7 +1050,12 @@ fn compile_with_names(program: &Program, names: &Names) -> Result<Compiled, VmEr
     for item in &program.items {
         match item {
             Item::Fn(func) => functions.push(compile_fn(func, names)?),
-            Item::Import(_) | Item::Struct(_) | Item::Type(_) | Item::Enum(_) => {}
+            Item::Import(_)
+            | Item::Struct(_)
+            | Item::Type(_)
+            | Item::Enum(_)
+            | Item::Trait(_)
+            | Item::Impl(_) => {}
         }
     }
     Ok(Compiled { functions })

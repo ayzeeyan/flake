@@ -333,7 +333,7 @@ impl<'io> Interpreter<'io> {
                         .unwrap_or_else(|| st.name.name.clone());
                     env.define_type(&st.name.name, type_name);
                 }
-                Item::Type(_) | Item::Import(_) => {}
+                Item::Type(_) | Item::Import(_) | Item::Trait(_) | Item::Impl(_) => {}
                 Item::Enum(en) => {
                     let type_name = module_name
                         .map(|module| flake_parser::qualify(module, &en.name.name))

@@ -76,6 +76,8 @@ pub enum TokenKind {
     Spawn,
     Await,
     Nursery,
+    Trait,
+    Impl,
 
     // Operators
     Plus,
@@ -156,6 +158,8 @@ impl TokenKind {
             "spawn" => Self::Spawn,
             "await" => Self::Await,
             "nursery" => Self::Nursery,
+            "trait" => Self::Trait,
+            "impl" => Self::Impl,
             _ => return None,
         })
     }
@@ -195,6 +199,8 @@ impl TokenKind {
                 | Self::Spawn
                 | Self::Await
                 | Self::Nursery
+                | Self::Trait
+                | Self::Impl
         )
     }
 
@@ -240,6 +246,8 @@ impl TokenKind {
             Self::Spawn => "`spawn`",
             Self::Await => "`await`",
             Self::Nursery => "`nursery`",
+            Self::Trait => "`trait`",
+            Self::Impl => "`impl`",
             Self::Plus => "`+`",
             Self::Minus => "`-`",
             Self::Star => "`*`",

@@ -569,6 +569,41 @@ fn main() {
 }
 
 #[test]
+fn trait_bounds_and_impls_parse() {
+    let src = r#"
+trait Show {}
+
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+impl Show for Point {}
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+fn same[T: Eq + Hash](a: T, b: T) -> Bool {
+    a == b
+}
+
+impl[T: Eq] Eq for Box[T] {}
+"#;
+    let program = parse_ok(src);
+    assert!(matches!(program.items[0], Item::Trait(_)));
+    assert!(matches!(program.items[2], Item::Impl(_)));
+    let pretty = print_program(&program);
+    assert!(pretty.contains("trait Show {}"));
+    assert!(pretty.contains("impl Show for Point {}"));
+    assert!(pretty.contains("fn max[T: Ord](a: T, b: T) -> T"));
+    assert!(pretty.contains("fn same[T: Eq + Hash](a: T, b: T) -> Bool"));
+    assert!(pretty.contains("impl[T: Eq] Eq for Box[T] {}"));
+    let reparsed = parse_str(&pretty).expect("pretty-printed traits should parse");
+    assert_eq!(reparsed.items.len(), program.items.len());
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

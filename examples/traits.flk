@@ -1,0 +1,37 @@
+// Marker traits, generic bounds, and comparison on constrained type parameters.
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+fn same[T: Eq](a: T, b: T) -> Bool {
+    a == b
+}
+
+trait Show {}
+
+impl Show for Int {}
+impl Show for String {}
+
+fn display[T: Show](value: T) -> T {
+    value
+}
+
+struct Pair[T: Eq] {
+    left: T,
+    right: T,
+}
+
+fn main() {
+    print(max(3, 9))
+    print(max("alpha", "zeta"))
+    print(same(7, 7))
+    print(same("flake", "flake"))
+    print(display(42))
+    let p = Pair { left: 1, right: 1 }
+    print(p.left)
+}

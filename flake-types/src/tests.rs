@@ -1212,6 +1212,147 @@ fn main() {
 }
 
 #[test]
+fn generic_bounds_ord_max() {
+    ok(r#"
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+fn main() {
+    let n: Int = max(3, 7)
+    let s: String = max("abc", "abd")
+    assert(n == 7)
+}
+"#);
+}
+
+#[test]
+fn generic_bounds_eq_and_hash() {
+    ok(r#"
+fn same[T: Eq](a: T, b: T) -> Bool {
+    a == b
+}
+
+struct Pair[T: Eq] {
+    left: T,
+    right: T,
+}
+
+fn main() {
+    assert(same(1, 1))
+    assert(!same("a", "b"))
+    let p = Pair { left: 1, right: 1 }
+    assert(p.left == p.right)
+}
+"#);
+}
+
+#[test]
+fn missing_ord_bound_is_rejected() {
+    let msg = err(r#"
+fn max_unbounded[T](a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+fn main() {}
+"#);
+    assert!(msg.contains("does not implement `Ord`"), "{msg}");
+    assert!(msg.contains("T: Ord") || msg.contains("add a `Ord` bound"), "{msg}");
+}
+
+#[test]
+fn unsatisfied_bound_at_call_is_rejected() {
+    let msg = err(r#"
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { a } else { b }
+}
+
+fn main() {
+    let a = Point { x: 1, y: 2 }
+    let b = Point { x: 3, y: 4 }
+    let _ = max(a, b)
+}
+"#);
+    assert!(msg.contains("does not implement `Ord`"), "{msg}");
+    assert!(msg.contains("Point"), "{msg}");
+}
+
+#[test]
+fn user_trait_and_impl_constrain_generics() {
+    ok(r#"
+trait Show {}
+
+impl Show for Int {}
+impl Show for String {}
+
+fn display[T: Show](value: T) -> T {
+    value
+}
+
+fn main() {
+    let n: Int = display(42)
+    let s: String = display("hi")
+}
+"#);
+}
+
+#[test]
+fn user_trait_missing_impl_is_rejected() {
+    let msg = err(r#"
+trait Show {}
+
+impl Show for Int {}
+
+fn display[T: Show](value: T) -> T {
+    value
+}
+
+fn main() {
+    let _ = display(true)
+}
+"#);
+    assert!(msg.contains("does not implement `Show`"), "{msg}");
+}
+
+#[test]
+fn unknown_trait_bound_is_rejected() {
+    let msg = err(r#"
+fn weird[T: NotATrait](x: T) -> T {
+    x
+}
+
+fn main() {}
+"#);
+    assert!(msg.contains("unknown trait `NotATrait`"), "{msg}");
+}
+
+#[test]
+fn generic_impl_propagates_bounds() {
+    ok(r#"
+struct Box[T] {
+    value: T,
+}
+
+impl[T: Eq] Eq for Box[T] {}
+
+fn same[T: Eq](a: T, b: T) -> Bool {
+    a == b
+}
+
+fn main() {
+    let a = Box { value: 1 }
+    let b = Box { value: 1 }
+    assert(same(a, b) || true)
+}
+"#);
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
