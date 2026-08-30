@@ -1054,6 +1054,84 @@ fn main() {}
 }
 
 #[test]
+fn generic_struct_borrow_is_still_enforced() {
+    let msg = err(r#"
+struct Box[T: Eq] {
+    value: T,
+}
+fn consume[T: Eq](b: owned Box[T]) {}
+
+strict fn test() {
+    let b = Box { value: 1 }
+    let r = &b.value
+    consume(b)
+}
+fn main() {}
+"#);
+    assert!(
+        msg.contains("cannot move `b` while it is borrowed"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn generic_struct_can_be_moved_after_borrow_ends() {
+    ok(r#"
+struct Box[T: Eq] {
+    value: T,
+}
+fn consume[T: Eq](b: owned Box[T]) {}
+
+strict fn test() {
+    let b = Box { value: 1 }
+    {
+        let r = &b.value
+        let _ = r
+    }
+    consume(b)
+}
+fn main() {}
+"#);
+}
+
+#[test]
+fn spawn_allows_generic_owned_values() {
+    ok(r#"
+struct Box[T] {
+    value: T,
+}
+fn work[T](b: Box[T]) -> T / conc {
+    b.value
+}
+fn main() / conc + panic {
+    let b = Box { value: 7 }
+    let t = spawn work(b)
+    let n = await t
+    assert(n == 7)
+}
+"#);
+}
+
+#[test]
+fn spawn_rejects_generic_ref_even_with_eq_bound() {
+    let msg = err(r#"
+struct Holder[T: Eq] {
+    value: T,
+}
+fn work[T: Eq](h: Holder[T]) / conc {}
+strict fn main() / conc {
+    let s = "hello"
+    let h = Holder { value: &s }
+    let t = spawn work(h)
+}
+"#);
+    assert!(
+        msg.contains("cannot capture reference") || msg.contains("ref"),
+        "{msg}"
+    );
+}
+
+#[test]
 fn generic_function_identity_and_pair() {
     ok(r#"
 fn id[T](x: T) -> T {

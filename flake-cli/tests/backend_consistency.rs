@@ -1455,6 +1455,26 @@ fn main() {
 }
 
 #[test]
+fn generic_owned_values_can_be_spawned_across_all_backends() {
+    let source = r#"
+struct Box[T] {
+    value: T,
+}
+
+fn work[T](b: Box[T]) -> T / conc {
+    b.value
+}
+
+fn main() / io + conc {
+    let b = Box { value: 21 }
+    let t = spawn work(b)
+    print(await t)
+}
+"#;
+    assert_all_backends("generic-owned-spawn", source, "21\n");
+}
+
+#[test]
 fn stdlib_depth_directory_walk_and_helpers_across_all_backends() {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

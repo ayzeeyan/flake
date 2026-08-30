@@ -538,13 +538,18 @@ impl Checker {
     }
 
     fn unify(&mut self, a: &Type, b: &Type, span: Span) -> Result<Type, TypeError> {
-        let a = self.resolve(a).without_ownership();
-        let b = self.resolve(b).without_ownership();
+        let a_full = self.resolve(a);
+        let b_full = self.resolve(b);
+        match (&a_full, &b_full) {
+            (Type::Var(i), Type::Var(j)) if i == j => return Ok(a_full),
+            (Type::Var(i), _) => return self.bind(*i, b_full, span),
+            (_, Type::Var(i)) => return self.bind(*i, a_full, span),
+            _ => {}
+        }
+        let a = a_full.without_ownership();
+        let b = b_full.without_ownership();
         match (a, b) {
             (Type::Dyn, other) | (other, Type::Dyn) => Ok(other),
-            (Type::Var(i), Type::Var(j)) if i == j => Ok(Type::Var(i)),
-            (Type::Var(i), other) => self.bind(i, other, span),
-            (other, Type::Var(i)) => self.bind(i, other, span),
             (Type::Param(p1), Type::Param(p2)) if p1 == p2 => Ok(Type::Param(p1)),
             (Type::Nil, Type::Nil) => Ok(Type::Nil),
             (Type::Bool, Type::Bool) => Ok(Type::Bool),
