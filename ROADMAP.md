@@ -1,8 +1,36 @@
 # Flake Roadmap
 
-**Flake v0.8.0 is complete.** Theme: **The Largest Capability Jump – Systems & Generics Leap**.
+**Flake v0.8.1 is complete.** Theme: **Patch, Harden, and Optimize – Making the v0.8 Leap Rock-Solid**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
+
+## v0.8.1 milestones (complete)
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Generics correctness fixes | **done** |
+| 2 | Systems standard library hardening | **done** |
+| 3 | Concurrency and channel fixes | **done** |
+| 4 | Optimizer and native reliability | **done** |
+| 5 | Ownership, diagnostics and broad testing | **done** |
+| 6 | Flake v0.8.1 complete – patch, harden, optimize | **done** |
+
+## What v0.8.1 delivers
+
+- **Generics Correctness**:
+  - Hardened type inference on nested generic containers and higher-order functions.
+  - Consistent gradual typing defaulting of bare generic names to `dyn`.
+- **Systems Standard Library Hardening**:
+  - `std/fs.flk`: Safe `Result.Err` returns on non-existent files without runtime panics.
+  - `std/path.flk`: Robust `Option` variant representation and path normalization across slash variants.
+  - `std/bytes.flk`: Safe slicing and out-of-bounds queries returning `Option.None`.
+  - `std/channel.flk`: Added `pop_channel` and `drain` helpers; validated channel capacity saturation and closed states.
+- **Concurrency & Concurrency Reliability**:
+  - 25 cross-backend test suites passing across Interpreter, Bytecode VM, and Native compilation.
+  - Rigid sendability verification across task nursery boundaries.
+- **Optimizer Safety**:
+  - Void/nil return handling in multi-pass leaf function inlining.
+  - Strict preservation of machine code flag semantics across peephole optimizations.
 
 ## v0.8.0 milestones (complete)
 
