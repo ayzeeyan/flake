@@ -1571,3 +1571,24 @@ fn main() / io + alloc {{
     let _cleanup = Cleanup(temp_dir);
     assert_all_backends("stdlib-depth-walk", &source, expected);
 }
+
+#[test]
+fn process_run_across_all_backends() {
+    let source = r#"
+import process
+import result
+
+fn main() / io + alloc {
+    let res = process.run("echo hello")
+    match res {
+        Result.Ok(out) => {
+            print(out.exit_code)
+        }
+        Result.Err(err) => {
+            print(err)
+        }
+    }
+}
+"#;
+    assert_all_backends("process-run", source, "0\n");
+}

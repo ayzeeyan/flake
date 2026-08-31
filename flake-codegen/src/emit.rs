@@ -35,6 +35,11 @@ pub enum Import {
     FindClose = 15,
     GetCommandLineA = 16,
     CreateDirectoryA = 17,
+    CreateProcessA = 18,
+    WaitForSingleObject = 19,
+    GetExitCodeProcess = 20,
+    CreatePipe = 21,
+    SetHandleInformation = 22,
 }
 
 pub const IMPORTS: &[&str] = &[
@@ -56,6 +61,11 @@ pub const IMPORTS: &[&str] = &[
     "FindClose",
     "GetCommandLineA",
     "CreateDirectoryA",
+    "CreateProcessA",
+    "WaitForSingleObject",
+    "GetExitCodeProcess",
+    "CreatePipe",
+    "SetHandleInformation",
 ];
 
 pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {

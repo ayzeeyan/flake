@@ -60,7 +60,7 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_sort_cstr_list(asm);
     emit_list_dir(asm, iat);
     emit_args(asm, iat);
-    emit_run_cmd(asm);
+    emit_run_cmd(asm, iat);
 }
 
 fn prologue(asm: &mut Asm, frame: i32) {
@@ -2126,9 +2126,204 @@ fn emit_append_file(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     epilogue(asm);
 }
 
-fn emit_run_cmd(asm: &mut Asm) {
+fn emit_run_cmd(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // rcx = command (C string) → rax = list [stdout, stderr, exit_code]
     asm.label("rt_run_cmd");
-    prologue(asm, 32);
+    prologue(asm, 320);
+    asm.mov_mr_rbp(-8, Reg::Rcx); // original command ptr
+    asm.call_label("rt_strlen");
+    asm.mov_mr_rbp(-16, Reg::Rax); // cmd len
+
+    // Allocate buffer for "cmd.exe /c " (11 bytes) + command + "\0"
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.add_ri(Reg::Rcx, 13);
+    asm.call_label("rt_alloc");
+    asm.mov_mr_rbp(-24, Reg::Rax); // cmdline buffer
+
+    // Write "cmd.exe /c " prefix
+    let prefix = b"cmd.exe /c ";
+    for (i, &b) in prefix.iter().enumerate() {
+        asm.bytes.extend_from_slice(&[0xC6, 0x40, i as u8, b]);
+    }
+
+    // Copy command string into cmdline buffer
+    asm.mov_rm_rbp(Reg::Rax, -24);
+    asm.add_ri(Reg::Rax, 11);
+    asm.mov_rr(Reg::Rdx, Reg::Rax); // dst
+    asm.mov_rm_rbp(Reg::Rcx, -16);  // len
+    asm.mov_rm_rbp(Reg::R8, -8);    // src
+    asm.label(".rc_copy");
+    asm.test_rr(Reg::Rcx, Reg::Rcx);
+    asm.jcc_label(Cc::Z, ".rc_copy_done");
+    asm.bytes.extend_from_slice(&[0x41, 0x8A, 0x00]); // mov al, [r8]
+    asm.bytes.extend_from_slice(&[0x88, 0x02]);       // mov [rdx], al
+    asm.bytes.extend_from_slice(&[0x49, 0xFF, 0xC0]); // inc r8
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC2]); // inc rdx
+    asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC9]); // dec rcx
+    asm.jmp_label(".rc_copy");
+    asm.label(".rc_copy_done");
+    asm.bytes.extend_from_slice(&[0xC6, 0x02, 0x00]); // mov byte ptr [rdx], 0
+
+    // Set up SECURITY_ATTRIBUTES sa (-224..-200, 24 bytes)
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.mov_mr_rbp(-224, Reg::Rax);
+    asm.mov_mr_rbp(-216, Reg::Rax);
+    asm.mov_mr_rbp(-208, Reg::Rax);
+    asm.mov_ri(Reg::Rax, 24); // nLength
+    asm.mov_mr_rbp(-224, Reg::Rax);
+    asm.mov_ri(Reg::Rax, 1);  // bInheritHandle = TRUE
+    asm.mov_mr_rbp(-208, Reg::Rax);
+
+    // CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)
+    lea_rbp(asm, Reg::Rcx, -232); // &hReadPipe
+    lea_rbp(asm, Reg::Rdx, -240); // &hWritePipe
+    lea_rbp(asm, Reg::R8, -224);  // &sa
+    asm.xor_rr(Reg::R9, Reg::R9);  // nSize = 0
+    call_import(asm, iat, Import::CreatePipe);
+
+    // SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT (1), 0)
+    asm.mov_rm_rbp(Reg::Rcx, -232);
+    asm.mov_ri(Reg::Rdx, 1);
+    asm.xor_rr(Reg::R8, Reg::R8);
+    call_import(asm, iat, Import::SetHandleInformation);
+
+    // Zero out STARTUPINFOA (-176..-72, 104 bytes) and PROCESS_INFORMATION (-200..-176, 24 bytes)
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    for off in (72..=200).step_by(8) {
+        asm.mov_mr_rbp(-off, Reg::Rax);
+    }
+    // si.cb = 104
+    asm.mov_ri(Reg::Rax, 104);
+    asm.mov_mr_rbp(-176, Reg::Rax);
+    // si.dwFlags = STARTF_USESTDHANDLES (0x100)
+    asm.mov_ri(Reg::Rax, 0x100);
+    asm.mov_mr_rbp(-116, Reg::Rax);
+    // si.hStdOutput = hWritePipe
+    asm.mov_rm_rbp(Reg::Rax, -240);
+    asm.mov_mr_rbp(-88, Reg::Rax);
+    // si.hStdError = hWritePipe
+    asm.mov_mr_rbp(-80, Reg::Rax);
+
+    // Call CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)
+    asm.xor_rr(Reg::Rcx, Reg::Rcx);
+    asm.mov_rm_rbp(Reg::Rdx, -24);
+    asm.xor_rr(Reg::R8, Reg::R8);
+    asm.xor_rr(Reg::R9, Reg::R9);
+    asm.mov_ri(Reg::Rax, 1);        // bInheritHandles = TRUE
+    mov_mr_rsp(asm, 32, Reg::Rax);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    mov_mr_rsp(asm, 40, Reg::Rax);
+    mov_mr_rsp(asm, 48, Reg::Rax);
+    mov_mr_rsp(asm, 56, Reg::Rax);
+    lea_rbp(asm, Reg::Rax, -176);
+    mov_mr_rsp(asm, 64, Reg::Rax);
+    lea_rbp(asm, Reg::Rax, -200);
+    mov_mr_rsp(asm, 72, Reg::Rax);
+    call_import(asm, iat, Import::CreateProcessA);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".rc_fail");
+
+    // Close hWritePipe in parent process
+    asm.mov_rm_rbp(Reg::Rcx, -240);
+    call_import(asm, iat, Import::CloseHandle);
+
+    // Allocate buffer for stdout (65536 bytes)
+    asm.mov_ri(Reg::Rcx, 65536);
+    asm.call_label("rt_alloc");
+    asm.mov_mr_rbp(-64, Reg::Rax);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.mov_mr_rbp(-248, Reg::Rax); // total read = 0
+
+    // Read loop from hReadPipe
+    asm.label(".rc_read_loop");
+    asm.mov_rm_rbp(Reg::Rcx, -232); // hReadPipe
+    asm.mov_rm_rbp(Reg::Rdx, -64);  // stdout buffer
+    asm.mov_rm_rbp(Reg::Rax, -248); // total
+    asm.add_rr(Reg::Rdx, Reg::Rax); // buf + total
+    asm.mov_ri(Reg::R8, 65535);
+    asm.sub_rr(Reg::R8, Reg::Rax); // remaining cap
+    asm.test_rr(Reg::R8, Reg::R8);
+    asm.jcc_label(Cc::Le, ".rc_read_done");
+    lea_rbp(asm, Reg::R9, -256); // &bytesRead
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    mov_mr_rsp(asm, 32, Reg::Rax);
+    call_import(asm, iat, Import::ReadFile);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".rc_read_done");
+    asm.mov_rm_rbp(Reg::Rax, -256); // bytesRead
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".rc_read_done");
+    asm.mov_rm_rbp(Reg::R10, -248);
+    asm.add_rr(Reg::R10, Reg::Rax);
+    asm.mov_mr_rbp(-248, Reg::R10);
+    asm.jmp_label(".rc_read_loop");
+
+    asm.label(".rc_read_done");
+    // Null-terminate stdout buffer
+    asm.mov_rm_rbp(Reg::Rax, -64);
+    asm.mov_rm_rbp(Reg::R10, -248);
+    asm.add_rr(Reg::Rax, Reg::R10);
+    asm.bytes.extend_from_slice(&[0xC6, 0x00, 0x00]);
+
+    // Close hReadPipe
+    asm.mov_rm_rbp(Reg::Rcx, -232);
+    call_import(asm, iat, Import::CloseHandle);
+
+    // pi.hProcess is at -200, pi.hThread is at -192
+    asm.mov_rm_rbp(Reg::R10, -200);
+    asm.mov_mr_rbp(-32, Reg::R10);
+    asm.mov_rm_rbp(Reg::R10, -192);
+    asm.mov_mr_rbp(-40, Reg::R10);
+
+    // WaitForSingleObject(hProcess, INFINITE (0xFFFFFFFF))
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    asm.mov_ri(Reg::Rdx, 0xFFFF_FFFF);
+    call_import(asm, iat, Import::WaitForSingleObject);
+
+    // GetExitCodeProcess(hProcess, &exit_code)
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    lea_rbp(asm, Reg::Rdx, -48);
+    call_import(asm, iat, Import::GetExitCodeProcess);
+
+    // CloseHandle(hThread)
+    asm.mov_rm_rbp(Reg::Rcx, -40);
+    call_import(asm, iat, Import::CloseHandle);
+
+    // CloseHandle(hProcess)
+    asm.mov_rm_rbp(Reg::Rcx, -32);
+    call_import(asm, iat, Import::CloseHandle);
+
+    // Create empty string for stderr
+    asm.mov_ri(Reg::Rcx, 1);
+    asm.call_label("rt_alloc");
+    asm.bytes.extend_from_slice(&[0xC6, 0x00, 0x00]);
+    asm.mov_mr_rbp(-72, Reg::Rax);
+
+    // Create list with cap 3
+    asm.mov_ri(Reg::Rcx, 3);
+    asm.call_label("rt_list_new");
+    asm.mov_mr_rbp(-56, Reg::Rax);
+
+    // Push stdout
+    asm.mov_rm_rbp(Reg::Rcx, -56);
+    asm.mov_rm_rbp(Reg::Rdx, -64);
+    asm.call_label("rt_list_push");
+    asm.mov_mr_rbp(-56, Reg::Rax);
+
+    // Push stderr
+    asm.mov_rm_rbp(Reg::Rcx, -56);
+    asm.mov_rm_rbp(Reg::Rdx, -72);
+    asm.call_label("rt_list_push");
+    asm.mov_mr_rbp(-56, Reg::Rax);
+
+    // Push exit_code (sign-extended dword [rbp - 48])
+    asm.mov_rm_rbp(Reg::Rcx, -56);
+    asm.bytes.extend_from_slice(&[0x48, 0x63, 0x55, (-48i8) as u8]);
+    asm.call_label("rt_list_push");
+    asm.mov_rm_rbp(Reg::Rax, -56);
+    epilogue(asm);
+
+    asm.label(".rc_fail");
     asm.xor_rr(Reg::Rcx, Reg::Rcx);
     asm.call_label("rt_list_new");
     epilogue(asm);

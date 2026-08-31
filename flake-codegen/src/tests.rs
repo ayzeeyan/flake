@@ -1000,6 +1000,18 @@ fn main() / io {
 }
 
 #[test]
+fn native_run_cmd() {
+    let out = run_native(&src(r#"
+fn main() / io {
+    let res = run_cmd("echo hello")
+    print(len(res))
+    print(res[2])
+}
+"#)).expect("native run_cmd");
+    assert_eq!(out, "3\n0\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
