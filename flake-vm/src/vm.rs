@@ -854,12 +854,22 @@ fn index_get(target: &Value, index: &Value) -> Result<Value, VmError> {
         }
         Value::String(s) => {
             let i = expect_int(index)?;
-            let chars: Vec<char> = s.chars().collect();
-            let idx = if i < 0 { chars.len() as i64 + i } else { i };
-            chars
-                .get(idx as usize)
-                .map(|c| Value::from_string(c.to_string()))
-                .ok_or_else(|| VmError::new(Span::DUMMY, format!("index {i} out of bounds")))
+            if s.is_ascii() {
+                let idx = if i < 0 { s.len() as i64 + i } else { i };
+                if idx < 0 || (idx as usize) >= s.len() {
+                    return Err(VmError::new(Span::DUMMY, format!("index {i} out of bounds")));
+                }
+                let b = s.as_bytes()[idx as usize];
+                Ok(Value::from_string((b as char).to_string()))
+            } else {
+                let char_count = s.chars().count();
+                let idx = if i < 0 { char_count as i64 + i } else { i };
+                if idx < 0 || (idx as usize) >= char_count {
+                    return Err(VmError::new(Span::DUMMY, format!("index {i} out of bounds")));
+                }
+                let ch = s.chars().nth(idx as usize).unwrap();
+                Ok(Value::from_string(ch.to_string()))
+            }
         }
         Value::Map(map) => {
             let key = map_key(index)?;

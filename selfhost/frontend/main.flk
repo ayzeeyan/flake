@@ -1,0 +1,184 @@
+// CLI Driver for the Flake self-hosted frontend (lexer + parser).
+import span
+import tokens
+import lexer
+import ast
+import parser
+import fs
+import path
+import list
+import result
+
+fn print_usage() {
+    print("Flake Self-Hosted Frontend v0.11.0")
+    print("Usage: flake run selfhost/frontend/main.flk -- [OPTIONS] <FILE...>")
+    print("")
+    print("Options:")
+    print("  --tokens <file>      Tokenize and print token stream")
+    print("  --ast <file>         Parse and print AST S-expression (default)")
+    print("  --check <file>       Parse and verify syntax without AST dump")
+    print("  --walk <dir>         Recursively parse all .flk files in directory")
+    print("  -h, --help           Display this help message")
+}
+
+fn ends_with_flk(s: String) -> Bool {
+    let l = len(s)
+    if l < 4 { return false }
+    if s[l - 4] != "." { return false }
+    if s[l - 3] != "f" { return false }
+    if s[l - 2] != "l" { return false }
+    if s[l - 1] != "k" { return false }
+    true
+}
+
+fn handle_tokens(file: String) / io + alloc {
+    match fs.read_to_string(file) {
+        Result.Ok(src) => {
+            match lexer.lex(src) {
+                Result.Ok(toks) => {
+                    for tok in toks {
+                        print(tokens.format_token(tok))
+                    }
+                }
+                Result.Err(err) => {
+                    print("Lexer error in {file}: {err}")
+                }
+            }
+        }
+        Result.Err(err) => {
+            print("Cannot read {file}: {err}")
+        }
+    }
+}
+
+fn handle_ast(file: String) / io + alloc {
+    match fs.read_to_string(file) {
+        Result.Ok(src) => {
+            match parser.parse_source(src) {
+                Result.Ok(prog) => {
+                    print(ast.dump_program(prog))
+                }
+                Result.Err(err) => {
+                    print("Parse error in {file}: {err}")
+                }
+            }
+        }
+        Result.Err(err) => {
+            print("Cannot read {file}: {err}")
+        }
+    }
+}
+
+fn handle_check(file: String) / io + alloc {
+    match fs.read_to_string(file) {
+        Result.Ok(src) => {
+            match parser.parse_source(src) {
+                Result.Ok(_) => {
+                    print("ok: {file}")
+                }
+                Result.Err(err) => {
+                    print("error: {file}: {err}")
+                }
+            }
+        }
+        Result.Err(err) => {
+            print("Cannot read {file}: {err}")
+        }
+    }
+}
+
+fn handle_walk(dir: String) / io + alloc {
+    match fs.walk(dir) {
+        Result.Ok(files) => {
+            var total = 0
+            var passed = 0
+            var failed = 0
+            for f in files {
+                if ends_with_flk(f) {
+                    total = total + 1
+                    match fs.read_to_string(f) {
+                        Result.Ok(src) => {
+                            match parser.parse_source(src) {
+                                Result.Ok(_) => {
+                                    passed = passed + 1
+                                    nil
+                                }
+                                Result.Err(err) => {
+                                    failed = failed + 1
+                                    print("FAIL: {f}: {err}")
+                                }
+                            }
+                            nil
+                        }
+                        Result.Err(err) => {
+                            failed = failed + 1
+                            print("READ FAIL: {f}: {err}")
+                        }
+                    }
+                    nil
+                }
+            }
+            if failed == 0 {
+                print("Scanned {total} files: all parsed successfully")
+            } else {
+                print("Scanned {total} files: {passed} passed, {failed} failed")
+            }
+        }
+        Result.Err(err) => {
+            print("Failed to walk {dir}: {err}")
+        }
+    }
+}
+
+fn main() / io + alloc {
+    let all_args = args()
+    if len(all_args) == 0 {
+        print_usage()
+        return nil
+    }
+
+    var mode = "ast"
+    var targets = []
+    var i = 0
+    while i < len(all_args) {
+        let arg = all_args[i]
+        if arg == "-h" || arg == "--help" {
+            print_usage()
+            return nil
+        } else if arg == "--tokens" {
+            mode = "tokens"
+            nil
+        } else if arg == "--ast" {
+            mode = "ast"
+            nil
+        } else if arg == "--check" {
+            mode = "check"
+            nil
+        } else if arg == "--walk" {
+            mode = "walk"
+            nil
+        } else {
+            push(targets, arg)
+            nil
+        }
+        i = i + 1
+    }
+
+    if len(targets) == 0 {
+        print("Error: No files or directories provided")
+        print_usage()
+        return nil
+    }
+
+    for target in targets {
+        if mode == "tokens" {
+            handle_tokens(target)
+        } else if mode == "check" {
+            handle_check(target)
+        } else if mode == "walk" {
+            handle_walk(target)
+        } else {
+            handle_ast(target)
+        }
+    }
+}

@@ -324,8 +324,8 @@ pub fn dump_expr(expr: Expr) -> String {
         }
         Expr.If(cond, then_b, else_b, _) => {
             match else_b {
-                Option.Some(eb) => "(if {dump_expr(cond)} {dump_block(then_b)} {dump_expr(eb)})"
-                Option.None => "(if {dump_expr(cond)} {dump_block(then_b)})"
+                option.Option.Some(eb) => "(if {dump_expr(cond)} {dump_block(then_b)} {dump_expr(eb)})"
+                option.Option.None => "(if {dump_expr(cond)} {dump_block(then_b)})"
             }
         }
         Expr.Match(scrutinee, arms, _) => {
@@ -364,8 +364,8 @@ pub fn dump_expr(expr: Expr) -> String {
         }
         Expr.Return(val, _) => {
             match val {
-                Option.Some(v) => "(return {dump_expr(v)})"
-                Option.None => "(return)"
+                option.Option.Some(v) => "(return {dump_expr(v)})"
+                option.Option.None => "(return)"
             }
         }
         Expr.Break(_) => "(break)"
@@ -390,14 +390,14 @@ pub fn dump_stmt(stmt: Stmt) -> String {
     match stmt {
         Stmt.Let(name, ty, val, _) => {
             match ty {
-                Option.Some(t) => "(let {name}:{dump_type(t)} {dump_expr(val)})"
-                Option.None => "(let {name} {dump_expr(val)})"
+                option.Option.Some(t) => "(let {name}:{dump_type(t)} {dump_expr(val)})"
+                option.Option.None => "(let {name} {dump_expr(val)})"
             }
         }
         Stmt.Var(name, ty, val, _) => {
             match ty {
-                Option.Some(t) => "(var {name}:{dump_type(t)} {dump_expr(val)})"
-                Option.None => "(var {name} {dump_expr(val)})"
+                option.Option.Some(t) => "(var {name}:{dump_type(t)} {dump_expr(val)})"
+                option.Option.None => "(var {name} {dump_expr(val)})"
             }
         }
         Stmt.While(cond, body, _) => "(while {dump_expr(cond)} {dump_block(body)})"
@@ -413,8 +413,8 @@ pub fn dump_item(item: Item) -> String {
             var p_strs = []
             for p in f.params {
                 match p.ty {
-                    Option.Some(t) => push(p_strs, "{p.name}:{dump_type(t)}")
-                    Option.None => push(p_strs, p.name)
+                    option.Option.Some(t) => push(p_strs, "{p.name}:{dump_type(t)}")
+                    option.Option.None => push(p_strs, p.name)
                 }
             }
             let tp_str = dump_type_params(f.type_params)
@@ -456,13 +456,13 @@ pub fn dump_item(item: Item) -> String {
                 if m.has_self { push(mp_strs, "self") }
                 for p in m.params {
                     match p.ty {
-                        Option.Some(pty) => push(mp_strs, "{p.name}:{dump_type(pty)}")
-                        Option.None => push(mp_strs, p.name)
+                        option.Option.Some(pty) => push(mp_strs, "{p.name}:{dump_type(pty)}")
+                        option.Option.None => push(mp_strs, p.name)
                     }
                 }
                 let ret_str = match m.ret_ty {
-                    Option.Some(rty) => " -> {dump_type(rty)}"
-                    Option.None => ""
+                    option.Option.Some(rty) => " -> {dump_type(rty)}"
+                    option.Option.None => ""
                 }
                 let joined_mp = join(mp_strs, ", ")
                 push(m_strs, "(fn {m.name} ({joined_mp}){ret_str})")
@@ -487,8 +487,8 @@ pub fn dump_item(item: Item) -> String {
         Item.Import(imp) => {
             let path_str = join(imp.path, ".")
             match imp.alias {
-                Option.Some(al) => "(import {path_str} as {al})"
-                Option.None => "(import {path_str})"
+                option.Option.Some(al) => "(import {path_str} as {al})"
+                option.Option.None => "(import {path_str})"
             }
         }
     }

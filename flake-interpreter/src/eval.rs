@@ -1929,9 +1929,16 @@ fn index_get(target: &Value, index: &Value, span: Span) -> EvalResult<Value> {
         }
         Value::String(s) => {
             let i = expect_int(index, span)?;
-            let chars: Vec<char> = s.chars().collect();
-            let idx = normalize_index(i, chars.len(), span)?;
-            Ok(Value::from_string(chars[idx].to_string()))
+            if s.is_ascii() {
+                let idx = normalize_index(i, s.len(), span)?;
+                let b = s.as_bytes()[idx];
+                Ok(Value::from_string((b as char).to_string()))
+            } else {
+                let char_count = s.chars().count();
+                let idx = normalize_index(i, char_count, span)?;
+                let ch = s.chars().nth(idx).unwrap();
+                Ok(Value::from_string(ch.to_string()))
+            }
         }
         Value::Map(map) => {
             let key = map_key(index, span)?;

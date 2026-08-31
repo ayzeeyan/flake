@@ -147,6 +147,36 @@ pub fn parse_type(p: Parser) -> result.Result[ast.TypeExpr, String] {
     var base_ty = ast.TypeExpr.DynType
 
     match tok.kind {
+        tokens.TokenKind.Amp => {
+            advance(p)
+            var is_mut = false
+            match peek(p).kind {
+                tokens.TokenKind.KwMut => { advance(p); is_mut = true; nil }
+                _ => nil
+            }
+            let inner = parse_type(p)?
+            let prefix = if is_mut { "&mut " } else { "&" }
+            base_ty = ast.TypeExpr.Named("{prefix}{ast.dump_type(inner)}", [])
+            nil
+        }
+        tokens.TokenKind.KwRef => {
+            advance(p)
+            let inner = parse_type(p)?
+            base_ty = ast.TypeExpr.Named("ref {ast.dump_type(inner)}", [])
+            nil
+        }
+        tokens.TokenKind.KwMut => {
+            advance(p)
+            let inner = parse_type(p)?
+            base_ty = ast.TypeExpr.Named("mut {ast.dump_type(inner)}", [])
+            nil
+        }
+        tokens.TokenKind.KwOwned => {
+            advance(p)
+            let inner = parse_type(p)?
+            base_ty = ast.TypeExpr.Named("owned {ast.dump_type(inner)}", [])
+            nil
+        }
         tokens.TokenKind.KwDyn => {
             advance(p)
             base_ty = ast.TypeExpr.DynType
@@ -344,64 +374,34 @@ pub fn parse_type(p: Parser) -> result.Result[ast.TypeExpr, String] {
 pub fn parse_pattern(p: Parser) -> result.Result[ast.Pattern, String] {
     let tok = peek(p)
     match tok.kind {
-        tokens.TokenKind.Ident(name) => {
+        tokens.TokenKind.Ident(first_name) => {
             advance(p)
-            if name == "_" {
+            if first_name == "_" {
                 return result.Result.Ok(ast.Pattern.Wildcard(tok.span))
             }
-            // Check for Enum.Variant(...) or Variant(...)
-            match peek(p).kind {
-                tokens.TokenKind.Dot => {
-                    advance(p)
-                    let vname = consume_ident(p, "variant name")?
-                    var subs = []
-                    match peek(p).kind {
-                        tokens.TokenKind.LParen => {
-                            advance(p)
-                            match peek(p).kind {
-                                tokens.TokenKind.RParen => {
-                                    advance(p)
-                                    nil
-                                }
-                                _ => {
-                                    var parsing = true
-                                    while parsing && !is_at_end(p) {
-                                        let sub = parse_pattern(p)?
-                                        push(subs, sub)
-                                        match peek(p).kind {
-                                            tokens.TokenKind.Comma => {
-                                                advance(p)
-                                                match peek(p).kind {
-                                                    tokens.TokenKind.RParen => {
-                                                        advance(p)
-                                                        parsing = false
-                                                        nil
-                                                    }
-                                                    _ => nil
-                                                }
-                                            }
-                                            tokens.TokenKind.RParen => {
-                                                advance(p)
-                                                parsing = false
-                                                nil
-                                            }
-                                            _ => {
-                                                return result.Result.Err("expected `,` or `)` in variant pattern at {span.format_span(peek(p).span)}")
-                                            }
-                                        }
-                                    }
-                                    nil
-                                }
-                            }
-                            nil
-                        }
-                        _ => nil
+            var segments = [first_name]
+            var parsing_dots = true
+            while parsing_dots && !is_at_end(p) {
+                match peek(p).kind {
+                    tokens.TokenKind.Dot => {
+                        advance(p)
+                        let next_seg = consume_ident(p, "pattern segment")?
+                        push(segments, next_seg)
+                        nil
                     }
-                    result.Result.Ok(ast.Pattern.Variant(name, vname, subs, tok.span))
+                    _ => {
+                        parsing_dots = false
+                        nil
+                    }
                 }
+            }
+
+            var subs = []
+            var has_parens = false
+            match peek(p).kind {
                 tokens.TokenKind.LParen => {
                     advance(p)
-                    var subs = []
+                    has_parens = true
                     match peek(p).kind {
                         tokens.TokenKind.RParen => {
                             advance(p)
@@ -437,11 +437,26 @@ pub fn parse_pattern(p: Parser) -> result.Result[ast.Pattern, String] {
                             nil
                         }
                     }
-                    result.Result.Ok(ast.Pattern.Variant("", name, subs, tok.span))
+                    nil
                 }
-                _ => {
-                    result.Result.Ok(ast.Pattern.Ident(name, tok.span))
+                _ => nil
+            }
+
+            if len(segments) == 1 {
+                if has_parens {
+                    result.Result.Ok(ast.Pattern.Variant("", first_name, subs, tok.span))
+                } else {
+                    result.Result.Ok(ast.Pattern.Ident(first_name, tok.span))
                 }
+            } else {
+                let vname = segments[len(segments) - 1]
+                var ty_name = segments[0]
+                var si = 1
+                while si < len(segments) - 1 {
+                    ty_name = "{ty_name}.{segments[si]}"
+                    si = si + 1
+                }
+                result.Result.Ok(ast.Pattern.Variant(ty_name, vname, subs, tok.span))
             }
         }
         tokens.TokenKind.IntLit(n) => {
@@ -678,6 +693,20 @@ fn parse_unary(p: Parser) -> result.Result[ast.Expr, String] {
             let inner = parse_unary(p)?
             result.Result.Ok(ast.Expr.Unary("!", inner, tok.span))
         }
+        tokens.TokenKind.Amp => {
+            advance(p)
+            var op = "&"
+            match peek(p).kind {
+                tokens.TokenKind.KwMut => {
+                    advance(p)
+                    op = "&mut"
+                    nil
+                }
+                _ => nil
+            }
+            let inner = parse_unary(p)?
+            result.Result.Ok(ast.Expr.Unary(op, inner, tok.span))
+        }
         tokens.TokenKind.KwAwait => {
             advance(p)
             let inner = parse_unary(p)?
@@ -719,9 +748,13 @@ fn parse_postfix(p: Parser) -> result.Result[ast.Expr, String] {
     var expr = parse_primary(p)?
 
     while !is_at_end(p) {
+        let prev_tok = p.tokens[p.cursor - 1]
         let tok = peek(p)
         match tok.kind {
             tokens.TokenKind.LParen => {
+                if tok.span.line != prev_tok.span.line {
+                    return result.Result.Ok(expr)
+                }
                 advance(p)
                 var args = []
                 match peek(p).kind {
@@ -763,6 +796,9 @@ fn parse_postfix(p: Parser) -> result.Result[ast.Expr, String] {
                 nil
             }
             tokens.TokenKind.LBracket => {
+                if tok.span.line != prev_tok.span.line {
+                    return result.Result.Ok(expr)
+                }
                 advance(p)
                 let idx = parse_expr(p)?
                 match peek(p).kind {
@@ -782,6 +818,72 @@ fn parse_postfix(p: Parser) -> result.Result[ast.Expr, String] {
                 advance(p)
                 expr = ast.Expr.Try(expr, tok.span)
                 nil
+            }
+            tokens.TokenKind.LBrace => {
+                let brace_tok = peek(p)
+                let next1 = peek_ahead(p, 1)
+                let next2 = peek_ahead(p, 2)
+                let is_struct_init = match next1.kind {
+                    tokens.TokenKind.Ident(_) => {
+                        match next2.kind {
+                            tokens.TokenKind.Colon => true
+                            _ => false
+                        }
+                    }
+                    tokens.TokenKind.RBrace => true
+                    _ => false
+                }
+                if brace_tok.span.line == prev_tok.span.line && is_struct_init {
+                    advance(p) // consume LBrace
+                    var fields = []
+                    match peek(p).kind {
+                        tokens.TokenKind.RBrace => {
+                            advance(p)
+                            nil
+                        }
+                        _ => {
+                            var parsing = true
+                            while parsing && !is_at_end(p) {
+                                let fname = consume_ident(p, "field name")?
+                                match peek(p).kind {
+                                    tokens.TokenKind.Colon => { advance(p); nil }
+                                    _ => { return result.Result.Err("expected `:` in struct init at {span.format_span(peek(p).span)}") }
+                                }
+                                let fval = parse_expr(p)?
+                                push(fields, ast.StructInitField { name: fname, value: fval })
+                                match peek(p).kind {
+                                    tokens.TokenKind.Comma => {
+                                        advance(p)
+                                        match peek(p).kind {
+                                            tokens.TokenKind.RBrace => {
+                                                advance(p)
+                                                parsing = false
+                                                nil
+                                            }
+                                            _ => nil
+                                        }
+                                    }
+                                    tokens.TokenKind.RBrace => {
+                                        advance(p)
+                                        parsing = false
+                                        nil
+                                    }
+                                    _ => nil
+                                }
+                            }
+                            nil
+                        }
+                    }
+                    var sname = ""
+                    match expr {
+                        ast.Expr.Ident(n, _) => { sname = n; nil }
+                        _ => { sname = ast.dump_expr(expr); nil }
+                    }
+                    expr = ast.Expr.StructInit(sname, fields, tok.span)
+                    nil
+                } else {
+                    return result.Result.Ok(expr)
+                }
             }
             _ => { return result.Result.Ok(expr) }
         }
@@ -818,70 +920,6 @@ fn parse_primary(p: Parser) -> result.Result[ast.Expr, String] {
         }
         tokens.TokenKind.Ident(name) => {
             advance(p)
-            // Check for StructInit: Point { x: 1, y: 2 }
-            match peek(p).kind {
-                tokens.TokenKind.LBrace => {
-                    let next1 = peek_ahead(p, 1)
-                    let next2 = peek_ahead(p, 2)
-                    let is_struct_init = match next1.kind {
-                        tokens.TokenKind.Ident(_) => {
-                            match next2.kind {
-                                tokens.TokenKind.Colon => true
-                                _ => false
-                            }
-                        }
-                        tokens.TokenKind.RBrace => true
-                        _ => false
-                    }
-                    if is_struct_init {
-                        advance(p) // consume LBrace
-                        var fields = []
-                        match peek(p).kind {
-                            tokens.TokenKind.RBrace => {
-                                advance(p)
-                                nil
-                            }
-                            _ => {
-                                var parsing = true
-                                while parsing && !is_at_end(p) {
-                                    let fname = consume_ident(p, "field name")?
-                                    match peek(p).kind {
-                                        tokens.TokenKind.Colon => { advance(p); nil }
-                                        _ => { return result.Result.Err("expected `:` in struct init at {span.format_span(peek(p).span)}") }
-                                    }
-                                    let fval = parse_expr(p)?
-                                    push(fields, ast.StructInitField { name: fname, value: fval })
-                                    match peek(p).kind {
-                                        tokens.TokenKind.Comma => {
-                                            advance(p)
-                                            match peek(p).kind {
-                                                tokens.TokenKind.RBrace => {
-                                                    advance(p)
-                                                    parsing = false
-                                                    nil
-                                                }
-                                                _ => nil
-                                            }
-                                        }
-                                        tokens.TokenKind.RBrace => {
-                                            advance(p)
-                                            parsing = false
-                                            nil
-                                        }
-                                        _ => {
-                                            return result.Result.Err("expected `,` or `\}` in struct init at {span.format_span(peek(p).span)}")
-                                        }
-                                    }
-                                }
-                                nil
-                            }
-                        }
-                        return result.Result.Ok(ast.Expr.StructInit(name, fields, tok.span))
-                    }
-                    nil
-                }
-                _ => nil
-            }
             result.Result.Ok(ast.Expr.Ident(name, tok.span))
         }
         tokens.TokenKind.LParen => {
@@ -934,8 +972,78 @@ fn parse_primary(p: Parser) -> result.Result[ast.Expr, String] {
             result.Result.Ok(ast.Expr.ListLit(items, tok.span))
         }
         tokens.TokenKind.LBrace => {
-            let b = parse_block(p)?
-            result.Result.Ok(ast.Expr.Block(b))
+            let next1 = peek_ahead(p, 1)
+            let next2 = peek_ahead(p, 2)
+            let is_map = match next1.kind {
+                tokens.TokenKind.RBrace => true
+                tokens.TokenKind.StringLit(_) => {
+                    match next2.kind {
+                        tokens.TokenKind.Colon => true
+                        _ => false
+                    }
+                }
+                tokens.TokenKind.IntLit(_) => {
+                    match next2.kind {
+                        tokens.TokenKind.Colon => true
+                        _ => false
+                    }
+                }
+                tokens.TokenKind.Ident(_) => {
+                    match next2.kind {
+                        tokens.TokenKind.Colon => true
+                        _ => false
+                    }
+                }
+                _ => false
+            }
+            if is_map {
+                advance(p) // consume LBrace
+                var entries = []
+                match peek(p).kind {
+                    tokens.TokenKind.RBrace => {
+                        advance(p)
+                        nil
+                    }
+                    _ => {
+                        var parsing = true
+                        while parsing && !is_at_end(p) {
+                            let k = parse_expr(p)?
+                            match peek(p).kind {
+                                tokens.TokenKind.Colon => { advance(p); nil }
+                                _ => { return result.Result.Err("expected `:` in map entry at {span.format_span(peek(p).span)}") }
+                            }
+                            let v = parse_expr(p)?
+                            push(entries, ast.MapEntry { key: k, value: v })
+                            match peek(p).kind {
+                                tokens.TokenKind.Comma => {
+                                    advance(p)
+                                    match peek(p).kind {
+                                        tokens.TokenKind.RBrace => {
+                                            advance(p)
+                                            parsing = false
+                                            nil
+                                        }
+                                        _ => nil
+                                    }
+                                }
+                                tokens.TokenKind.RBrace => {
+                                    advance(p)
+                                    parsing = false
+                                    nil
+                                }
+                                _ => {
+                                    return result.Result.Err("expected `,` or `\}` in map literal at {span.format_span(peek(p).span)}")
+                                }
+                            }
+                        }
+                        nil
+                    }
+                }
+                result.Result.Ok(ast.Expr.MapLit(entries, tok.span))
+            } else {
+                let b = parse_block(p)?
+                result.Result.Ok(ast.Expr.Block(b))
+            }
         }
         tokens.TokenKind.KwIf => {
             advance(p)
@@ -973,12 +1081,22 @@ fn parse_primary(p: Parser) -> result.Result[ast.Expr, String] {
                     _ => nil
                 }
                 let pat = parse_pattern(p)?
+                var guard_opt = option.Option.None
+                match peek(p).kind {
+                    tokens.TokenKind.KwIf => {
+                        advance(p)
+                        let g = parse_expr(p)?
+                        guard_opt = option.Option.Some(g)
+                        nil
+                    }
+                    _ => nil
+                }
                 match peek(p).kind {
                     tokens.TokenKind.FatArrow => { advance(p); nil }
                     _ => { return result.Result.Err("expected `=>` in match arm at {span.format_span(peek(p).span)}") }
                 }
                 let arm_body = parse_expr(p)?
-                push(arms, ast.MatchArm { pattern: pat, guard: option.Option.None, body: arm_body })
+                push(arms, ast.MatchArm { pattern: pat, guard: guard_opt, body: arm_body })
                 match peek(p).kind {
                     tokens.TokenKind.Comma => { advance(p); nil }
                     tokens.TokenKind.RBrace => { advance(p); break }
@@ -1017,10 +1135,20 @@ pub fn parse_block(p: Parser) -> result.Result[ast.BlockExpr, String] {
                 advance(p)
                 return result.Result.Ok(ast.BlockExpr { stmts: stmts, span: start_sp })
             }
-            _ => nil
+            tokens.TokenKind.Semicolon => {
+                advance(p)
+                nil
+            }
+            _ => {
+                let s = parse_stmt(p)?
+                push(stmts, s)
+                match peek(p).kind {
+                    tokens.TokenKind.Semicolon => { advance(p); nil }
+                    _ => nil
+                }
+                nil
+            }
         }
-        let s = parse_stmt(p)?
-        push(stmts, s)
     }
     result.Result.Err("unclosed `\{` in block starting at {span.format_span(start_sp)}")
 }
@@ -1276,9 +1404,7 @@ pub fn parse_item(p: Parser) -> result.Result[ast.Item, String] {
                                 parsing = false
                                 nil
                             }
-                            _ => {
-                                return result.Result.Err("expected `,` or `\}` in struct fields at {span.format_span(peek(p).span)}")
-                            }
+                            _ => nil
                         }
                     }
                     nil

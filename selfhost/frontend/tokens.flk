@@ -76,6 +76,9 @@ pub enum TokenKind {
     RBrace        // }
     LBracket      // [
     RBracket      // ]
+    Amp           // &
+    Pipe          // |
+    Semicolon     // ;
 
     // Special
     Eof
@@ -166,6 +169,15 @@ pub fn token_kind_name(kind: TokenKind) -> String {
         TokenKind.RBrace => "\}"
         TokenKind.LBracket => "["
         TokenKind.RBracket => "]"
+        TokenKind.Amp => "&"
+        TokenKind.Pipe => "|"
+        TokenKind.Semicolon => ";"
         TokenKind.Eof => "<eof>"
     }
+}
+
+pub fn format_token(tok: Token) -> String {
+    let loc = span.format_span(tok.span)
+    let k = token_kind_name(tok.kind)
+    "{loc} {k} \"{tok.text}\""
 }

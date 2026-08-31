@@ -96,6 +96,9 @@ fn scan_1char_op(c: String) -> option.Option[tokens.TokenKind] {
     if c == "\}" { return option.Option.Some(tokens.TokenKind.RBrace) }
     if c == "[" { return option.Option.Some(tokens.TokenKind.LBracket) }
     if c == "]" { return option.Option.Some(tokens.TokenKind.RBracket) }
+    if c == "&" { return option.Option.Some(tokens.TokenKind.Amp) }
+    if c == "|" { return option.Option.Some(tokens.TokenKind.Pipe) }
+    if c == ";" { return option.Option.Some(tokens.TokenKind.Semicolon) }
     option.Option.None
 }
 
