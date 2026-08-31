@@ -111,7 +111,36 @@ fn print_item(item: &Item, out: &mut String) {
             }
             out.push_str("trait ");
             out.push_str(&t.name.name);
-            out.push_str(" {}");
+            if t.methods.is_empty() {
+                out.push_str(" {}");
+            } else {
+                out.push_str(" {\n");
+                for m in &t.methods {
+                    pad(1, out);
+                    out.push_str("fn ");
+                    out.push_str(&m.name.name);
+                    print_type_params(&m.type_params, out);
+                    out.push('(');
+                    for (i, p) in m.params.iter().enumerate() {
+                        if i > 0 {
+                            out.push_str(", ");
+                        }
+                        out.push_str(&p.name.name);
+                        if let Some(ty) = &p.ty {
+                            out.push_str(": ");
+                            print_type(ty, out);
+                        }
+                    }
+                    out.push(')');
+                    if let Some(ret) = &m.return_type {
+                        out.push_str(" -> ");
+                        print_type(ret, out);
+                    }
+                    print_effects(&m.effects, out);
+                    out.push('\n');
+                }
+                out.push('}');
+            }
         }
         Item::Impl(i) => {
             out.push_str("impl");
@@ -120,7 +149,17 @@ fn print_item(item: &Item, out: &mut String) {
             out.push_str(&i.trait_name.name);
             out.push_str(" for ");
             print_type(&i.ty, out);
-            out.push_str(" {}");
+            if i.methods.is_empty() {
+                out.push_str(" {}");
+            } else {
+                out.push_str(" {\n");
+                for m in &i.methods {
+                    pad(1, out);
+                    print_fn(m, out);
+                    out.push('\n');
+                }
+                out.push('}');
+            }
         }
     }
 }

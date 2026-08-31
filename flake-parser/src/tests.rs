@@ -604,6 +604,46 @@ impl[T: Eq] Eq for Box[T] {}
 }
 
 #[test]
+fn trait_methods_parse_and_pretty_print() {
+    let src = r#"
+trait Show {
+    fn show(self) -> String
+    fn describe(self, prefix: String) -> String / io
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+
+    fn describe(self, prefix: String) -> String / io {
+        "{prefix}: {self}"
+    }
+}
+"#;
+    let program = parse_ok(src);
+    let Item::Trait(tr) = &program.items[0] else {
+        panic!("expected trait");
+    };
+    assert_eq!(tr.methods.len(), 2);
+    assert_eq!(tr.methods[0].name.name, "show");
+    assert_eq!(tr.methods[1].name.name, "describe");
+
+    let Item::Impl(imp) = &program.items[1] else {
+        panic!("expected impl");
+    };
+    assert_eq!(imp.methods.len(), 2);
+    assert_eq!(imp.methods[0].name.name, "show");
+    assert_eq!(imp.methods[1].name.name, "describe");
+
+    let pretty = print_program(&program);
+    assert!(pretty.contains("fn show(self) -> String"));
+    assert!(pretty.contains("fn describe(self, prefix: String) -> String / io"));
+    let reparsed = parse_str(&pretty).expect("pretty-printed trait methods should parse");
+    assert_eq!(reparsed.items.len(), program.items.len());
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

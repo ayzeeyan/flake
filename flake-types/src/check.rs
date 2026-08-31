@@ -4,13 +4,33 @@ use std::collections::{HashMap, HashSet};
 
 use flake_ast::{
     AssignOp, BinOp, Block, Expr, FnDecl, ImplDecl, InterpPart, Item, Literal, Program, Source,
-    Span, Stmt, TypeExpr, TypeParam, UnOp,
+    Span, Stmt, TraitDecl, TypeExpr, TypeParam, UnOp,
 };
 use flake_parser::{ModuleGraph, import_alias, load_graph};
 
 use crate::effects::{Effect, EffectSet};
 use crate::error::{CheckError, TypeError};
 use crate::ty::Type;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct TraitMethodDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub param_bounds: Vec<(String, Vec<String>)>,
+    pub params: Vec<Type>,
+    pub ret: Type,
+    pub effects: flake_ast::EffectSet,
+    pub span: Span,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct TraitDef {
+    pub name: String,
+    pub methods: Vec<TraitMethodDef>,
+    pub span: Span,
+}
 
 struct Checker {
     subst: Vec<Option<Type>>,
@@ -28,7 +48,7 @@ struct Checker {
     struct_param_bounds: HashMap<String, Vec<(String, Vec<String>)>>,
     enum_param_bounds: HashMap<String, Vec<(String, Vec<String>)>>,
     alias_param_bounds: HashMap<String, Vec<(String, Vec<String>)>>,
-    traits: HashSet<String>,
+    traits: HashMap<String, TraitDef>,
     impls: Vec<TraitImpl>,
     ambiguous_imports: HashMap<String, Vec<String>>,
     type_context: Option<String>,
@@ -38,11 +58,14 @@ struct Checker {
     active_param_bounds: HashMap<String, Vec<String>>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TraitImpl {
     trait_name: String,
     type_ctor: String,
+    target_type: Type,
     param_bounds: Vec<(String, Vec<String>)>,
+    methods: HashMap<String, FnDecl>,
 }
 
 fn substitute_type(ty: &Type, mapping: &HashMap<String, Type>) -> Type {
@@ -250,7 +273,19 @@ impl Checker {
             struct_param_bounds: HashMap::new(),
             enum_param_bounds: HashMap::new(),
             alias_param_bounds: HashMap::new(),
-            traits: ["Eq", "Ord", "Hash"].into_iter().map(str::to_string).collect(),
+            traits: ["Eq", "Ord", "Hash"]
+                .into_iter()
+                .map(|s| {
+                    (
+                        s.to_string(),
+                        TraitDef {
+                            name: s.to_string(),
+                            methods: Vec::new(),
+                            span: Span::DUMMY,
+                        },
+                    )
+                })
+                .collect(),
             impls: Vec::new(),
             ambiguous_imports: HashMap::new(),
             type_context: None,
@@ -912,7 +947,8 @@ impl Checker {
             for item in &imported.program.items {
                 match item {
                     Item::Trait(tr) => {
-                        self.traits.insert(tr.name.name.clone());
+                        let trait_def = self.lower_trait_decl(tr)?;
+                        self.traits.insert(tr.name.name.clone(), trait_def);
                     }
                     Item::Impl(imp) => {
                         self.register_impl(imp)?;
@@ -989,7 +1025,7 @@ impl Checker {
         validate_public_api(program)?;
         for item in &program.items {
             if let Item::Trait(tr) = item {
-                if !self.traits.insert(tr.name.name.clone())
+                if self.traits.contains_key(&tr.name.name)
                     && !matches!(tr.name.name.as_str(), "Eq" | "Ord" | "Hash")
                 {
                     return Err(TypeError::new(
@@ -997,6 +1033,8 @@ impl Checker {
                         format!("duplicate trait `{}`", tr.name.name),
                     ));
                 }
+                let trait_def = self.lower_trait_decl(tr)?;
+                self.traits.insert(tr.name.name.clone(), trait_def);
             }
         }
         for item in &program.items {
@@ -1135,12 +1173,12 @@ impl Checker {
         for item in &program.items {
             match item {
                 Item::Fn(func) => self.check_fn(func)?,
+                Item::Impl(imp) => self.check_impl_methods(imp)?,
                 Item::Import(_)
                 | Item::Struct(_)
                 | Item::Enum(_)
                 | Item::Type(_)
-                | Item::Trait(_)
-                | Item::Impl(_) => {}
+                | Item::Trait(_) => {}
             }
         }
         self.check_effects(program)?;
@@ -1675,8 +1713,95 @@ impl Checker {
         Ok(())
     }
 
+    fn lower_trait_decl(&mut self, tr: &TraitDecl) -> Result<TraitDef, TypeError> {
+        let mut methods = Vec::new();
+        let mut seen_methods = HashSet::new();
+        for m in &tr.methods {
+            if !seen_methods.insert(m.name.name.as_str()) {
+                return Err(TypeError::new(
+                    m.name.span,
+                    format!("duplicate method `{}` in trait `{}`", m.name.name, tr.name.name),
+                ));
+            }
+            self.check_type_param_bounds(&m.type_params)?;
+            let tparams: Vec<String> = m.type_params.iter().map(|p| p.name.name.clone()).collect();
+            let param_bounds = type_param_bound_list(&m.type_params);
+            for tp in &tparams {
+                self.active_type_params.insert(tp.clone());
+                if let Some((_, b)) = param_bounds.iter().find(|(n, _)| n == tp) {
+                    self.active_param_bounds.insert(tp.clone(), b.clone());
+                }
+            }
+            self.active_type_params.insert("Self".to_string());
+
+            let mut params = Vec::new();
+            if m.params.is_empty() {
+                return Err(TypeError::new(
+                    m.span,
+                    format!("trait method `{}` must have `self` as first parameter", m.name.name),
+                ));
+            }
+            for (i, p) in m.params.iter().enumerate() {
+                if i == 0 {
+                    if p.name.name != "self" {
+                        return Err(TypeError::new(
+                            p.span,
+                            format!("first parameter of trait method `{}` must be `self`", m.name.name),
+                        ));
+                    }
+                    if let Some(ty_expr) = &p.ty {
+                        params.push(self.lower_type(ty_expr)?);
+                    } else {
+                        params.push(Type::Param("Self".to_string()));
+                    }
+                } else {
+                    if p.name.name == "self" {
+                        return Err(TypeError::new(
+                            p.span,
+                            format!("cannot have multiple `self` parameters in method `{}`", m.name.name),
+                        ));
+                    }
+                    if let Some(ty_expr) = &p.ty {
+                        params.push(self.lower_type(ty_expr)?);
+                    } else {
+                        return Err(TypeError::new(
+                            p.span,
+                            format!("parameter `{}` in trait method `{}` must have a type annotation", p.name.name, m.name.name),
+                        ));
+                    }
+                }
+            }
+            let ret = if let Some(r) = &m.return_type {
+                self.lower_type(r)?
+            } else {
+                Type::Nil
+            };
+
+            self.active_type_params.remove("Self");
+            for tp in &tparams {
+                self.active_type_params.remove(tp);
+                self.active_param_bounds.remove(tp);
+            }
+
+            methods.push(TraitMethodDef {
+                name: m.name.name.clone(),
+                type_params: tparams,
+                param_bounds,
+                params,
+                ret,
+                effects: m.effects.clone(),
+                span: m.span,
+            });
+        }
+        Ok(TraitDef {
+            name: tr.name.name.clone(),
+            methods,
+            span: tr.span,
+        })
+    }
+
     fn is_known_trait(&self, name: &str) -> bool {
-        self.traits.contains(name)
+        self.traits.contains_key(name)
     }
 
     fn register_impl(&mut self, imp: &ImplDecl) -> Result<(), TypeError> {
@@ -1687,6 +1812,18 @@ impl Checker {
                 format!("unknown trait `{}`", imp.trait_name.name),
                 "declare the trait before implementing it",
             ));
+        }
+        for tp in &imp.type_params {
+            self.active_type_params.insert(tp.name.name.clone());
+            self.active_param_bounds.insert(
+                tp.name.name.clone(),
+                tp.bounds.iter().map(|b| b.name.clone()).collect(),
+            );
+        }
+        let target_type = self.lower_type(&imp.ty)?;
+        for tp in &imp.type_params {
+            self.active_type_params.remove(&tp.name.name);
+            self.active_param_bounds.remove(&tp.name.name);
         }
         let (type_ctor, _) = impl_target(&imp.ty)?;
         let key = (imp.trait_name.name.clone(), type_ctor.clone());
@@ -1700,12 +1837,240 @@ impl Checker {
                 format!("duplicate implementation of `{}` for `{}`", key.0, key.1),
             ));
         }
+        let trait_def = self.traits.get(&imp.trait_name.name).cloned().unwrap();
+        if trait_def.methods.is_empty() {
+            if !imp.methods.is_empty() {
+                return Err(TypeError::new(
+                    imp.methods[0].span,
+                    format!("trait `{}` has no methods", trait_def.name),
+                ));
+            }
+        } else {
+            for required in &trait_def.methods {
+                if !imp.methods.iter().any(|m| m.name.name == required.name) {
+                    return Err(TypeError::with_help(
+                        imp.span,
+                        format!("missing method `{}` for trait `{}`", required.name, trait_def.name),
+                        format!("implement `fn {}(...)` in the impl block", required.name),
+                    ));
+                }
+            }
+            let mut seen_impl_methods = HashSet::new();
+            for m_impl in &imp.methods {
+                if !seen_impl_methods.insert(m_impl.name.name.as_str()) {
+                    return Err(TypeError::new(
+                        m_impl.name.span,
+                        format!("duplicate method `{}` in impl", m_impl.name.name),
+                    ));
+                }
+                let Some(m_def) = trait_def.methods.iter().find(|m| m.name == m_impl.name.name) else {
+                    return Err(TypeError::new(
+                        m_impl.name.span,
+                        format!("method `{}` is not a member of trait `{}`", m_impl.name.name, trait_def.name),
+                    ));
+                };
+                if m_impl.params.len() != m_def.params.len() {
+                    return Err(TypeError::new(
+                        m_impl.span,
+                        format!(
+                            "method `{}` has {} parameter(s), expected {}",
+                            m_impl.name.name,
+                            m_impl.params.len(),
+                            m_def.params.len()
+                        ),
+                    ));
+                }
+                if m_impl.params.is_empty() || m_impl.params[0].name.name != "self" {
+                    let sp = m_impl.params.first().map_or(m_impl.span, |p| p.span);
+                    return Err(TypeError::new(
+                        sp,
+                        format!("first parameter of method `{}` must be `self`", m_impl.name.name),
+                    ));
+                }
+            }
+        }
+
+        let mut methods_map = HashMap::new();
+        for m in &imp.methods {
+            methods_map.insert(m.name.name.clone(), m.clone());
+        }
         self.impls.push(TraitImpl {
             trait_name: imp.trait_name.name.clone(),
             type_ctor,
+            target_type,
             param_bounds: type_param_bound_list(&imp.type_params),
+            methods: methods_map,
         });
         Ok(())
+    }
+
+    fn check_impl_methods(&mut self, imp: &ImplDecl) -> Result<(), TypeError> {
+        for tp in &imp.type_params {
+            self.active_type_params.insert(tp.name.name.clone());
+            self.active_param_bounds.insert(
+                tp.name.name.clone(),
+                tp.bounds.iter().map(|b| b.name.clone()).collect(),
+            );
+        }
+        let target_type = self.lower_type(&imp.ty)?;
+        let trait_def = self.traits.get(&imp.trait_name.name).cloned();
+        if let Some(trait_def) = trait_def {
+            for func in &imp.methods {
+                let Some(m_def) = trait_def.methods.iter().find(|m| m.name == func.name.name) else {
+                    continue;
+                };
+                let mut mapping = HashMap::new();
+                mapping.insert("Self".to_string(), target_type.clone());
+                let expected_params: Vec<Type> = m_def
+                    .params
+                    .iter()
+                    .map(|p| substitute_type(p, &mapping))
+                    .collect();
+                let expected_ret = substitute_type(&m_def.ret, &mapping);
+
+                for tp in &func.type_params {
+                    self.active_type_params.insert(tp.name.name.clone());
+                    self.active_param_bounds.insert(
+                        tp.name.name.clone(),
+                        tp.bounds.iter().map(|b| b.name.clone()).collect(),
+                    );
+                }
+                self.push_scope();
+                for (i, param) in func.params.iter().enumerate() {
+                    let ty = if let Some(pt) = expected_params.get(i) {
+                        pt.clone()
+                    } else if let Some(te) = &param.ty {
+                        self.lower_type(te)?
+                    } else {
+                        Type::Dyn
+                    };
+                    self.define(param.name.name.clone(), ty);
+                }
+                self.current_returns.push(expected_ret.clone());
+                let body_ty = self.check_block(&func.body)?;
+                if contains_task(&self.resolve(&body_ty).without_ownership()) {
+                    return Err(TypeError::with_help(
+                        func.body.span,
+                        "task handle cannot escape its spawning function",
+                        "await the task inside this function and return its result instead",
+                    ));
+                }
+                if !block_definitely_returns(&func.body) {
+                    self.unify(&body_ty, &expected_ret, func.body.span)?;
+                }
+                self.current_returns.pop();
+                self.pop_scope();
+                for tp in &func.type_params {
+                    self.active_type_params.remove(&tp.name.name);
+                    self.active_param_bounds.remove(&tp.name.name);
+                }
+            }
+        }
+        for tp in &imp.type_params {
+            self.active_type_params.remove(&tp.name.name);
+            self.active_param_bounds.remove(&tp.name.name);
+        }
+        Ok(())
+    }
+
+    fn lookup_trait_method_type(
+        &mut self,
+        target_ty: &Type,
+        method_name: &str,
+        method_span: Span,
+    ) -> Result<Type, TypeError> {
+        let resolved = self.resolve(target_ty).without_ownership();
+        match &resolved {
+            Type::Dyn | Type::Var(_) => Ok(Type::Dyn),
+            Type::Param(p_name) => {
+                let bounds = self.active_param_bounds.get(p_name).cloned().unwrap_or_default();
+                let mut found_method = None;
+                for tr_name in &bounds {
+                    if let Some(tr_def) = self.traits.get(tr_name) {
+                        if let Some(m_def) = tr_def.methods.iter().find(|m| m.name == method_name) {
+                            found_method = Some(m_def.clone());
+                            break;
+                        }
+                    }
+                }
+                if let Some(m_def) = found_method {
+                    let mut mapping = HashMap::new();
+                    mapping.insert("Self".to_string(), target_ty.clone());
+                    let params: Vec<Type> = m_def
+                        .params
+                        .iter()
+                        .skip(1)
+                        .map(|p| substitute_type(p, &mapping))
+                        .collect();
+                    let ret = substitute_type(&m_def.ret, &mapping);
+                    let effects = EffectSet::from_names(m_def.effects.names(), m_def.effects.specified);
+                    Ok(Type::function(params, ret, effects))
+                } else {
+                    let defining_traits: Vec<String> = self
+                        .traits
+                        .values()
+                        .filter(|tr| tr.methods.iter().any(|m| m.name == method_name))
+                        .map(|tr| tr.name.clone())
+                        .collect();
+                    if !defining_traits.is_empty() {
+                        Err(TypeError::with_help(
+                            method_span,
+                            format!("no method `{method_name}` on type parameter `{p_name}`"),
+                            format!("add a trait bound `{p_name}: {}`", defining_traits.join(" + ")),
+                        ))
+                    } else {
+                        Err(TypeError::new(
+                            method_span,
+                            format!("no method `{method_name}` on type `{p_name}`"),
+                        ))
+                    }
+                }
+            }
+            concrete => {
+                let mut found_method = None;
+                for tr_def in self.traits.clone().values() {
+                    if let Some(m_def) = tr_def.methods.iter().find(|m| m.name == method_name) {
+                        if self.type_implements(concrete, &tr_def.name) {
+                            found_method = Some(m_def.clone());
+                            break;
+                        }
+                    }
+                }
+                if let Some(m_def) = found_method {
+                    let mut mapping = HashMap::new();
+                    mapping.insert("Self".to_string(), target_ty.clone());
+                    let params: Vec<Type> = m_def
+                        .params
+                        .iter()
+                        .skip(1)
+                        .map(|p| substitute_type(p, &mapping))
+                        .collect();
+                    let ret = substitute_type(&m_def.ret, &mapping);
+                    let effects = EffectSet::from_names(m_def.effects.names(), m_def.effects.specified);
+                    Ok(Type::function(params, ret, effects))
+                } else {
+                    let defining_traits: Vec<String> = self
+                        .traits
+                        .values()
+                        .filter(|tr| tr.methods.iter().any(|m| m.name == method_name))
+                        .map(|tr| tr.name.clone())
+                        .collect();
+                    if !defining_traits.is_empty() {
+                        let tr_name = &defining_traits[0];
+                        Err(TypeError::with_help(
+                            method_span,
+                            format!("type `{concrete}` does not implement `{tr_name}` (required for method `{method_name}`)"),
+                            format!("write `impl {tr_name} for {concrete} {{ ... }}`"),
+                        ))
+                    } else {
+                        Err(TypeError::new(
+                            method_span,
+                            format!("no method or field `{method_name}` on type `{concrete}`"),
+                        ))
+                    }
+                }
+            }
+        }
     }
 
     fn param_has_bound(&self, param: &str, trait_name: &str) -> bool {
@@ -2314,26 +2679,36 @@ impl Checker {
                     Type::Struct { name, fields } => {
                         if let Some((_, ty)) = fields.iter().find(|(n, _)| n == &field.name) {
                             Ok(ty.clone())
-                        } else if fields.is_empty() {
-                            if let Some(Type::Struct { fields, .. }) = self.structs.get(&name) {
-                                fields
-                                    .iter()
-                                    .find(|(n, _)| n == &field.name)
-                                    .map(|(_, ty)| ty.clone())
-                                    .ok_or_else(|| {
-                                        TypeError::new(
-                                            field.span,
-                                            format!("no field `{}` on {name}", field.name),
-                                        )
-                                    })
-                            } else {
-                                Ok(Type::Dyn)
-                            }
+                        } else if fields.is_empty()
+                            && self.structs.get(&name).is_some_and(|s| {
+                                if let Type::Struct { fields, .. } = s {
+                                    fields.iter().any(|(n, _)| n == &field.name)
+                                } else {
+                                    false
+                                }
+                            })
+                        {
+                            let ty = self
+                                .structs
+                                .get(&name)
+                                .and_then(|s| {
+                                    if let Type::Struct { fields, .. } = s {
+                                        fields
+                                            .iter()
+                                            .find(|(n, _)| n == &field.name)
+                                            .map(|(_, ty)| ty.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap();
+                            Ok(ty)
+                        } else if let Ok(method_ty) =
+                            self.lookup_trait_method_type(&t, &field.name, field.span)
+                        {
+                            Ok(method_ty)
                         } else {
-                            Err(TypeError::new(
-                                field.span,
-                                format!("no field `{}` on {name}", field.name),
-                            ))
+                            self.lookup_trait_method_type(&t, &field.name, field.span)
                         }
                     }
                     Type::Module { name, members } => members
@@ -2355,6 +2730,11 @@ impl Checker {
                         let Type::Enum { name, variants } = instantiated else { unreachable!() };
                         let Some((_, fields)) = variants.iter().find(|(n, _)| n == &field.name)
                         else {
+                            if let Ok(method_ty) =
+                                self.lookup_trait_method_type(&t, &field.name, field.span)
+                            {
+                                return Ok(method_ty);
+                            }
                             let listed: Vec<_> = variants.iter().map(|(n, _)| n.as_str()).collect();
                             return Err(TypeError::with_help(
                                 field.span,
@@ -2376,10 +2756,7 @@ impl Checker {
                         }
                     }
                     Type::Dyn | Type::Var(_) => Ok(Type::Dyn),
-                    other => Err(TypeError::new(
-                        field.span,
-                        format!("cannot access field `{}` on {other}", field.name),
-                    )),
+                    _other => self.lookup_trait_method_type(&t, &field.name, field.span),
                 }
             }
             Expr::Range { start, end, span } => {
@@ -3049,7 +3426,15 @@ fn validate_public_api(program: &Program) -> Result<(), TypeError> {
                     .collect(),
             ),
             Item::Type(alias) => (format!("type alias `{}`", alias.name.name), vec![&alias.ty]),
-            Item::Import(_) | Item::Trait(_) | Item::Impl(_) => continue,
+            Item::Trait(tr) => {
+                let mut types = Vec::new();
+                for m in &tr.methods {
+                    types.extend(m.params.iter().filter_map(|p| p.ty.as_ref()));
+                    types.extend(m.return_type.as_ref());
+                }
+                (format!("trait `{}`", tr.name.name), types)
+            }
+            Item::Import(_) | Item::Impl(_) => continue,
         };
         for ty in types {
             if let Some((name, span)) = private_type_in(ty, &private_types) {

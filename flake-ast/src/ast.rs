@@ -81,20 +81,33 @@ impl TypeParam {
     }
 }
 
-/// A marker trait declaration (`trait Eq {}`).
+/// A trait method signature (`fn show(self) -> String`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethodSig {
+    pub name: Ident,
+    pub type_params: Vec<TypeParam>,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeExpr>,
+    pub effects: EffectSet,
+    pub span: Span,
+}
+
+/// A trait declaration (`trait Show { fn show(self) -> String }`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitDecl {
     pub is_pub: bool,
     pub name: Ident,
+    pub methods: Vec<TraitMethodSig>,
     pub span: Span,
 }
 
-/// An implementation of a trait for a type (`impl Eq for Point {}` or `impl[T: Eq] Eq for Box[T] {}`).
+/// An implementation of a trait for a type (`impl Show for Point { fn show(self) -> String { ... } }`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplDecl {
     pub type_params: Vec<TypeParam>,
     pub trait_name: Ident,
     pub ty: TypeExpr,
+    pub methods: Vec<FnDecl>,
     pub span: Span,
 }
 

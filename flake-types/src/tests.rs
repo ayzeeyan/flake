@@ -1431,6 +1431,128 @@ fn main() {
 }
 
 #[test]
+fn trait_methods_and_bounds_typecheck() {
+    ok(r#"
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+}
+
+impl Show for String {
+    fn show(self) -> String {
+        self
+    }
+}
+
+fn print_show[T: Show](x: T) -> String {
+    x.show()
+}
+
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+impl Show for Point {
+    fn show(self) -> String {
+        "Point"
+    }
+}
+
+fn main() {
+    let n: String = 42.show()
+    let s: String = "flake".show()
+    let p = Point { x: 1, y: 2 }
+    let ps: String = p.show()
+    let generic: String = print_show(42)
+}
+"#);
+}
+
+#[test]
+fn trait_missing_method_in_impl_is_rejected() {
+    let msg = err(r#"
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {}
+
+fn main() {}
+"#);
+    assert!(msg.contains("missing method `show` for trait `Show`"), "{msg}");
+}
+
+#[test]
+fn trait_undeclared_method_in_impl_is_rejected() {
+    let msg = err(r#"
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+    fn extra(self) -> Int {
+        42
+    }
+}
+
+fn main() {}
+"#);
+    assert!(msg.contains("method `extra` is not a member of trait `Show`"), "{msg}");
+}
+
+#[test]
+fn trait_method_call_without_bound_is_rejected() {
+    let msg = err(r#"
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+}
+
+fn display[T](x: T) -> String {
+    x.show()
+}
+
+fn main() {}
+"#);
+    assert!(msg.contains("no method `show` on type parameter `T`"), "{msg}");
+    assert!(msg.contains("add a trait bound `T: Show`"), "{msg}");
+}
+
+#[test]
+fn trait_method_call_on_unimplemented_type_is_rejected() {
+    let msg = err(r#"
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+}
+
+fn main() {
+    let _ = true.show()
+}
+"#);
+    assert!(msg.contains("type `Bool` does not implement `Show`"), "{msg}");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }

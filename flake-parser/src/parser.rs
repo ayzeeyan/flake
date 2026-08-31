@@ -5,7 +5,7 @@ use std::mem::discriminant;
 use flake_ast::{
     AssignOp, BinOp, Block, EffectSet, Expr, FnDecl, Ident, ImplDecl, ImportDecl, InterpPart, Item,
     LetStmt, Literal, Param, Pattern, Program, Source, Span, Stmt, StructDecl, StructField,
-    TraitDecl, TypeAlias, TypeExpr, TypeParam, UnOp,
+    TraitDecl, TraitMethodSig, TypeAlias, TypeExpr, TypeParam, UnOp,
 };
 use flake_lexer::{Token, TokenKind, tokenize};
 
@@ -210,12 +210,44 @@ impl<'src> Parser<'src> {
         self.skip_nl();
         self.expect(&TokenKind::LBrace, "`{`")?;
         self.skip_nl();
-        if !self.eat(&TokenKind::RBrace) {
-            return Err(self.error("trait bodies must be empty; v0.9 traits are marker bounds"));
+        let mut methods = Vec::new();
+        while !matches!(self.kind(), TokenKind::RBrace) && !self.at_eof() {
+            self.skip_nl();
+            if matches!(self.kind(), TokenKind::RBrace) {
+                break;
+            }
+            let m_start = self.current().span;
+            self.expect(&TokenKind::Fn, "`fn`")?;
+            let m_name = self.parse_ident()?;
+            let type_params = self.parse_type_params()?;
+            self.expect(&TokenKind::LParen, "`(`")?;
+            let params = self.parse_params()?;
+            self.expect(&TokenKind::RParen, "`)`")?;
+            self.skip_nl();
+            let return_type = if self.eat(&TokenKind::Arrow) {
+                self.skip_nl();
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            self.skip_nl();
+            let effects = self.parse_effect_clause()?;
+            let span = m_start.merge(self.prev().span);
+            methods.push(TraitMethodSig {
+                name: m_name,
+                type_params,
+                params,
+                return_type,
+                effects,
+                span,
+            });
+            self.skip_nl();
         }
+        self.expect(&TokenKind::RBrace, "`}`")?;
         Ok(TraitDecl {
             is_pub,
             name,
+            methods,
             span: start.merge(self.prev().span),
         })
     }
@@ -233,13 +265,26 @@ impl<'src> Parser<'src> {
         self.skip_nl();
         self.expect(&TokenKind::LBrace, "`{`")?;
         self.skip_nl();
-        if !self.eat(&TokenKind::RBrace) {
-            return Err(self.error("impl bodies must be empty; v0.9 impls are marker bounds"));
+        let mut methods = Vec::new();
+        while !matches!(self.kind(), TokenKind::RBrace) && !self.at_eof() {
+            self.skip_nl();
+            if matches!(self.kind(), TokenKind::RBrace) {
+                break;
+            }
+            let f_start = self.current().span;
+            let is_pub = self.eat(&TokenKind::Pub);
+            let strict = self.eat(&TokenKind::Strict);
+            let owned = self.eat(&TokenKind::Owned);
+            let func = self.parse_fn(f_start, is_pub, strict, owned)?;
+            methods.push(func);
+            self.skip_nl();
         }
+        self.expect(&TokenKind::RBrace, "`}`")?;
         Ok(ImplDecl {
             type_params,
             trait_name,
             ty,
+            methods,
             span: start.merge(self.prev().span),
         })
     }

@@ -160,10 +160,20 @@ impl OwnCx {
 /// Check ownership rules on `strict` / `owned` functions. Other items are ignored.
 pub fn check_ownership(program: &Program) -> Result<(), TypeError> {
     for item in &program.items {
-        if let Item::Fn(func) = item {
-            if func.strict || func.owned {
-                check_fn(func)?;
+        match item {
+            Item::Fn(func) => {
+                if func.strict || func.owned {
+                    check_fn(func)?;
+                }
             }
+            Item::Impl(imp) => {
+                for func in &imp.methods {
+                    if func.strict || func.owned {
+                        check_fn(func)?;
+                    }
+                }
+            }
+            _ => {}
         }
     }
     Ok(())
