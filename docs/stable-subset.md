@@ -1,7 +1,6 @@
-# Flake v0.9 stable subset
+# Flake v0.10 stable subset
 
-This is the language surface a self-hosted frontend may rely on. Features
-outside this list exist in the tree but are not a stability promise.
+This is the language surface a self-hosted frontend (Phase 2 / v0.11) and checker (Phase 3 / v0.12) may rely on. Features outside this list exist in the tree but are not a stability promise.
 
 ## Stable
 
@@ -10,18 +9,22 @@ outside this list exist in the tree but are not a stability promise.
 - Control flow: `if`, `while`, `for`, `loop`, `match`, `return`, `break`, `continue`
 - Parametric polymorphism: `fn id[T](x: T) -> T`, generic structs/enums/aliases
 - Marker traits and bounds: `trait Eq {}`, `impl Eq for Point {}`, `fn max[T: Ord](a: T, b: T) -> T`
+- Trait methods and declarations: `trait Show { fn show(self) -> String }`
+- Trait method implementations: `impl Show for Point { fn show(self) -> String { ... } }`
+- Usable bounds and method dispatch on concrete types and generic type parameters (`T: Show` -> `value.show()`)
 - Builtin bounds `Eq`, `Ord`, `Hash` (primitives implement them; `Ord` implies `Eq`)
 - Algebraic enums, exhaustive `match`, Result-style `?`
 - Modules, `pub` visibility, packages, `flake.toml`, deterministic `flake.lock`
 - Structured concurrency: `spawn`, `await`, `nursery`, `Task[T]`, sendability of owned values
-- Interpreter, bytecode VM, and native x86-64 Windows with matching results on this subset
+- Interpreter, bytecode VM, and native x86-64 Windows with matching results on this entire subset
 - Native targets `x86_64-windows`, `x86_64-linux`, `aarch64-linux` for the existing pipeline
+- Native `process.run` with stdout capture and exit code propagation matching Interpreter and VM
 
 ## Stdlib stable enough for tools
 
 - `std/fs`: `read_to_string`, `write_string`, `read_dir`, `walk`, `read_lines`, `write_lines`, `append_string`, `exists`, `remove`, `file_size`, `is_directory`, `is_regular_file`
 - `std/path`: `join_path`, `file_name`, `parent`, `extension`, `normalize`, `is_absolute`
-- `std/process`: `program_args`, `current_dir`, `env_var`, `run`, `exit`
+- `std/process`: `program_args`, `current_dir`, `env_var`, `run`, `exit` (supported natively on Windows/Linux)
 - `std/list`: generic `sort_items`, `find_eq`, `contains_eq`, `max_ord`, `min_ord`, plus existing dyn helpers
 - `std/string`, `std/option`, `std/result`, `std/math`, `std/map`, `std/bytes`, `std/channel`
 
@@ -29,14 +32,14 @@ Program arguments are the builtin `args()` / `process.program_args()`, passed af
 
 ## Experimental (do not depend on for a self-hosted compiler yet)
 
-- Trait *methods* (v0.9 traits are marker bounds only)
+- Trait default method bodies
+- Associated types
 - Specialization or overlapping impls
-- Native `run_cmd` process capture (Interpreter/VM only; native returns an empty list)
 - Work-stealing / production async runtime
-- Macros and CTFE
+- Macros and CTFE lite (scheduled for v0.13)
 - Public package registry
 - New CPU targets beyond the three listed above
 
-## Out of scope for v0.9
+## Out of scope for v0.10
 
-A full self-hosted Flake compiler. This release is preparation: bounds, stdlib depth, native quality, and this documented subset.
+A full self-hosted Flake compiler (lexer + parser in v0.11; checker in v0.12; CTFE lite in v0.13; bootstrap in v0.14). This release provides the necessary trait methods, usable bounds, process execution, and stdlib foundation.

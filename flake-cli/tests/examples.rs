@@ -21,6 +21,7 @@ const EXAMPLES: &[&str] = &[
     "pattern_matching.flk",
     "geometry.flk",
     "traits.flk",
+    "ast_show.flk",
     "projects/inventory/main.flk",
     "projects/telemetry/main.flk",
     "projects/release/main.flk",
@@ -374,6 +375,35 @@ fn service_hub_project_output() {
             "Service Hub initialized for Production\n",
             "500\n",
             "Throughput: 500\n",
+        )
+    );
+}
+
+#[test]
+fn traits_output() {
+    assert_eq!(
+        run_example("traits.flk"),
+        concat!(
+            "9\n",
+            "zeta\n",
+            "true\n",
+            "true\n",
+            "42\n",
+            "crystallized\n",
+            "Pair(1, 2)\n",
+        )
+    );
+}
+
+#[test]
+fn ast_show_output() {
+    assert_eq!(
+        run_example("ast_show.flk"),
+        concat!(
+            "42\n",
+            "x\n",
+            "(x + 42)\n",
+            "let total = (x + 42);\n",
         )
     );
 }

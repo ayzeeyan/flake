@@ -1,0 +1,76 @@
+// AST node display and formatting using trait methods (dogfooding for Phase 2/3).
+
+trait Formattable {
+    fn format(self) -> String
+}
+
+impl Formattable for Int {
+    fn format(self) -> String {
+        str(self)
+    }
+}
+
+impl Formattable for String {
+    fn format(self) -> String {
+        self
+    }
+}
+
+struct LitExpr {
+    val: Int,
+}
+
+impl Formattable for LitExpr {
+    fn format(self) -> String {
+        str(self.val)
+    }
+}
+
+struct VarExpr {
+    name: String,
+}
+
+impl Formattable for VarExpr {
+    fn format(self) -> String {
+        self.name
+    }
+}
+
+struct BinaryExpr {
+    op: String,
+    left: String,
+    right: String,
+}
+
+impl Formattable for BinaryExpr {
+    fn format(self) -> String {
+        "({self.left} {self.op} {self.right})"
+    }
+}
+
+struct LetStmt {
+    var_name: String,
+    expr: String,
+}
+
+impl Formattable for LetStmt {
+    fn format(self) -> String {
+        "let {self.var_name} = {self.expr};"
+    }
+}
+
+fn dump_node[T: Formattable](node: T) / io {
+    print(node.format())
+}
+
+fn main() / io {
+    let lit = LitExpr { val: 42 }
+    let var_x = VarExpr { name: "x" }
+    let bin = BinaryExpr { op: "+", left: "x", right: "42" }
+    let stmt = LetStmt { var_name: "total", expr: "(x + 42)" }
+
+    dump_node(lit)
+    dump_node(var_x)
+    dump_node(bin)
+    dump_node(stmt)
+}

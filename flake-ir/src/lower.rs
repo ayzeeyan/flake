@@ -128,13 +128,14 @@ pub fn lower(source: &Source) -> Result<Module, IrError> {
 }
 
 pub fn lower_program(name: &str, program: &Program) -> Module {
+    let program = monomorphize_program(program);
     let names = Names {
         prefix: None,
         imports: HashMap::new(),
-        local_fns: fn_names(program),
+        local_fns: fn_names(&program),
         imported_fns: HashMap::new(),
         exported: HashMap::new(),
-        local_types: type_names(program),
+        local_types: type_names(&program),
         imported_types: HashMap::new(),
     };
     let mut fn_rets = HashMap::new();
@@ -148,25 +149,29 @@ pub fn lower_program(name: &str, program: &Program) -> Module {
     }
     let mut module = lower_program_with(
         name,
-        program,
+        &program,
         &names,
         &fn_rets,
-        &enums_of(program),
-        &structs_of(program),
+        &enums_of(&program),
+        &structs_of(&program),
     );
     crate::opt::optimize(&mut module);
     module
 }
 
 pub fn lower_graph(graph: &ModuleGraph) -> Module {
+    let mut graph = graph.clone();
+    for module in &mut graph.modules {
+        module.program = monomorphize_program(&module.program);
+    }
     let mut structs = Vec::new();
     let mut functions = Vec::new();
     let entry = graph.entry().name.as_str();
-    let fn_rets = collect_fn_rets(graph);
+    let fn_rets = collect_fn_rets(&graph);
     for module in &graph.modules {
-        let names = names_for(graph, module, module.name == entry);
-        let enums = enums_for(graph, module, &names);
-        let struct_table = structs_for(graph, module, &names);
+        let names = names_for(&graph, module, module.name == entry);
+        let enums = enums_for(&graph, module, &names);
+        let struct_table = structs_for(&graph, module, &names);
         let part = lower_program_with(
             &module.name,
             &module.program,
@@ -185,6 +190,435 @@ pub fn lower_graph(graph: &ModuleGraph) -> Module {
     };
     crate::opt::optimize(&mut module);
     module
+}
+
+fn monomorphize_program(program: &Program) -> Program {
+    let mut program = program.clone();
+    let mut generic_fns: HashMap<String, FnDecl> = HashMap::new();
+    let mut fn_rets: HashMap<String, String> = HashMap::new();
+
+    for item in &program.items {
+        match item {
+            Item::Fn(f) => {
+                if !f.type_params.is_empty() {
+                    generic_fns.insert(f.name.name.clone(), f.clone());
+                }
+                if let Some(TypeExpr::Named { name, .. }) = &f.return_type {
+                    fn_rets.insert(f.name.name.clone(), name.name.clone());
+                }
+            }
+            Item::Impl(imp) => {
+                let type_ctor = impl_type_ctor(&imp.ty);
+                for f in &imp.methods {
+                    if let Some(TypeExpr::Named { name, .. }) = &f.return_type {
+                        fn_rets.insert(format!("{type_ctor}_{}", f.name.name), name.name.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if generic_fns.is_empty() {
+        return program;
+    }
+
+    let mut generated_fns: HashMap<String, FnDecl> = HashMap::new();
+
+    loop {
+        let mut new_in_this_pass = Vec::new();
+
+        for item in &mut program.items {
+            if let Item::Fn(f) = item {
+                let mut env = HashMap::new();
+                for p in &f.params {
+                    if let Some(TypeExpr::Named { name, .. }) = &p.ty {
+                        env.insert(p.name.name.clone(), name.name.clone());
+                    }
+                }
+                rewrite_block(
+                    &mut f.body,
+                    &mut env,
+                    &fn_rets,
+                    &generic_fns,
+                    &generated_fns,
+                    &mut new_in_this_pass,
+                );
+            }
+        }
+
+        let existing_gen: Vec<_> = generated_fns.values().cloned().collect();
+        for mut f in existing_gen {
+            let mut env = HashMap::new();
+            for p in &f.params {
+                if let Some(TypeExpr::Named { name, .. }) = &p.ty {
+                    env.insert(p.name.name.clone(), name.name.clone());
+                }
+            }
+            rewrite_block(
+                &mut f.body,
+                &mut env,
+                &fn_rets,
+                &generic_fns,
+                &generated_fns,
+                &mut new_in_this_pass,
+            );
+        }
+
+        if new_in_this_pass.is_empty() {
+            break;
+        }
+
+        for new_fn in new_in_this_pass {
+            if let Some(TypeExpr::Named { name, .. }) = &new_fn.return_type {
+                fn_rets.insert(new_fn.name.name.clone(), name.name.clone());
+            }
+            generated_fns.insert(new_fn.name.name.clone(), new_fn.clone());
+            program.items.push(Item::Fn(new_fn));
+        }
+    }
+
+    program
+}
+
+fn infer_expr_type(
+    expr: &Expr,
+    env: &HashMap<String, String>,
+    fn_rets: &HashMap<String, String>,
+) -> Option<String> {
+    match expr {
+        Expr::Literal {
+            value: Literal::Int(_),
+            ..
+        } => Some("Int".to_string()),
+        Expr::Literal {
+            value: Literal::Float(_),
+            ..
+        } => Some("Float".to_string()),
+        Expr::Literal {
+            value: Literal::Bool(_),
+            ..
+        } => Some("Bool".to_string()),
+        Expr::Literal {
+            value: Literal::String(_),
+            ..
+        } => Some("String".to_string()),
+        Expr::Literal {
+            value: Literal::Nil,
+            ..
+        } => Some("Nil".to_string()),
+        Expr::StructInit { name, .. } => Some(name.name.clone()),
+        Expr::Ident(id) => env.get(&id.name).cloned(),
+        Expr::Call { callee, .. } => {
+            if let Expr::Ident(id) = callee.as_ref() {
+                if id.name == "str" {
+                    return Some("String".to_string());
+                }
+                if id.name == "int" {
+                    return Some("Int".to_string());
+                }
+                if let Some(ret) = fn_rets.get(&id.name) {
+                    return Some(ret.clone());
+                }
+            }
+            if let Expr::Field { field, .. } = callee.as_ref() {
+                if field.name == "show" || field.name == "format" {
+                    return Some("String".to_string());
+                }
+            }
+            None
+        }
+        Expr::Binary { op, left, right, .. } => match op {
+            flake_ast::BinOp::Add
+            | flake_ast::BinOp::Sub
+            | flake_ast::BinOp::Mul
+            | flake_ast::BinOp::Div
+            | flake_ast::BinOp::Rem => {
+                infer_expr_type(left, env, fn_rets).or_else(|| infer_expr_type(right, env, fn_rets))
+            }
+            flake_ast::BinOp::Eq
+            | flake_ast::BinOp::Ne
+            | flake_ast::BinOp::Lt
+            | flake_ast::BinOp::Le
+            | flake_ast::BinOp::Gt
+            | flake_ast::BinOp::Ge
+            | flake_ast::BinOp::And
+            | flake_ast::BinOp::Or => Some("Bool".to_string()),
+        },
+        Expr::Interpolated { .. } => Some("String".to_string()),
+        Expr::If {
+            then_block,
+            else_block,
+            ..
+        } => infer_block_type(then_block, env, fn_rets)
+            .or_else(|| else_block.as_ref().and_then(|b| infer_expr_type(b, env, fn_rets))),
+        Expr::Block(b) => infer_block_type(b, env, fn_rets),
+        _ => None,
+    }
+}
+
+fn infer_block_type(
+    b: &AstBlock,
+    env: &HashMap<String, String>,
+    fn_rets: &HashMap<String, String>,
+) -> Option<String> {
+    let mut local_env = env.clone();
+    for stmt in &b.stmts {
+        match stmt {
+            Stmt::Let(s) | Stmt::Var(s) => {
+                if let Some(TypeExpr::Named { name, .. }) = &s.ty {
+                    local_env.insert(s.name.name.clone(), name.name.clone());
+                } else if let Some(inferred) = infer_expr_type(&s.value, &local_env, fn_rets) {
+                    local_env.insert(s.name.name.clone(), inferred);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(tail) = &b.tail {
+        return infer_expr_type(tail, &local_env, fn_rets);
+    }
+    None
+}
+
+fn rewrite_expr(
+    expr: &mut Expr,
+    env: &mut HashMap<String, String>,
+    fn_rets: &HashMap<String, String>,
+    generic_fns: &HashMap<String, FnDecl>,
+    generated_fns: &HashMap<String, FnDecl>,
+    new_in_this_pass: &mut Vec<FnDecl>,
+) {
+    match expr {
+        Expr::Call { callee, args, .. } => {
+            for arg in args.iter_mut() {
+                rewrite_expr(arg, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            }
+            if let Expr::Ident(id) = callee.as_mut() {
+                if let Some(gfn) = generic_fns.get(&id.name) {
+                    if let Some(tparam) = gfn.type_params.first() {
+                        let tparam_name = &tparam.name.name;
+                        let is_bare_tparam = gfn.params.first().is_some_and(|p| {
+                            p.ty.as_ref().is_some_and(|t| match t {
+                                TypeExpr::Named { name, args, .. } => {
+                                    name.name == *tparam_name && args.is_empty()
+                                }
+                                _ => false,
+                            })
+                        });
+                        if is_bare_tparam {
+                            let concrete_ty = args.first().and_then(|a| infer_expr_type(a, env, fn_rets));
+                            if let Some(concrete_name) = concrete_ty {
+                                let spec_name = format!("{}_{concrete_name}", id.name);
+                                id.name = spec_name.clone();
+                                if !generated_fns.contains_key(&spec_name)
+                                    && !new_in_this_pass.iter().any(|f| f.name.name == spec_name)
+                                {
+                                    let mut spec_fn = gfn.clone();
+                                    spec_fn.name.name = spec_name.clone();
+                                    spec_fn.type_params.clear();
+                                    substitute_type_param(&mut spec_fn, tparam_name, &concrete_name);
+                                    new_in_this_pass.push(spec_fn);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                rewrite_expr(callee, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            rewrite_expr(left, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(right, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+        }
+        Expr::Assign { target, value, .. } => {
+            rewrite_expr(target, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(value, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+        }
+        Expr::Field { target, .. } => {
+            rewrite_expr(target, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+        }
+        Expr::Block(b) => {
+            rewrite_block(b, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+        }
+        Expr::If {
+            cond,
+            then_block,
+            else_block,
+            ..
+        } => {
+            rewrite_expr(cond, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_block(then_block, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            if let Some(eb) = else_block {
+                rewrite_expr(eb, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            }
+        }
+        Expr::Spawn { call, .. } => {
+            rewrite_expr(call, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+        }
+        Expr::Await { task, .. } => {
+            rewrite_expr(task, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+        }
+        _ => {}
+    }
+}
+
+fn rewrite_block(
+    block: &mut AstBlock,
+    env: &mut HashMap<String, String>,
+    fn_rets: &HashMap<String, String>,
+    generic_fns: &HashMap<String, FnDecl>,
+    generated_fns: &HashMap<String, FnDecl>,
+    new_in_this_pass: &mut Vec<FnDecl>,
+) {
+    let mut local_env = env.clone();
+    for stmt in &mut block.stmts {
+        match stmt {
+            Stmt::Let(s) | Stmt::Var(s) => {
+                rewrite_expr(
+                    &mut s.value,
+                    &mut local_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+                if let Some(TypeExpr::Named { name, .. }) = &s.ty {
+                    local_env.insert(s.name.name.clone(), name.name.clone());
+                } else if let Some(inferred) = infer_expr_type(&s.value, &local_env, fn_rets) {
+                    local_env.insert(s.name.name.clone(), inferred);
+                }
+            }
+            Stmt::Expr(e) => {
+                rewrite_expr(
+                    e,
+                    &mut local_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+            }
+            Stmt::Return { value: Some(e), .. } => {
+                rewrite_expr(
+                    e,
+                    &mut local_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+            }
+            Stmt::While { cond, body, .. } => {
+                rewrite_expr(
+                    cond,
+                    &mut local_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+                rewrite_block(
+                    body,
+                    &mut local_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+            }
+            Stmt::For {
+                name, iter, body, ..
+            } => {
+                rewrite_expr(
+                    iter,
+                    &mut local_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+                let mut for_env = local_env.clone();
+                for_env.insert(name.name.clone(), "Int".to_string());
+                rewrite_block(
+                    body,
+                    &mut for_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+            }
+            Stmt::Loop { body, .. } => {
+                rewrite_block(
+                    body,
+                    &mut local_env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
+            }
+            _ => {}
+        }
+    }
+    if let Some(tail) = &mut block.tail {
+        rewrite_expr(
+            tail,
+            &mut local_env,
+            fn_rets,
+            generic_fns,
+            generated_fns,
+            new_in_this_pass,
+        );
+    }
+}
+
+fn substitute_type_expr(ty: &mut TypeExpr, tparam: &str, concrete: &str) {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            if name.name == tparam {
+                name.name = concrete.to_string();
+            }
+            for arg in args {
+                substitute_type_expr(arg, tparam, concrete);
+            }
+        }
+        TypeExpr::List { element, .. } => {
+            substitute_type_expr(element, tparam, concrete);
+        }
+        TypeExpr::Optional { inner, .. }
+        | TypeExpr::Owned { inner, .. }
+        | TypeExpr::Ref { inner, .. }
+        | TypeExpr::Mut { inner, .. } => {
+            substitute_type_expr(inner, tparam, concrete);
+        }
+        TypeExpr::Fn {
+            params,
+            ret,
+            ..
+        } => {
+            for p in params {
+                substitute_type_expr(p, tparam, concrete);
+            }
+            if let Some(r) = ret {
+                substitute_type_expr(r, tparam, concrete);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn substitute_type_param(f: &mut FnDecl, tparam: &str, concrete: &str) {
+    for p in &mut f.params {
+        if let Some(ty) = &mut p.ty {
+            substitute_type_expr(ty, tparam, concrete);
+        }
+    }
+    if let Some(ret) = &mut f.return_type {
+        substitute_type_expr(ret, tparam, concrete);
+    }
 }
 
 #[derive(Clone)]
@@ -278,12 +712,49 @@ impl Names {
     }
 }
 
+fn traits_with_methods_in_program(program: &Program) -> HashSet<String> {
+    let mut traits = HashSet::new();
+    for item in &program.items {
+        if let Item::Trait(t) = item {
+            if !t.methods.is_empty() {
+                traits.insert(t.name.name.clone());
+            }
+        }
+    }
+    traits
+}
+
+fn traits_with_methods_in_graph(graph: &ModuleGraph) -> HashSet<String> {
+    let mut traits = HashSet::new();
+    for module in &graph.modules {
+        for item in &module.program.items {
+            if let Item::Trait(t) = item {
+                if !t.methods.is_empty() {
+                    traits.insert(t.name.name.clone());
+                }
+            }
+        }
+    }
+    traits
+}
+
+fn is_generic_with_trait_methods(f: &FnDecl, traits_with_methods: &HashSet<String>) -> bool {
+    f.type_params.iter().any(|tp| {
+        tp.bounds
+            .iter()
+            .any(|b| traits_with_methods.contains(&b.name))
+    })
+}
+
 fn fn_names(program: &Program) -> HashSet<String> {
+    let traits = traits_with_methods_in_program(program);
     let mut fns = HashSet::new();
     for item in &program.items {
         match item {
             Item::Fn(f) => {
-                fns.insert(f.name.name.clone());
+                if !is_generic_with_trait_methods(f, &traits) {
+                    fns.insert(f.name.name.clone());
+                }
             }
             Item::Impl(imp) => {
                 let type_ctor = impl_type_ctor(&imp.ty);
@@ -370,6 +841,7 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
 }
 
 fn collect_fn_rets(graph: &ModuleGraph) -> HashMap<String, IrType> {
+    let traits = traits_with_methods_in_graph(graph);
     let mut fn_rets = HashMap::new();
     let entry = graph.entry().name.as_str();
     for module in &graph.modules {
@@ -377,10 +849,12 @@ fn collect_fn_rets(graph: &ModuleGraph) -> HashMap<String, IrType> {
         for item in &module.program.items {
             match item {
                 Item::Fn(func) => {
-                    fn_rets.insert(
-                        names.global(&func.name.name),
-                        names.resolve_type(lower_type(func.return_type.as_ref())),
-                    );
+                    if !is_generic_with_trait_methods(func, &traits) {
+                        fn_rets.insert(
+                            names.global(&func.name.name),
+                            names.resolve_type(lower_type(func.return_type.as_ref())),
+                        );
+                    }
                 }
                 Item::Impl(imp) => {
                     let type_ctor = impl_type_ctor(&imp.ty);
@@ -406,6 +880,7 @@ fn lower_program_with(
     enums: &EnumTable,
     structs: &StructTable,
 ) -> Module {
+    let traits = traits_with_methods_in_program(program);
     let mut module_structs = Vec::new();
     let mut functions = Vec::new();
     for item in &program.items {
@@ -425,12 +900,21 @@ fn lower_program_with(
                         .collect(),
                 });
             }
-            Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets, enums, structs)),
+            Item::Fn(func) => {
+                if !is_generic_with_trait_methods(func, &traits) {
+                    functions.push(lower_fn(func, names, fn_rets, enums, structs));
+                }
+            }
             Item::Impl(imp) => {
                 let type_ctor = impl_type_ctor(&imp.ty);
                 for func in &imp.methods {
                     let mut renamed_func = func.clone();
                     renamed_func.name.name = format!("{type_ctor}_{}", func.name.name);
+                    if let Some(first_param) = renamed_func.params.first_mut() {
+                        if first_param.name.name == "self" && first_param.ty.is_none() {
+                            first_param.ty = Some(imp.ty.clone());
+                        }
+                    }
                     functions.push(lower_fn(&renamed_func, names, fn_rets, enums, structs));
                 }
             }
