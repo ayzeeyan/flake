@@ -109,6 +109,14 @@ impl Builder {
         dest
     }
 
+    fn local_ty(&self, id: LocalId) -> IrType {
+        self.locals
+            .iter()
+            .find(|l| l.id == id)
+            .map(|l| l.ty.clone())
+            .unwrap_or(IrType::Dyn)
+    }
+
     fn nil(&mut self) -> LocalId {
         self.const_val(Const::Nil, IrType::Nil)
     }
@@ -271,14 +279,22 @@ impl Names {
 }
 
 fn fn_names(program: &Program) -> HashSet<String> {
-    program
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Fn(f) => Some(f.name.name.clone()),
-            _ => None,
-        })
-        .collect()
+    let mut fns = HashSet::new();
+    for item in &program.items {
+        match item {
+            Item::Fn(f) => {
+                fns.insert(f.name.name.clone());
+            }
+            Item::Impl(imp) => {
+                let type_ctor = impl_type_ctor(&imp.ty);
+                for f in &imp.methods {
+                    fns.insert(format!("{type_ctor}_{}", f.name.name));
+                }
+            }
+            _ => {}
+        }
+    }
+    fns
 }
 
 fn type_names(program: &Program) -> HashSet<String> {
@@ -359,11 +375,23 @@ fn collect_fn_rets(graph: &ModuleGraph) -> HashMap<String, IrType> {
     for module in &graph.modules {
         let names = names_for(graph, module, module.name == entry);
         for item in &module.program.items {
-            if let Item::Fn(func) = item {
-                fn_rets.insert(
-                    names.global(&func.name.name),
-                    names.resolve_type(lower_type(func.return_type.as_ref())),
-                );
+            match item {
+                Item::Fn(func) => {
+                    fn_rets.insert(
+                        names.global(&func.name.name),
+                        names.resolve_type(lower_type(func.return_type.as_ref())),
+                    );
+                }
+                Item::Impl(imp) => {
+                    let type_ctor = impl_type_ctor(&imp.ty);
+                    for func in &imp.methods {
+                        fn_rets.insert(
+                            names.global(&format!("{type_ctor}_{}", func.name.name)),
+                            names.resolve_type(lower_type(func.return_type.as_ref())),
+                        );
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -398,7 +426,15 @@ fn lower_program_with(
                 });
             }
             Item::Fn(func) => functions.push(lower_fn(func, names, fn_rets, enums, structs)),
-            Item::Type(_) | Item::Import(_) | Item::Enum(_) | Item::Trait(_) | Item::Impl(_) => {}
+            Item::Impl(imp) => {
+                let type_ctor = impl_type_ctor(&imp.ty);
+                for func in &imp.methods {
+                    let mut renamed_func = func.clone();
+                    renamed_func.name.name = format!("{type_ctor}_{}", func.name.name);
+                    functions.push(lower_fn(&renamed_func, names, fn_rets, enums, structs));
+                }
+            }
+            Item::Type(_) | Item::Import(_) | Item::Enum(_) | Item::Trait(_) => {}
         }
     }
     Module {
@@ -873,6 +909,56 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                     b.emit(Inst::MakeList { dest, items });
                     return dest;
                 }
+                if let Expr::Ident(id) = target.as_ref() {
+                    if let Some(global) = b.names.field_global(&id.name, &field.name) {
+                        let dest_ty = b.fn_rets.get(&global).cloned().unwrap_or(IrType::Dyn);
+                        let dest = b.alloc(None, dest_ty);
+                        b.emit(Inst::Call {
+                            dest: Some(dest),
+                            callee: Callee::Static(global),
+                            args: arg_ids,
+                        });
+                        return dest;
+                    }
+                }
+                let target_id = lower_expr(b, target);
+                let target_ty = b.local_ty(target_id);
+                let type_ctor = match &target_ty {
+                    IrType::Int => Some("Int".to_string()),
+                    IrType::Float => Some("Float".to_string()),
+                    IrType::Bool => Some("Bool".to_string()),
+                    IrType::String => Some("String".to_string()),
+                    IrType::Nil => Some("Nil".to_string()),
+                    IrType::List(_) => Some("List".to_string()),
+                    IrType::Map(_, _) => Some("Map".to_string()),
+                    IrType::Struct(name) => {
+                        let short = name.rsplit('.').next().unwrap_or(name.as_str());
+                        Some(short.to_string())
+                    }
+                    _ => None,
+                };
+                if let Some(type_ctor) = type_ctor {
+                    let method_fn_name = format!("{type_ctor}_{}", field.name);
+                    let method_global = b.names.function_global(&method_fn_name).or_else(|| {
+                        if b.fn_rets.contains_key(&method_fn_name) {
+                            Some(method_fn_name)
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(global) = method_global {
+                        let mut all_args = vec![target_id];
+                        all_args.extend(arg_ids);
+                        let dest_ty = b.fn_rets.get(&global).cloned().unwrap_or(IrType::Dyn);
+                        let dest = b.alloc(None, dest_ty);
+                        b.emit(Inst::Call {
+                            dest: Some(dest),
+                            callee: Callee::Static(global),
+                            args: all_args,
+                        });
+                        return dest;
+                    }
+                }
             }
             let callee = match callee.as_ref() {
                 Expr::Ident(id) => {
@@ -946,6 +1032,56 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                             args: vec![],
                         });
                         return dest;
+                    }
+                    if let Expr::Ident(id) = target.as_ref() {
+                        if let Some(global) = b.names.field_global(&id.name, &field.name) {
+                            let ret_ty = b.fn_rets.get(&global).cloned().unwrap_or(IrType::Dyn);
+                            let dest = b.alloc(None, IrType::Task(Box::new(ret_ty)));
+                            b.emit(Inst::Spawn {
+                                dest,
+                                callee: Callee::Static(global),
+                                args: arg_ids,
+                            });
+                            return dest;
+                        }
+                    }
+                    let target_id = lower_expr(b, target);
+                    let target_ty = b.local_ty(target_id);
+                    let type_ctor = match &target_ty {
+                        IrType::Int => Some("Int".to_string()),
+                        IrType::Float => Some("Float".to_string()),
+                        IrType::Bool => Some("Bool".to_string()),
+                        IrType::String => Some("String".to_string()),
+                        IrType::Nil => Some("Nil".to_string()),
+                        IrType::List(_) => Some("List".to_string()),
+                        IrType::Map(_, _) => Some("Map".to_string()),
+                        IrType::Struct(name) => {
+                            let short = name.rsplit('.').next().unwrap_or(name.as_str());
+                            Some(short.to_string())
+                        }
+                        _ => None,
+                    };
+                    if let Some(type_ctor) = type_ctor {
+                        let method_fn_name = format!("{type_ctor}_{}", field.name);
+                        let method_global = b.names.function_global(&method_fn_name).or_else(|| {
+                            if b.fn_rets.contains_key(&method_fn_name) {
+                                Some(method_fn_name)
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(global) = method_global {
+                            let mut all_args = vec![target_id];
+                            all_args.extend(arg_ids);
+                            let ret_ty = b.fn_rets.get(&global).cloned().unwrap_or(IrType::Dyn);
+                            let dest = b.alloc(None, IrType::Task(Box::new(ret_ty)));
+                            b.emit(Inst::Spawn {
+                                dest,
+                                callee: Callee::Static(global),
+                                args: all_args,
+                            });
+                            return dest;
+                        }
                     }
                 }
                 let callee_lowered = match callee.as_ref() {
@@ -1755,4 +1891,17 @@ fn native_call_result_ty(b: &Builder, name: &str, args: &[LocalId]) -> IrType {
         return IrType::List(Box::new(IrType::List(Box::new(IrType::Dyn))));
     }
     native_result_ty(name)
+}
+
+fn impl_type_ctor(ty: &flake_ast::TypeExpr) -> String {
+    match ty {
+        flake_ast::TypeExpr::Named { name, .. } => name.name.clone(),
+        flake_ast::TypeExpr::List { .. } => "List".to_string(),
+        flake_ast::TypeExpr::Dyn { .. } => "dyn".to_string(),
+        flake_ast::TypeExpr::Optional { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Owned { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Ref { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Mut { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Fn { .. } => "Function".to_string(),
+    }
 }

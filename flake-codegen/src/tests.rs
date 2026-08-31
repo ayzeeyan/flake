@@ -960,6 +960,46 @@ fn aarch64_mov_i64_encodings_verified() {
 }
 
 #[test]
+fn native_trait_methods() {
+    let out = run_native(&src(r#"
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+}
+
+impl Show for String {
+    fn show(self) -> String {
+        self
+    }
+}
+
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+impl Show for Point {
+    fn show(self) -> String {
+        "Point"
+    }
+}
+
+fn main() / io {
+    print(42.show())
+    print("hello".show())
+    let p = Point { x: 1, y: 2 }
+    print(p.show())
+}
+"#)).expect("native trait methods");
+    assert_eq!(out, "42\nhello\nPoint\n");
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
