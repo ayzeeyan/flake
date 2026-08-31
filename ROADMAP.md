@@ -1,5 +1,41 @@
 # Flake Roadmap
 
+**Flake v0.10.0 is complete.** Theme: **Trait methods and usable bounds (Phase 1 of 6 toward v1.0)**.
+
+There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
+
+## v0.10.0 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Trait method syntax and checking | **done** |
+| 2 | Trait method dispatch on Interpreter and VM | **done** |
+| 3 | Native support for trait methods | **done** |
+| 4 | Native process.run + stdlib polish | **done** |
+| 5 | Tests, stable subset, showcase | **done** |
+| 6 | Documentation, polish & release | **done** |
+
+## What v0.10.0 delivers
+
+- **Trait Methods & Declarations**:
+  - Trait declarations can specify method signatures: `trait Show { fn show(self) -> String }`.
+  - Trait implementations provide concrete method bodies: `impl Show for Int { fn show(self) -> String { str(self) } }`.
+- **Usable Trait Bounds**:
+  - Functions can constrain generic type parameters by trait bounds: `fn display[T: Show](value: T) -> String { value.show() }`.
+  - Typechecker validates that methods called on bounded type parameters exist in the declared trait bounds.
+  - Rejection of missing methods in impls, extra undeclared methods, and calls to undeclared methods on generic bounds.
+- **Cross-Backend Dispatch Consistency**:
+  - Dynamic value and receiver dispatch for trait methods on Tree-walking Interpreter.
+  - Method compilation into bytecode globals and runtime dispatch via `Op::CallMethod` and `Op::SpawnMethod` in VM.
+  - Monomorphization pass and qualified static dispatch (`{Type}_{method}`) in IR and pure Rust Native x86-64 executable codegen.
+- **Native `process.run`**:
+  - Pure Win32 anonymous pipe redirection capturing child process stdout and propagating exit codes.
+  - Full consistency with Interpreter and VM for `process.run`.
+- **Showcase & Tests**:
+  - Updated `examples/traits.flk` demonstrating trait methods and bounds.
+  - New AST formatting showcase `examples/ast_show.flk` dogfooding trait methods for compiler node display.
+  - Updated [v0.10 stable subset](docs/stable-subset.md) for Phase 2 self-hosted frontend readiness.
+
 **Flake v0.9.0 is complete.** Theme: **Self-hosting preparation**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
