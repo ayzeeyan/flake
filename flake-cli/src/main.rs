@@ -102,6 +102,17 @@ enum Commands {
 }
 
 fn main() -> ExitCode {
+    const STACK_SIZE: usize = 8 * 1024 * 1024;
+    std::thread::Builder::new()
+        .name("flake-main".into())
+        .stack_size(STACK_SIZE)
+        .spawn(run_cli)
+        .expect("failed to spawn main thread")
+        .join()
+        .unwrap_or(ExitCode::from(1))
+}
+
+fn run_cli() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Commands::Run {

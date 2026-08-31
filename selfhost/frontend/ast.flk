@@ -1,0 +1,505 @@
+// AST definitions and formatting for the self-hosted Flake compiler.
+import span
+import option
+
+// -------------------------------------------------------------
+// Type Expressions
+// -------------------------------------------------------------
+
+pub enum TypeExpr {
+    Named(String, [TypeExpr])
+    ListType(TypeExpr)
+    OptionalType(TypeExpr)
+    TaskType(TypeExpr)
+    FnType([TypeExpr], TypeExpr, [String])
+    DynType
+}
+
+pub fn dump_type(ty: TypeExpr) -> String {
+    match ty {
+        TypeExpr.Named(name, args) => {
+            if len(args) == 0 {
+                return name
+            }
+            var arg_str = ""
+            var i = 0
+            while i < len(args) {
+                if i > 0 { arg_str = "{arg_str}, " }
+                arg_str = "{arg_str}{dump_type(args[i])}"
+                i = i + 1
+            }
+            "{name}[{arg_str}]"
+        }
+        TypeExpr.ListType(inner) => "[{dump_type(inner)}]"
+        TypeExpr.OptionalType(inner) => "{dump_type(inner)}?"
+        TypeExpr.TaskType(inner) => "Task[{dump_type(inner)}]"
+        TypeExpr.FnType(params, ret, effects) => {
+            var p_str = ""
+            var i = 0
+            while i < len(params) {
+                if i > 0 { p_str = "{p_str}, " }
+                p_str = "{p_str}{dump_type(params[i])}"
+                i = i + 1
+            }
+            var eff_str = ""
+            if len(effects) > 0 {
+                let joined_eff = join(effects, " + ")
+                eff_str = " / {joined_eff}"
+            }
+            "fn({p_str}) -> {dump_type(ret)}{eff_str}"
+        }
+        TypeExpr.DynType => "dyn"
+    }
+}
+
+// -------------------------------------------------------------
+// Declarations & Signatures
+// -------------------------------------------------------------
+
+pub struct Param {
+    name: String,
+    ty: option.Option[TypeExpr],
+}
+
+pub struct TypeParam {
+    name: String,
+    bounds: [String],
+}
+
+pub fn dump_type_params(tps: [TypeParam]) -> String {
+    if len(tps) == 0 { return "" }
+    var parts = []
+    for tp in tps {
+        if len(tp.bounds) == 0 {
+            push(parts, tp.name)
+        } else {
+            let joined_bounds = join(tp.bounds, " + ")
+            push(parts, "{tp.name}: {joined_bounds}")
+        }
+    }
+    let joined_parts = join(parts, ", ")
+    "[{joined_parts}]"
+}
+
+pub struct FnDecl {
+    is_pub: Bool,
+    is_strict: Bool,
+    is_owned: Bool,
+    name: String,
+    type_params: [TypeParam],
+    params: [Param],
+    ret_ty: option.Option[TypeExpr],
+    effects: [String],
+    body: BlockExpr,
+    span: span.Span,
+}
+
+pub struct StructField {
+    name: String,
+    ty: TypeExpr,
+}
+
+pub struct StructDecl {
+    is_pub: Bool,
+    name: String,
+    type_params: [TypeParam],
+    fields: [StructField],
+    span: span.Span,
+}
+
+pub struct EnumVariant {
+    name: String,
+    payloads: [TypeExpr],
+}
+
+pub struct EnumDecl {
+    is_pub: Bool,
+    name: String,
+    type_params: [TypeParam],
+    variants: [EnumVariant],
+    span: span.Span,
+}
+
+pub struct TraitMethodSig {
+    name: String,
+    has_self: Bool,
+    params: [Param],
+    ret_ty: option.Option[TypeExpr],
+    effects: [String],
+    span: span.Span,
+}
+
+pub struct TraitDecl {
+    is_pub: Bool,
+    name: String,
+    type_params: [TypeParam],
+    methods: [TraitMethodSig],
+    span: span.Span,
+}
+
+pub struct ImplDecl {
+    type_params: [TypeParam],
+    trait_name: String,
+    target_ty: TypeExpr,
+    methods: [FnDecl],
+    span: span.Span,
+}
+
+pub struct TypeAliasDecl {
+    is_pub: Bool,
+    name: String,
+    type_params: [TypeParam],
+    target_ty: TypeExpr,
+    span: span.Span,
+}
+
+pub struct ImportDecl {
+    is_pub: Bool,
+    path: [String],
+    alias: option.Option[String],
+    span: span.Span,
+}
+
+pub enum Item {
+    Fn(FnDecl)
+    Struct(StructDecl)
+    Enum(EnumDecl)
+    Trait(TraitDecl)
+    Impl(ImplDecl)
+    TypeAlias(TypeAliasDecl)
+    Import(ImportDecl)
+}
+
+// -------------------------------------------------------------
+// Patterns
+// -------------------------------------------------------------
+
+pub enum Pattern {
+    Wildcard(span.Span)
+    Ident(String, span.Span)
+    IntLit(Int, span.Span)
+    FloatLit(Float, span.Span)
+    StringLit(String, span.Span)
+    BoolLit(Bool, span.Span)
+    NilLit(span.Span)
+    Variant(String, String, [Pattern], span.Span)
+    ListPat([Pattern], span.Span)
+}
+
+pub fn dump_pattern(pat: Pattern) -> String {
+    match pat {
+        Pattern.Wildcard(_) => "_"
+        Pattern.Ident(name, _) => name
+        Pattern.IntLit(n, _) => str(n)
+        Pattern.FloatLit(f, _) => str(f)
+        Pattern.StringLit(s, _) => "\"{s}\""
+        Pattern.BoolLit(b, _) => str(b)
+        Pattern.NilLit(_) => "nil"
+        Pattern.Variant(ename, vname, subs, _) => {
+            let full_name = if len(ename) > 0 { "{ename}.{vname}" } else { vname }
+            if len(subs) == 0 {
+                return full_name
+            }
+            var sub_strs = []
+            for s in subs {
+                push(sub_strs, dump_pattern(s))
+            }
+            let joined = join(sub_strs, ", ")
+            "{full_name}({joined})"
+        }
+        Pattern.ListPat(subs, _) => {
+            var sub_strs = []
+            for s in subs {
+                push(sub_strs, dump_pattern(s))
+            }
+            let joined = join(sub_strs, ", ")
+            "[{joined}]"
+        }
+    }
+}
+
+pub struct MatchArm {
+    pattern: Pattern,
+    guard: option.Option[Expr],
+    body: Expr,
+}
+
+// -------------------------------------------------------------
+// Expressions & Statements
+// -------------------------------------------------------------
+
+pub struct StructInitField {
+    name: String,
+    value: Expr,
+}
+
+pub struct MapEntry {
+    key: Expr,
+    value: Expr,
+}
+
+pub struct BlockExpr {
+    stmts: [Stmt],
+    span: span.Span,
+}
+
+pub enum Expr {
+    IntLit(Int, span.Span)
+    FloatLit(Float, span.Span)
+    StringLit(String, span.Span)
+    BoolLit(Bool, span.Span)
+    NilLit(span.Span)
+    Ident(String, span.Span)
+    Binary(String, Expr, Expr, span.Span)
+    Unary(String, Expr, span.Span)
+    Call(Expr, [Expr], span.Span)
+    Spawn(Expr, span.Span)
+    Await(Expr, span.Span)
+    Try(Expr, span.Span)
+    Field(Expr, String, span.Span)
+    Index(Expr, Expr, span.Span)
+    Assign(String, Expr, Expr, span.Span)
+    If(Expr, BlockExpr, option.Option[Expr], span.Span)
+    Match(Expr, [MatchArm], span.Span)
+    Block(BlockExpr)
+    Nursery(BlockExpr, span.Span)
+    StructInit(String, [StructInitField], span.Span)
+    ListLit([Expr], span.Span)
+    MapLit([MapEntry], span.Span)
+    Return(option.Option[Expr], span.Span)
+    Break(span.Span)
+    Continue(span.Span)
+}
+
+pub enum Stmt {
+    Let(String, option.Option[TypeExpr], Expr, span.Span)
+    Var(String, option.Option[TypeExpr], Expr, span.Span)
+    While(Expr, BlockExpr, span.Span)
+    For(String, Expr, BlockExpr, span.Span)
+    Loop(BlockExpr, span.Span)
+    Expr(Expr)
+}
+
+pub struct Program {
+    items: [Item],
+}
+
+// -------------------------------------------------------------
+// AST Dump Helpers (S-expression format)
+// -------------------------------------------------------------
+
+pub fn dump_expr(expr: Expr) -> String {
+    match expr {
+        Expr.IntLit(n, _) => str(n)
+        Expr.FloatLit(f, _) => str(f)
+        Expr.StringLit(s, _) => "\"{s}\""
+        Expr.BoolLit(b, _) => str(b)
+        Expr.NilLit(_) => "nil"
+        Expr.Ident(name, _) => name
+        Expr.Binary(op, left, right, _) => {
+            "({op} {dump_expr(left)} {dump_expr(right)})"
+        }
+        Expr.Unary(op, inner, _) => {
+            "({op} {dump_expr(inner)})"
+        }
+        Expr.Call(callee, args, _) => {
+            var arg_strs = []
+            for a in args {
+                push(arg_strs, dump_expr(a))
+            }
+            if len(arg_strs) > 0 {
+                let joined_args = join(arg_strs, " ")
+                "(call {dump_expr(callee)} {joined_args})"
+            } else {
+                "(call {dump_expr(callee)})"
+            }
+        }
+        Expr.Spawn(call, _) => "(spawn {dump_expr(call)})"
+        Expr.Await(task, _) => "(await {dump_expr(task)})"
+        Expr.Try(inner, _) => "(try {dump_expr(inner)})"
+        Expr.Field(target, field, _) => "(field {dump_expr(target)} {field})"
+        Expr.Index(target, index, _) => "(index {dump_expr(target)} {dump_expr(index)})"
+        Expr.Assign(op, target, value, _) => {
+            "({op} {dump_expr(target)} {dump_expr(value)})"
+        }
+        Expr.If(cond, then_b, else_b, _) => {
+            match else_b {
+                Option.Some(eb) => "(if {dump_expr(cond)} {dump_block(then_b)} {dump_expr(eb)})"
+                Option.None => "(if {dump_expr(cond)} {dump_block(then_b)})"
+            }
+        }
+        Expr.Match(scrutinee, arms, _) => {
+            var arm_strs = []
+            for arm in arms {
+                push(arm_strs, "(arm {dump_pattern(arm.pattern)} {dump_expr(arm.body)})")
+            }
+            let joined_arms = join(arm_strs, " ")
+            "(match {dump_expr(scrutinee)} {joined_arms})"
+        }
+        Expr.Block(b) => dump_block(b)
+        Expr.Nursery(b, _) => "(nursery {dump_block(b)})"
+        Expr.StructInit(name, fields, _) => {
+            var f_strs = []
+            for f in fields {
+                push(f_strs, "({f.name} {dump_expr(f.value)})")
+            }
+            let joined_fields = join(f_strs, " ")
+            "(struct-init {name} {joined_fields})"
+        }
+        Expr.ListLit(items, _) => {
+            var item_strs = []
+            for it in items {
+                push(item_strs, dump_expr(it))
+            }
+            let joined_items = join(item_strs, " ")
+            "(list {joined_items})"
+        }
+        Expr.MapLit(entries, _) => {
+            var e_strs = []
+            for e in entries {
+                push(e_strs, "({dump_expr(e.key)} {dump_expr(e.value)})")
+            }
+            let joined_entries = join(e_strs, " ")
+            "(map {joined_entries})"
+        }
+        Expr.Return(val, _) => {
+            match val {
+                Option.Some(v) => "(return {dump_expr(v)})"
+                Option.None => "(return)"
+            }
+        }
+        Expr.Break(_) => "(break)"
+        Expr.Continue(_) => "(continue)"
+    }
+}
+
+pub fn dump_block(b: BlockExpr) -> String {
+    var stmt_strs = []
+    for s in b.stmts {
+        push(stmt_strs, dump_stmt(s))
+    }
+    if len(stmt_strs) > 0 {
+        let joined_stmts = join(stmt_strs, " ")
+        "(block {joined_stmts})"
+    } else {
+        "(block)"
+    }
+}
+
+pub fn dump_stmt(stmt: Stmt) -> String {
+    match stmt {
+        Stmt.Let(name, ty, val, _) => {
+            match ty {
+                Option.Some(t) => "(let {name}:{dump_type(t)} {dump_expr(val)})"
+                Option.None => "(let {name} {dump_expr(val)})"
+            }
+        }
+        Stmt.Var(name, ty, val, _) => {
+            match ty {
+                Option.Some(t) => "(var {name}:{dump_type(t)} {dump_expr(val)})"
+                Option.None => "(var {name} {dump_expr(val)})"
+            }
+        }
+        Stmt.While(cond, body, _) => "(while {dump_expr(cond)} {dump_block(body)})"
+        Stmt.For(var_name, iter, body, _) => "(for {var_name} {dump_expr(iter)} {dump_block(body)})"
+        Stmt.Loop(body, _) => "(loop {dump_block(body)})"
+        Stmt.Expr(e) => dump_expr(e)
+    }
+}
+
+pub fn dump_item(item: Item) -> String {
+    match item {
+        Item.Fn(f) => {
+            var p_strs = []
+            for p in f.params {
+                match p.ty {
+                    Option.Some(t) => push(p_strs, "{p.name}:{dump_type(t)}")
+                    Option.None => push(p_strs, p.name)
+                }
+            }
+            let tp_str = dump_type_params(f.type_params)
+            let joined_params = join(p_strs, ", ")
+            let params_formatted = "({joined_params})"
+            "(fn {f.name}{tp_str} {params_formatted} {dump_block(f.body)})"
+        }
+        Item.Struct(s) => {
+            var f_strs = []
+            for f in s.fields {
+                push(f_strs, "({f.name} {dump_type(f.ty)})")
+            }
+            let tp_str = dump_type_params(s.type_params)
+            let joined_fields = join(f_strs, " ")
+            "(struct {s.name}{tp_str} {joined_fields})"
+        }
+        Item.Enum(e) => {
+            var v_strs = []
+            for v in e.variants {
+                if len(v.payloads) == 0 {
+                    push(v_strs, "({v.name})")
+                } else {
+                    var pay_strs = []
+                    for py in v.payloads {
+                        push(pay_strs, dump_type(py))
+                    }
+                    let joined_payloads = join(pay_strs, " ")
+                    push(v_strs, "({v.name} {joined_payloads})")
+                }
+            }
+            let tp_str = dump_type_params(e.type_params)
+            let joined_variants = join(v_strs, " ")
+            "(enum {e.name}{tp_str} {joined_variants})"
+        }
+        Item.Trait(t) => {
+            var m_strs = []
+            for m in t.methods {
+                var mp_strs = []
+                if m.has_self { push(mp_strs, "self") }
+                for p in m.params {
+                    match p.ty {
+                        Option.Some(pty) => push(mp_strs, "{p.name}:{dump_type(pty)}")
+                        Option.None => push(mp_strs, p.name)
+                    }
+                }
+                let ret_str = match m.ret_ty {
+                    Option.Some(rty) => " -> {dump_type(rty)}"
+                    Option.None => ""
+                }
+                let joined_mp = join(mp_strs, ", ")
+                push(m_strs, "(fn {m.name} ({joined_mp}){ret_str})")
+            }
+            let tp_str = dump_type_params(t.type_params)
+            let joined_methods = join(m_strs, " ")
+            "(trait {t.name}{tp_str} {joined_methods})"
+        }
+        Item.Impl(imp) => {
+            var m_strs = []
+            for m in imp.methods {
+                push(m_strs, dump_item(Item.Fn(m)))
+            }
+            let tp_str = dump_type_params(imp.type_params)
+            let joined_methods = join(m_strs, " ")
+            "(impl{tp_str} {imp.trait_name} for {dump_type(imp.target_ty)} {joined_methods})"
+        }
+        Item.TypeAlias(ta) => {
+            let tp_str = dump_type_params(ta.type_params)
+            "(type {ta.name}{tp_str} = {dump_type(ta.target_ty)})"
+        }
+        Item.Import(imp) => {
+            let path_str = join(imp.path, ".")
+            match imp.alias {
+                Option.Some(al) => "(import {path_str} as {al})"
+                Option.None => "(import {path_str})"
+            }
+        }
+    }
+}
+
+pub fn dump_program(p: Program) -> String {
+    var item_strs = []
+    for item in p.items {
+        push(item_strs, dump_item(item))
+    }
+    let nl_indent = "\n  "
+    let joined_items = join(item_strs, nl_indent)
+    "(program\n  {joined_items}\n)"
+}

@@ -2640,7 +2640,35 @@ impl Checker {
                         "`?` can only be used inside a function",
                     ));
                 };
-                self.unify(&return_ty, &resolved, *span).map_err(|_| {
+                let ret_resolved = self.resolve(&return_ty).without_ownership();
+                let Type::Enum { name: _ret_name, variants: ret_variants } = &ret_resolved else {
+                    return Err(TypeError::with_help(
+                        *span,
+                        format!("cannot propagate `{name}.Err` from this function"),
+                        format!("change the function return type to `{name}` or handle the error with `match`"),
+                    ));
+                };
+                let (Some((ret_ok, _)), Some((ret_err, ret_err_fields))) =
+                    (ret_variants.first(), ret_variants.get(1))
+                else {
+                    return Err(TypeError::with_help(
+                        *span,
+                        format!("cannot propagate `{name}.Err` from this function"),
+                        format!("change the function return type to `{name}` or handle the error with `match`"),
+                    ));
+                };
+                if ret_variants.len() != 2
+                    || ret_ok != "Ok"
+                    || ret_err != "Err"
+                    || ret_err_fields.len() != 1
+                {
+                    return Err(TypeError::with_help(
+                        *span,
+                        format!("cannot propagate `{name}.Err` from this function"),
+                        format!("change the function return type to `{name}` or handle the error with `match`"),
+                    ));
+                }
+                self.unify(&err_fields[0], &ret_err_fields[0], *span).map_err(|_| {
                     TypeError::with_help(
                         *span,
                         format!("cannot propagate `{name}.Err` from this function"),

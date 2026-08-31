@@ -99,7 +99,7 @@ fn scan_1char_op(c: String) -> option.Option[tokens.TokenKind] {
     option.Option.None
 }
 
-pub fn lex(source: String) -> result.Result[List[tokens.Token], String] {
+pub fn lex(source: String) -> result.Result[[tokens.Token], String] {
     var tok_list = []
     let src_len = len(source)
     var pos = 0
