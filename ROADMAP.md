@@ -1,5 +1,39 @@
 # Flake Roadmap
 
+**Flake v0.11.0 is complete.** Theme: **Self-hosted frontend (lexer + parser written in Flake) (Phase 2 of 6 toward v1.0)**.
+
+There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
+
+## v0.11.0 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Token types + lexer in Flake | **done** |
+| 2 | Flake AST + recursive-descent parser | **done** |
+| 3 | CLI driver + multi-file / args | **done** |
+| 4 | Golden corpus vs Rust frontend | **done** |
+| 5 | Docs, stable-subset, hardening | **done** |
+| 6 | Documentation, polish & release | **done** |
+
+## What v0.11.0 delivers
+
+- **Self-Hosted Lexer (`selfhost/frontend/lexer.flk`, `tokens.flk`, `span.flk`)**:
+  - Full keyword, operator, and literal scanning written purely in Flake.
+  - Complete support for single-line (`//`) and nested multi-line (`/* */`) comments.
+  - Escape sequence handling (`\n`, `\t`, `\r`, `\"`, `\\`, `\{`, `\}`).
+- **Self-Hosted AST & Recursive-Descent Parser (`selfhost/frontend/ast.flk`, `parser.flk`)**:
+  - AST data structures representing all items, statements, expressions, patterns, and types in Flake.
+  - Complete recursive-descent parser with operator precedence climbing.
+  - Generic type parameters, bounds, match guards, dotted variant patterns, map/list literals, and struct inits.
+  - S-expression AST formatters for canonical program inspection and golden diffing.
+- **Frontend CLI Driver (`selfhost/frontend/main.flk`)**:
+  - Modes for `--tokens`, `--ast`, `--check`, `--walk`, and `-h`/`--help`.
+  - 100% parse pass rate across all 60 repository examples (`--walk examples`).
+  - 100% self-parsing pass rate across all `selfhost/frontend/` modules (`--walk selfhost/frontend`).
+- **Comprehensive Integration Suite (`flake-cli/tests/selfhost_frontend.rs`)**:
+  - Validates token streams, AST S-expressions, and recursive walk consistency across Interpreter and Bytecode VM.
+  - Validates native x86-64 execution.
+
 **Flake v0.10.0 is complete.** Theme: **Trait methods and usable bounds (Phase 1 of 6 toward v1.0)**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.

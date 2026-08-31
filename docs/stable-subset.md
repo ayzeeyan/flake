@@ -1,6 +1,6 @@
-# Flake v0.10 stable subset
+# Flake v0.11 stable subset
 
-This is the language surface a self-hosted frontend (Phase 2 / v0.11) and checker (Phase 3 / v0.12) may rely on. Features outside this list exist in the tree but are not a stability promise.
+This is the language surface a self-hosted frontend (Phase 2 / v0.11 completed) and checker (Phase 3 / v0.12) may rely on. Features outside this list exist in the tree but are not a stability promise.
 
 ## Stable
 
@@ -16,6 +16,7 @@ This is the language surface a self-hosted frontend (Phase 2 / v0.11) and checke
 - Algebraic enums, exhaustive `match`, Result-style `?`
 - Modules, `pub` visibility, packages, `flake.toml`, deterministic `flake.lock`
 - Structured concurrency: `spawn`, `await`, `nursery`, `Task[T]`, sendability of owned values
+- Self-hosted frontend modules (`selfhost/frontend/`): `span`, `tokens`, `lexer`, `ast`, `parser`, `main`
 - Interpreter, bytecode VM, and native x86-64 Windows with matching results on this entire subset
 - Native targets `x86_64-windows`, `x86_64-linux`, `aarch64-linux` for the existing pipeline
 - Native `process.run` with stdout capture and exit code propagation matching Interpreter and VM
@@ -40,6 +41,6 @@ Program arguments are the builtin `args()` / `process.program_args()`, passed af
 - Public package registry
 - New CPU targets beyond the three listed above
 
-## Out of scope for v0.10
+## Out of scope for v0.11
 
-A full self-hosted Flake compiler (lexer + parser in v0.11; checker in v0.12; CTFE lite in v0.13; bootstrap in v0.14). This release provides the necessary trait methods, usable bounds, process execution, and stdlib foundation.
+Self-hosted type/effect/ownership checker (scheduled for v0.12); CTFE lite (scheduled for v0.13); bootstrap (scheduled for v0.14). This release delivers the complete self-hosted lexer and parser in Flake.
