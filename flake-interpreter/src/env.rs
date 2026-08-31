@@ -18,6 +18,7 @@ struct EnvInner {
     parent: Option<Env>,
     bindings: HashMap<String, Binding>,
     types: HashMap<String, String>,
+    methods: HashMap<(String, String), Value>,
 }
 
 struct Binding {
@@ -33,6 +34,7 @@ impl Env {
                 parent: None,
                 bindings: HashMap::new(),
                 types: HashMap::new(),
+                methods: HashMap::new(),
             })),
         }
     }
@@ -44,6 +46,7 @@ impl Env {
                 parent: Some(self.clone()),
                 bindings: HashMap::new(),
                 types: HashMap::new(),
+                methods: HashMap::new(),
             })),
         }
     }
@@ -61,6 +64,39 @@ impl Env {
             return Some(b.value.clone());
         }
         inner.parent.as_ref().and_then(|p| p.get(name))
+    }
+
+    pub fn define_method(
+        &self,
+        type_name: impl Into<String>,
+        method_name: impl Into<String>,
+        value: Value,
+    ) {
+        self.inner
+            .borrow_mut()
+            .methods
+            .insert((type_name.into(), method_name.into()), value);
+    }
+
+    pub fn get_method(&self, type_name: &str, method_name: &str) -> Option<Value> {
+        let inner = self.inner.borrow();
+        if let Some(v) = inner
+            .methods
+            .get(&(type_name.to_string(), method_name.to_string()))
+        {
+            return Some(v.clone());
+        }
+        let short = type_name.rsplit('.').next().unwrap_or(type_name);
+        if let Some(v) = inner
+            .methods
+            .get(&(short.to_string(), method_name.to_string()))
+        {
+            return Some(v.clone());
+        }
+        inner
+            .parent
+            .as_ref()
+            .and_then(|p| p.get_method(type_name, method_name))
     }
 
     pub fn define_type(&self, name: impl Into<String>, canonical: impl Into<String>) {

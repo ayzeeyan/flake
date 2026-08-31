@@ -462,6 +462,26 @@ impl<'a> FnCompiler<'a> {
                             return Ok(());
                         }
                     }
+                    if let Expr::Ident(id) = target.as_ref() {
+                        if let Some(global) = self.names.field_global(&id.name, &field.name) {
+                            let c = self.chunk.add_constant(Value::from_string(global));
+                            self.chunk.emit(Op::GetGlobal(c));
+                            for arg in args {
+                                self.compile_expr(arg)?;
+                            }
+                            self.chunk.emit(Op::Call(args.len() as u8));
+                            return Ok(());
+                        }
+                    }
+                    self.compile_expr(target)?;
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                    }
+                    let c = self
+                        .chunk
+                        .add_constant(Value::from_string(field.name.clone()));
+                    self.chunk.emit(Op::CallMethod(c, args.len() as u8));
+                    return Ok(());
                 }
                 self.compile_expr(callee)?;
                 for arg in args {
@@ -486,6 +506,26 @@ impl<'a> FnCompiler<'a> {
                         self.chunk.emit(Op::ReadyTask);
                         return Ok(());
                     }
+                    if let Expr::Ident(id) = target.as_ref() {
+                        if let Some(global) = self.names.field_global(&id.name, &field.name) {
+                            let c = self.chunk.add_constant(Value::from_string(global));
+                            self.chunk.emit(Op::GetGlobal(c));
+                            for arg in args {
+                                self.compile_expr(arg)?;
+                            }
+                            self.chunk.emit(Op::Spawn(args.len() as u8));
+                            return Ok(());
+                        }
+                    }
+                    self.compile_expr(target)?;
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                    }
+                    let c = self
+                        .chunk
+                        .add_constant(Value::from_string(field.name.clone()));
+                    self.chunk.emit(Op::SpawnMethod(c, args.len() as u8));
+                    return Ok(());
                 }
                 self.compile_expr(callee)?;
                 for arg in args {
@@ -1050,12 +1090,17 @@ fn compile_with_names(program: &Program, names: &Names) -> Result<Compiled, VmEr
     for item in &program.items {
         match item {
             Item::Fn(func) => functions.push(compile_fn(func, names)?),
+            Item::Impl(imp) => {
+                let type_ctor = impl_type_ctor(&imp.ty);
+                for method in &imp.methods {
+                    functions.push(compile_method(method, &type_ctor, names)?);
+                }
+            }
             Item::Import(_)
             | Item::Struct(_)
             | Item::Type(_)
             | Item::Enum(_)
-            | Item::Trait(_)
-            | Item::Impl(_) => {}
+            | Item::Trait(_) => {}
         }
     }
     Ok(Compiled { functions })
@@ -1069,4 +1114,28 @@ fn compile_fn(func: &FnDecl, names: &Names) -> Result<Function, VmError> {
     compiler.compile_block_value(&func.body, false)?;
     compiler.chunk.emit(Op::Return);
     Ok(compiler.finish(names.global(&func.name.name), arity))
+}
+
+fn compile_method(func: &FnDecl, type_ctor: &str, names: &Names) -> Result<Function, VmError> {
+    let params: Vec<String> = func.params.iter().map(|p| p.name.name.clone()).collect();
+    let arity = params.len() as u8;
+    let mut compiler = FnCompiler::new(params, names);
+    compiler.chunk.set_span(func.span);
+    compiler.compile_block_value(&func.body, false)?;
+    compiler.chunk.emit(Op::Return);
+    let fn_name = names.global(&format!("{type_ctor}_{}", func.name.name));
+    Ok(compiler.finish(fn_name, arity))
+}
+
+fn impl_type_ctor(ty: &flake_ast::TypeExpr) -> String {
+    match ty {
+        flake_ast::TypeExpr::Named { name, .. } => name.name.clone(),
+        flake_ast::TypeExpr::List { .. } => "List".to_string(),
+        flake_ast::TypeExpr::Dyn { .. } => "dyn".to_string(),
+        flake_ast::TypeExpr::Optional { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Owned { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Ref { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Mut { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Fn { .. } => "Function".to_string(),
+    }
 }

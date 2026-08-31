@@ -482,3 +482,53 @@ fn main() / io + conc {
 "#;
     assert_eq!(run(src), "pending\nfalse\n42\njoined\ntrue\n");
 }
+
+#[test]
+fn trait_method_dispatch_in_vm() {
+    let src = r#"
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+}
+
+impl Show for String {
+    fn show(self) -> String {
+        self
+    }
+}
+
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+impl Show for Point {
+    fn show(self) -> String {
+        "Point({self.x}, {self.y})"
+    }
+}
+
+fn print_show[T: Show](x: T) / io {
+    print(x.show())
+}
+
+fn main() / io {
+    print(42.show())
+    print("hello".show())
+    let p = Point { x: 10, y: 20 }
+    print(p.show())
+    print_show(100)
+    print_show("generic")
+    print_show(p)
+}
+"#;
+    assert_eq!(
+        run(src),
+        "42\nhello\nPoint(10, 20)\n100\ngeneric\nPoint(10, 20)\n"
+    );
+}

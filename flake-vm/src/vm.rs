@@ -375,6 +375,110 @@ impl<'io> Vm<'io> {
                     let value = self.peek().clone();
                     field_set(&target, &name, value)?;
                 }
+                Op::CallMethod(name_idx, argc) => {
+                    let argc = argc as usize;
+                    let name = constant_name(&self.frames[frame_index].func.chunk.constants, name_idx)?;
+                    let receiver_idx = self.stack.len() - argc - 1;
+                    let receiver = self.stack[receiver_idx].clone();
+                    if let Value::Struct { fields, .. } = &receiver {
+                        if let Some(field_val) = fields.borrow().get(&name).cloned() {
+                            self.stack[receiver_idx] = field_val.clone();
+                            match field_val {
+                                Value::Function(f) => self.call(f, argc, Span::DUMMY)?,
+                                Value::Native(native) => {
+                                    let mut args = Vec::with_capacity(argc);
+                                    for _ in 0..argc {
+                                        args.push(self.pop());
+                                    }
+                                    args.reverse();
+                                    let _ = self.pop();
+                                    let result = call_native(native, &args, self.stdout)?;
+                                    self.stack.push(result);
+                                }
+                                other => {
+                                    return Err(VmError::new(
+                                        Span::DUMMY,
+                                        format!("cannot call {}", other.type_name()),
+                                    ));
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    let type_key = match &receiver {
+                        Value::Int(_) => "Int",
+                        Value::Float(_) => "Float",
+                        Value::Bool(_) => "Bool",
+                        Value::String(_) => "String",
+                        Value::Nil => "Nil",
+                        Value::List(_) => "List",
+                        Value::Map(_) => "Map",
+                        Value::Struct { name, .. } => name.as_ref(),
+                        other => other.type_name(),
+                    };
+                    let short_type = type_key.rsplit('.').next().unwrap_or(type_key);
+                    let fn_name1 = format!("{type_key}_{name}");
+                    let fn_name2 = format!("{short_type}_{name}");
+                    let found_func = self
+                        .globals
+                        .get(&fn_name1)
+                        .or_else(|| self.globals.get(&fn_name2))
+                        .cloned();
+                    if let Some(Value::Function(f)) = found_func {
+                        self.stack.insert(receiver_idx, Value::Function(f.clone()));
+                        self.call(f, argc + 1, Span::DUMMY)?;
+                    } else {
+                        return Err(VmError::new(
+                            Span::DUMMY,
+                            format!("no method `{name}` found on type `{type_key}`"),
+                        ));
+                    }
+                }
+                Op::SpawnMethod(name_idx, argc) => {
+                    let argc = argc as usize;
+                    let name = constant_name(&self.frames[frame_index].func.chunk.constants, name_idx)?;
+                    let mut args = Vec::with_capacity(argc);
+                    for _ in 0..argc {
+                        args.push(self.pop());
+                    }
+                    args.reverse();
+                    let receiver = self.pop();
+                    let type_key = match &receiver {
+                        Value::Int(_) => "Int",
+                        Value::Float(_) => "Float",
+                        Value::Bool(_) => "Bool",
+                        Value::String(_) => "String",
+                        Value::Nil => "Nil",
+                        Value::List(_) => "List",
+                        Value::Map(_) => "Map",
+                        Value::Struct { name, .. } => name.as_ref(),
+                        other => other.type_name(),
+                    };
+                    let short_type = type_key.rsplit('.').next().unwrap_or(type_key);
+                    let fn_name1 = format!("{type_key}_{name}");
+                    let fn_name2 = format!("{short_type}_{name}");
+                    let found_func = self
+                        .globals
+                        .get(&fn_name1)
+                        .or_else(|| self.globals.get(&fn_name2))
+                        .cloned();
+                    if let Some(func_val) = found_func {
+                        let mut all_args = Vec::with_capacity(argc + 1);
+                        all_args.push(receiver);
+                        all_args.extend(args);
+                        let task = Rc::new(RefCell::new(TaskState::Pending {
+                            callee: func_val,
+                            args: all_args,
+                        }));
+                        self.frames[frame_index].tasks.push(task.clone());
+                        self.stack.push(Value::Task(task));
+                    } else {
+                        return Err(VmError::new(
+                            Span::DUMMY,
+                            format!("no method `{name}` found on type `{type_key}`"),
+                        ));
+                    }
+                }
                 Op::Concat(n) => {
                     let mut parts = Vec::new();
                     for _ in 0..n {

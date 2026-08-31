@@ -355,7 +355,20 @@ impl<'io> Interpreter<'io> {
                         .unwrap_or_else(|| st.name.name.clone());
                     env.define_type(&st.name.name, type_name);
                 }
-                Item::Type(_) | Item::Import(_) | Item::Trait(_) | Item::Impl(_) => {}
+                Item::Type(_) | Item::Import(_) | Item::Trait(_) => {}
+                Item::Impl(imp) => {
+                    let type_ctor = impl_type_ctor(&imp.ty);
+                    for func in &imp.methods {
+                        let value = Value::Function(Rc::new(Function {
+                            name: format!("{type_ctor}_{}", func.name.name),
+                            params: func.params.iter().map(|p| p.name.clone()).collect(),
+                            body: func.body.clone(),
+                            closure: env.clone(),
+                            span: func.span,
+                        }));
+                        env.define_method(&type_ctor, &func.name.name, value);
+                    }
+                }
                 Item::Enum(en) => {
                     let type_name = module_name
                         .map(|module| flake_parser::qualify(module, &en.name.name))
@@ -653,6 +666,36 @@ impl<'io> Interpreter<'io> {
                 span,
             } => self.eval_assign(*op, target, value, *span),
             Expr::Call { callee, args, span } => {
+                if let Expr::Field { target, field, .. } = callee.as_ref() {
+                    let target_val = self.eval_expr(target)?;
+                    let is_struct_or_module_field = match &target_val {
+                        Value::Struct { fields, .. } => fields.borrow().contains_key(&field.name),
+                        Value::Module { members, .. } => members.contains_key(&field.name),
+                        _ => false,
+                    };
+                    if !is_struct_or_module_field {
+                        let type_key = match &target_val {
+                            Value::Int(_) => "Int",
+                            Value::Float(_) => "Float",
+                            Value::Bool(_) => "Bool",
+                            Value::String(_) => "String",
+                            Value::Nil => "Nil",
+                            Value::List(_) => "List",
+                            Value::Map(_) => "Map",
+                            Value::Struct { name, .. } => name.as_ref(),
+                            Value::Enum { type_name, .. } => type_name.as_ref(),
+                            other => other.type_name(),
+                        };
+                        if let Some(method_func) = self.env.get_method(type_key, &field.name) {
+                            let mut arg_values = Vec::with_capacity(args.len() + 1);
+                            arg_values.push(target_val);
+                            for a in args {
+                                arg_values.push(self.eval_expr(a)?);
+                            }
+                            return self.call_value(&method_func, &arg_values, *span);
+                        }
+                    }
+                }
                 let func = self.eval_expr(callee)?;
                 let mut arg_values = Vec::with_capacity(args.len());
                 for a in args {
@@ -669,11 +712,57 @@ impl<'io> Interpreter<'io> {
                 else {
                     return Err(RuntimeError::new(*span, "`spawn` expects a function call").into());
                 };
-                let func = self.eval_expr(callee)?;
-                let mut arg_values = Vec::with_capacity(args.len());
-                for arg in args {
-                    arg_values.push(self.eval_expr(arg)?);
-                }
+                let (func, arg_values) = if let Expr::Field { target, field, .. } = callee.as_ref() {
+                    let target_val = self.eval_expr(target)?;
+                    let is_struct_or_module_field = match &target_val {
+                        Value::Struct { fields, .. } => fields.borrow().contains_key(&field.name),
+                        Value::Module { members, .. } => members.contains_key(&field.name),
+                        _ => false,
+                    };
+                    if !is_struct_or_module_field {
+                        let type_key = match &target_val {
+                            Value::Int(_) => "Int",
+                            Value::Float(_) => "Float",
+                            Value::Bool(_) => "Bool",
+                            Value::String(_) => "String",
+                            Value::Nil => "Nil",
+                            Value::List(_) => "List",
+                            Value::Map(_) => "Map",
+                            Value::Struct { name, .. } => name.as_ref(),
+                            Value::Enum { type_name, .. } => type_name.as_ref(),
+                            other => other.type_name(),
+                        };
+                        if let Some(method_func) = self.env.get_method(type_key, &field.name) {
+                            let mut arg_vals = Vec::with_capacity(args.len() + 1);
+                            arg_vals.push(target_val);
+                            for a in args {
+                                arg_vals.push(self.eval_expr(a)?);
+                            }
+                            (method_func, arg_vals)
+                        } else {
+                            let func = self.eval_expr(callee)?;
+                            let mut arg_vals = Vec::with_capacity(args.len());
+                            for arg in args {
+                                arg_vals.push(self.eval_expr(arg)?);
+                            }
+                            (func, arg_vals)
+                        }
+                    } else {
+                        let func = self.eval_expr(callee)?;
+                        let mut arg_vals = Vec::with_capacity(args.len());
+                        for arg in args {
+                            arg_vals.push(self.eval_expr(arg)?);
+                        }
+                        (func, arg_vals)
+                    }
+                } else {
+                    let func = self.eval_expr(callee)?;
+                    let mut arg_vals = Vec::with_capacity(args.len());
+                    for arg in args {
+                        arg_vals.push(self.eval_expr(arg)?);
+                    }
+                    (func, arg_vals)
+                };
                 let task = Rc::new(RefCell::new(TaskState::Pending {
                     callee: func,
                     args: arg_values,
@@ -2082,5 +2171,18 @@ impl Interpreter<'_> {
     #[allow(dead_code)]
     fn file_name(&self) -> &str {
         self.source.name()
+    }
+}
+
+fn impl_type_ctor(ty: &flake_ast::TypeExpr) -> String {
+    match ty {
+        flake_ast::TypeExpr::Named { name, .. } => name.name.clone(),
+        flake_ast::TypeExpr::List { .. } => "List".to_string(),
+        flake_ast::TypeExpr::Dyn { .. } => "dyn".to_string(),
+        flake_ast::TypeExpr::Optional { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Owned { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Ref { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Mut { inner, .. } => impl_type_ctor(inner),
+        flake_ast::TypeExpr::Fn { .. } => "Function".to_string(),
     }
 }

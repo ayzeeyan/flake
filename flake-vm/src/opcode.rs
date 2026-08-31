@@ -125,5 +125,7 @@ pub enum Op {
     SetIndex,
     GetField(u16),
     SetField(u16),
+    CallMethod(u16, u8),
+    SpawnMethod(u16, u8),
     Concat(u8),
 }
