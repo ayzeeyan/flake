@@ -1,0 +1,21 @@
+// Span representing source file positions.
+
+pub struct Span {
+    line: Int,
+    col: Int,
+    offset: Int,
+    len: Int,
+}
+
+pub fn new_span(line: Int, col: Int, offset: Int, len: Int) -> Span {
+    Span {
+        line: line,
+        col: col,
+        offset: offset,
+        len: len,
+    }
+}
+
+pub fn format_span(span: Span) -> String {
+    "{span.line}:{span.col}"
+}
