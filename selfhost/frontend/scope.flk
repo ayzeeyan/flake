@@ -5,6 +5,7 @@ import result
 pub struct Symbol {
     name: String,
     kind: String,
+    ty_name: String,
     span: span.Span,
 }
 
@@ -43,12 +44,17 @@ pub fn pop_scope(stack: ScopeStack) {
 }
 
 pub fn insert_symbol(stack: ScopeStack, name: String, kind: String, sp: span.Span) -> result.Result[Bool, String] {
+    insert_symbol_typed(stack, name, kind, "", sp)
+}
+
+pub fn insert_symbol_typed(stack: ScopeStack, name: String, kind: String, ty_name: String, sp: span.Span) -> result.Result[Bool, String] {
     let top_idx = len(stack.scopes) - 1
     let cur_scope = stack.scopes[top_idx]
     for s in cur_scope.symbols {
         if s.name == name {
             if s.kind == "builtin" {
                 s.kind = kind
+                s.ty_name = ty_name
                 s.span = sp
                 return result.Result.Ok(true)
             }
@@ -58,6 +64,7 @@ pub fn insert_symbol(stack: ScopeStack, name: String, kind: String, sp: span.Spa
     let sym = Symbol {
         name: name,
         kind: kind,
+        ty_name: ty_name,
         span: sp,
     }
     push(cur_scope.symbols, sym)
@@ -65,11 +72,16 @@ pub fn insert_symbol(stack: ScopeStack, name: String, kind: String, sp: span.Spa
 }
 
 pub fn insert_symbol_allow_shadow(stack: ScopeStack, name: String, kind: String, sp: span.Span) {
+    insert_symbol_allow_shadow_typed(stack, name, kind, "", sp)
+}
+
+pub fn insert_symbol_allow_shadow_typed(stack: ScopeStack, name: String, kind: String, ty_name: String, sp: span.Span) {
     let top_idx = len(stack.scopes) - 1
     let cur_scope = stack.scopes[top_idx]
     let sym = Symbol {
         name: name,
         kind: kind,
+        ty_name: ty_name,
         span: sp,
     }
     push(cur_scope.symbols, sym)
@@ -96,6 +108,13 @@ pub fn is_defined(stack: ScopeStack, name: String) -> Bool {
     }
 }
 
+pub fn get_type(stack: ScopeStack, name: String) -> String {
+    match lookup(stack, name) {
+        option.Option.Some(sym) => sym.ty_name
+        option.Option.None => ""
+    }
+}
+
 fn init_builtins(stack: ScopeStack) {
     let dummy = span.new_span(0, 0, 0, 0)
     let builtins = [
@@ -110,6 +129,6 @@ fn init_builtins(stack: ScopeStack) {
         "path", "math", "string", "list", "map", "channel", "bytes", "option", "result"
     ]
     for b in builtins {
-        insert_symbol_allow_shadow(stack, b, "builtin", dummy)
+        insert_symbol_allow_shadow_typed(stack, b, "builtin", "", dummy)
     }
 }

@@ -182,22 +182,6 @@ pub fn parse_type(p: Parser) -> result.Result[ast.TypeExpr, String] {
             base_ty = ast.TypeExpr.DynType
             nil
         }
-        tokens.TokenKind.KwTask => {
-            advance(p)
-            match peek(p).kind {
-                tokens.TokenKind.LBracket => {
-                    advance(p)
-                    let inner = parse_type(p)?
-                    match peek(p).kind {
-                        tokens.TokenKind.RBracket => { advance(p); nil }
-                        _ => { return result.Result.Err("expected `]` after Task type argument at {span.format_span(peek(p).span)}") }
-                    }
-                    base_ty = ast.TypeExpr.TaskType(inner)
-                    nil
-                }
-                _ => { return result.Result.Err("expected `[` after `Task` at {span.format_span(peek(p).span)}") }
-            }
-        }
         tokens.TokenKind.LBracket => {
             advance(p)
             let inner = parse_type(p)?
@@ -348,7 +332,11 @@ pub fn parse_type(p: Parser) -> result.Result[ast.TypeExpr, String] {
                 }
                 _ => nil
             }
-            base_ty = ast.TypeExpr.Named(full_name, args)
+            if full_name == "Task" && len(args) > 0 {
+                base_ty = ast.TypeExpr.TaskType(args[0])
+            } else {
+                base_ty = ast.TypeExpr.Named(full_name, args)
+            }
             nil
         }
         _ => {

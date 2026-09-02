@@ -3,15 +3,18 @@ import span
 import option
 import result
 import scope
+import types
 
 pub struct Checker {
     stack: scope.ScopeStack,
+    types: types.TypeEnv,
     filename: String,
 }
 
 pub fn new_checker(filename: String) -> Checker {
     Checker {
         stack: scope.new_scope_stack(),
+        types: types.new_type_env(),
         filename: filename,
     }
 }
@@ -32,20 +35,43 @@ fn collect_globals(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
             }
             ast.Item.Struct(s) => {
                 scope.insert_symbol(c.stack, s.name, "struct", s.span)?
+                var f_names = []
+                var f_types = []
+                for fld in s.fields {
+                    push(f_names, fld.name)
+                    push(f_types, types.ast_type_to_flk(fld.ty, []))
+                }
+                push(c.types.structs, types.StructDef {
+                    name: s.name,
+                    field_names: f_names,
+                    field_types: f_types,
+                    span: s.span,
+                })
                 nil
             }
             ast.Item.Enum(e) => {
                 scope.insert_symbol(c.stack, e.name, "enum", e.span)?
+                var v_names = []
                 for v in e.variants {
+                    push(v_names, v.name)
                     scope.insert_symbol_allow_shadow(c.stack, v.name, "variant", e.span)
                 }
+                push(c.types.enums, types.EnumDef {
+                    name: e.name,
+                    variant_names: v_names,
+                    span: e.span,
+                })
                 nil
             }
             ast.Item.Trait(t) => {
                 scope.insert_symbol(c.stack, t.name, "trait", t.span)?
+                types.add_trait(c.types, t)?
                 nil
             }
-            ast.Item.Impl(_) => nil
+            ast.Item.Impl(imp) => {
+                types.add_impl(c.types, imp)?
+                nil
+            }
             ast.Item.TypeAlias(ta) => {
                 scope.insert_symbol(c.stack, ta.name, "type", ta.span)?
                 nil
@@ -68,27 +94,66 @@ fn resolve_program(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
         match item {
             ast.Item.Fn(f) => {
                 scope.push_scope(c.stack)
+                types.clear_bounds(c.types)
+
+                var generic_names = []
                 for tp in f.type_params {
+                    push(generic_names, tp.name)
                     scope.insert_symbol_allow_shadow(c.stack, tp.name, "type_param", f.span)
+                    for b in tp.bounds {
+                        types.add_bound(c.types, tp.name, b)
+                    }
                 }
+                types.set_generic_params(c.types, generic_names)
+
                 for p in f.params {
-                    scope.insert_symbol_allow_shadow(c.stack, p.name, "param", f.span)
+                    let pty = match p.ty {
+                        option.Option.Some(t) => types.type_name(types.ast_type_to_flk(t, generic_names))
+                        option.Option.None => "dyn"
+                    }
+                    scope.insert_symbol_allow_shadow_typed(c.stack, p.name, "param", pty, f.span)
                 }
+
                 resolve_block(c, f.body)?
                 scope.pop_scope(c.stack)
+                types.clear_bounds(c.types)
                 nil
             }
             ast.Item.Impl(imp) => {
                 for m in imp.methods {
                     scope.push_scope(c.stack)
+                    types.clear_bounds(c.types)
+
+                    var generic_names = []
                     for tp in imp.type_params {
+                        push(generic_names, tp.name)
                         scope.insert_symbol_allow_shadow(c.stack, tp.name, "type_param", m.span)
+                        for b in tp.bounds {
+                            types.add_bound(c.types, tp.name, b)
+                        }
                     }
+                    types.set_generic_params(c.types, generic_names)
+
                     for p in m.params {
-                        scope.insert_symbol_allow_shadow(c.stack, p.name, "param", m.span)
+                        let pty = match p.ty {
+                            option.Option.Some(t) => types.type_name(types.ast_type_to_flk(t, generic_names))
+                            option.Option.None => {
+                                if p.name == "self" {
+                                    match imp.target_ty {
+                                        ast.TypeExpr.Named(tn, _) => types.strip_modifier(tn)
+                                        _ => "dyn"
+                                    }
+                                } else {
+                                    "dyn"
+                                }
+                            }
+                        }
+                        scope.insert_symbol_allow_shadow_typed(c.stack, p.name, "param", pty, m.span)
                     }
+
                     resolve_block(c, m.body)?
                     scope.pop_scope(c.stack)
+                    types.clear_bounds(c.types)
                 }
                 nil
             }
@@ -107,27 +172,63 @@ fn resolve_block(c: Checker, b: ast.BlockExpr) -> result.Result[Bool, String] {
 
 fn resolve_stmt(c: Checker, s: ast.Stmt) -> result.Result[Bool, String] {
     match s {
-        ast.Stmt.Let(name, _, val, sp) => {
-            resolve_expr(c, val)?
-            scope.insert_symbol_allow_shadow(c.stack, name, "let", sp)
+        ast.Stmt.Let(name, decl_ty, val, sp) => {
+            let inf_ty = infer_expr(c, val)?
+            var final_ty_name = types.type_name(inf_ty)
+            match decl_ty {
+                option.Option.Some(dty) => {
+                    let expected_flk = types.ast_type_to_flk(dty, [])
+                    if !types.types_compatible(expected_flk, inf_ty) {
+                        let exp_name = types.type_name(expected_flk)
+                        let act_name = types.type_name(inf_ty)
+                        return result.Result.Err("{c.filename}:{span.format_span(sp)}: type mismatch: expected `{exp_name}`, found `{act_name}`")
+                    }
+                    final_ty_name = types.type_name(expected_flk)
+                    nil
+                }
+                option.Option.None => nil
+            }
+            scope.insert_symbol_allow_shadow_typed(c.stack, name, "let", final_ty_name, sp)
             result.Result.Ok(true)
         }
-        ast.Stmt.Var(name, _, val, sp) => {
-            resolve_expr(c, val)?
-            scope.insert_symbol_allow_shadow(c.stack, name, "var", sp)
+        ast.Stmt.Var(name, decl_ty, val, sp) => {
+            let inf_ty = infer_expr(c, val)?
+            var final_ty_name = types.type_name(inf_ty)
+            match decl_ty {
+                option.Option.Some(dty) => {
+                    let expected_flk = types.ast_type_to_flk(dty, [])
+                    if !types.types_compatible(expected_flk, inf_ty) {
+                        let exp_name = types.type_name(expected_flk)
+                        let act_name = types.type_name(inf_ty)
+                        return result.Result.Err("{c.filename}:{span.format_span(sp)}: type mismatch: expected `{exp_name}`, found `{act_name}`")
+                    }
+                    final_ty_name = types.type_name(expected_flk)
+                    nil
+                }
+                option.Option.None => nil
+            }
+            scope.insert_symbol_allow_shadow_typed(c.stack, name, "var", final_ty_name, sp)
             result.Result.Ok(true)
         }
         ast.Stmt.While(cond, body, _) => {
-            resolve_expr(c, cond)?
+            infer_expr(c, cond)?
             scope.push_scope(c.stack)
             resolve_block(c, body)?
             scope.pop_scope(c.stack)
             result.Result.Ok(true)
         }
         ast.Stmt.For(var_name, iter, body, sp) => {
-            resolve_expr(c, iter)?
+            let iter_ty = infer_expr(c, iter)?
+            var elem_ty_name = "dyn"
+            match iter_ty {
+                types.FlkType.List(elem) => {
+                    elem_ty_name = types.type_name(elem)
+                    nil
+                }
+                _ => nil
+            }
             scope.push_scope(c.stack)
-            scope.insert_symbol_allow_shadow(c.stack, var_name, "for_var", sp)
+            scope.insert_symbol_allow_shadow_typed(c.stack, var_name, "for_var", elem_ty_name, sp)
             resolve_block(c, body)?
             scope.pop_scope(c.stack)
             result.Result.Ok(true)
@@ -139,125 +240,243 @@ fn resolve_stmt(c: Checker, s: ast.Stmt) -> result.Result[Bool, String] {
             result.Result.Ok(true)
         }
         ast.Stmt.Expr(e) => {
-            resolve_expr(c, e)
+            infer_expr(c, e)?
+            result.Result.Ok(true)
         }
     }
 }
 
-fn resolve_expr(c: Checker, e: ast.Expr) -> result.Result[Bool, String] {
+fn infer_expr(c: Checker, e: ast.Expr) -> result.Result[types.FlkType, String] {
     match e {
-        ast.Expr.IntLit(_, _) => result.Result.Ok(true)
-        ast.Expr.FloatLit(_, _) => result.Result.Ok(true)
-        ast.Expr.StringLit(_, _) => result.Result.Ok(true)
-        ast.Expr.BoolLit(_, _) => result.Result.Ok(true)
-        ast.Expr.NilLit(_) => result.Result.Ok(true)
-        ast.Expr.Break(_) => result.Result.Ok(true)
-        ast.Expr.Continue(_) => result.Result.Ok(true)
+        ast.Expr.IntLit(_, _) => result.Result.Ok(types.FlkType.Int)
+        ast.Expr.FloatLit(_, _) => result.Result.Ok(types.FlkType.Float)
+        ast.Expr.StringLit(_, _) => result.Result.Ok(types.FlkType.String)
+        ast.Expr.BoolLit(_, _) => result.Result.Ok(types.FlkType.Bool)
+        ast.Expr.NilLit(_) => result.Result.Ok(types.FlkType.Nil)
+        ast.Expr.Break(_) => result.Result.Ok(types.FlkType.Nil)
+        ast.Expr.Continue(_) => result.Result.Ok(types.FlkType.Nil)
         ast.Expr.Ident(name, sp) => {
             if !scope.is_defined(c.stack, name) {
                 return result.Result.Err("{c.filename}:{span.format_span(sp)}: undefined variable `{name}`")
             }
-            result.Result.Ok(true)
-        }
-        ast.Expr.Binary(_, left, right, _) => {
-            resolve_expr(c, left)?
-            resolve_expr(c, right)
-        }
-        ast.Expr.Unary(_, inner, _) => {
-            resolve_expr(c, inner)
-        }
-        ast.Expr.Call(callee, args, _) => {
-            resolve_expr(c, callee)?
-            for a in args {
-                resolve_expr(c, a)?
+            let tname = scope.get_type(c.stack, name)
+            if len(tname) == 0 {
+                return result.Result.Ok(types.FlkType.Dyn)
             }
-            result.Result.Ok(true)
+            if types.is_generic_param(c.types, tname) {
+                return result.Result.Ok(types.FlkType.Param(tname))
+            }
+            if tname == "Int" { return result.Result.Ok(types.FlkType.Int) }
+            if tname == "Float" { return result.Result.Ok(types.FlkType.Float) }
+            if tname == "String" { return result.Result.Ok(types.FlkType.String) }
+            if tname == "Bool" { return result.Result.Ok(types.FlkType.Bool) }
+            if tname == "Nil" { return result.Result.Ok(types.FlkType.Nil) }
+            if tname == "dyn" { return result.Result.Ok(types.FlkType.Dyn) }
+            result.Result.Ok(types.FlkType.Named(tname))
+        }
+        ast.Expr.Binary(op, left, right, sp) => {
+            let lt = infer_expr(c, left)?
+            let rt = infer_expr(c, right)?
+            if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" || op == "&&" || op == "||" {
+                result.Result.Ok(types.FlkType.Bool)
+            } else {
+                // Arithmetic
+                result.Result.Ok(lt)
+            }
+        }
+        ast.Expr.Unary(op, inner, _) => {
+            let in_ty = infer_expr(c, inner)?
+            if op == "!" {
+                result.Result.Ok(types.FlkType.Bool)
+            } else {
+                result.Result.Ok(in_ty)
+            }
+        }
+        ast.Expr.Call(callee, args, sp) => {
+            // Check for trait method call: value.show()
+            match callee {
+                ast.Expr.Field(target, method, m_sp) => {
+                    let target_ty = infer_expr(c, target)?
+                    match target_ty {
+                        types.FlkType.Named(n) => {
+                            // Check if target is a struct with a field by this name
+                            var is_struct_field = false
+                            for st in c.types.structs {
+                                if st.name == n {
+                                    for fld in st.field_names {
+                                        if fld == method {
+                                            is_struct_field = true
+                                        }
+                                    }
+                                }
+                            }
+                            if !is_struct_field {
+                                types.check_trait_method(c.types, target_ty, method, m_sp)?
+                                nil
+                            } else {
+                                nil
+                            }
+                        }
+                        types.FlkType.Param(_) => {
+                            types.check_trait_method(c.types, target_ty, method, m_sp)?
+                            nil
+                        }
+                        types.FlkType.Int => {
+                            types.check_trait_method(c.types, target_ty, method, m_sp)?
+                            nil
+                        }
+                        types.FlkType.String => {
+                            types.check_trait_method(c.types, target_ty, method, m_sp)?
+                            nil
+                        }
+                        types.FlkType.Bool => {
+                            types.check_trait_method(c.types, target_ty, method, m_sp)?
+                            nil
+                        }
+                        types.FlkType.Float => {
+                            types.check_trait_method(c.types, target_ty, method, m_sp)?
+                            nil
+                        }
+                        _ => nil
+                    }
+                    for a in args {
+                        infer_expr(c, a)?
+                    }
+                    result.Result.Ok(types.FlkType.Dyn)
+                }
+                _ => {
+                    infer_expr(c, callee)?
+                    for a in args {
+                        infer_expr(c, a)?
+                    }
+                    result.Result.Ok(types.FlkType.Dyn)
+                }
+            }
         }
         ast.Expr.Spawn(call, _) => {
-            resolve_expr(c, call)
+            let res = infer_expr(c, call)?
+            result.Result.Ok(types.FlkType.Task(res))
         }
         ast.Expr.Await(task, _) => {
-            resolve_expr(c, task)
+            let task_ty = infer_expr(c, task)?
+            match task_ty {
+                types.FlkType.Task(inner) => result.Result.Ok(inner)
+                _ => result.Result.Ok(types.FlkType.Dyn)
+            }
         }
         ast.Expr.Try(inner, _) => {
-            resolve_expr(c, inner)
+            infer_expr(c, inner)
         }
-        ast.Expr.Field(target, _, _) => {
-            resolve_expr(c, target)
+        ast.Expr.Field(target, field, sp) => {
+            let tgt_ty = infer_expr(c, target)?
+            match tgt_ty {
+                types.FlkType.Named(sname) => {
+                    for st in c.types.structs {
+                        if st.name == sname {
+                            var fi = 0
+                            let flen = len(st.field_names)
+                            while fi < flen {
+                                if st.field_names[fi] == field {
+                                    return result.Result.Ok(st.field_types[fi])
+                                }
+                                fi = fi + 1
+                            }
+                        }
+                    }
+                    result.Result.Ok(types.FlkType.Dyn)
+                }
+                _ => result.Result.Ok(types.FlkType.Dyn)
+            }
         }
         ast.Expr.Index(target, index, _) => {
-            resolve_expr(c, target)?
-            resolve_expr(c, index)
+            let tgt_ty = infer_expr(c, target)?
+            infer_expr(c, index)?
+            match tgt_ty {
+                types.FlkType.List(elem) => result.Result.Ok(elem)
+                types.FlkType.String => result.Result.Ok(types.FlkType.String)
+                _ => result.Result.Ok(types.FlkType.Dyn)
+            }
         }
         ast.Expr.Assign(_, target, val, _) => {
-            resolve_expr(c, target)?
-            resolve_expr(c, val)
+            infer_expr(c, target)?
+            infer_expr(c, val)
         }
         ast.Expr.If(cond, then_b, else_b, _) => {
-            resolve_expr(c, cond)?
+            infer_expr(c, cond)?
             scope.push_scope(c.stack)
             resolve_block(c, then_b)?
             scope.pop_scope(c.stack)
             match else_b {
-                option.Option.Some(eb) => resolve_expr(c, eb)
-                option.Option.None => result.Result.Ok(true)
+                option.Option.Some(eb) => infer_expr(c, eb)
+                option.Option.None => result.Result.Ok(types.FlkType.Nil)
             }
         }
         ast.Expr.Match(scrutinee, arms, _) => {
-            resolve_expr(c, scrutinee)?
+            let scrut_ty = infer_expr(c, scrutinee)?
+            var scrut_ty_name = types.type_name(scrut_ty)
             for arm in arms {
                 scope.push_scope(c.stack)
-                bind_pattern_vars(c, arm.pattern)
+                bind_pattern_vars(c, arm.pattern, scrut_ty_name)
                 match arm.guard {
-                    option.Option.Some(g) => { resolve_expr(c, g)?; nil }
+                    option.Option.Some(g) => { infer_expr(c, g)?; nil }
                     option.Option.None => nil
                 }
-                resolve_expr(c, arm.body)?
+                infer_expr(c, arm.body)?
                 scope.pop_scope(c.stack)
             }
-            result.Result.Ok(true)
+            result.Result.Ok(types.FlkType.Dyn)
         }
         ast.Expr.Block(b) => {
             scope.push_scope(c.stack)
             resolve_block(c, b)?
             scope.pop_scope(c.stack)
-            result.Result.Ok(true)
+            result.Result.Ok(types.FlkType.Dyn)
         }
         ast.Expr.Nursery(b, _) => {
             scope.push_scope(c.stack)
             resolve_block(c, b)?
             scope.pop_scope(c.stack)
-            result.Result.Ok(true)
+            result.Result.Ok(types.FlkType.Dyn)
         }
-        ast.Expr.StructInit(_, fields, _) => {
+        ast.Expr.StructInit(name, fields, _) => {
             for f in fields {
-                resolve_expr(c, f.value)?
+                infer_expr(c, f.value)?
             }
-            result.Result.Ok(true)
+            result.Result.Ok(types.FlkType.Named(name))
         }
         ast.Expr.ListLit(items, _) => {
-            for it in items {
-                resolve_expr(c, it)?
+            var elem_ty = types.FlkType.Dyn
+            if len(items) > 0 {
+                elem_ty = infer_expr(c, items[0])?
             }
-            result.Result.Ok(true)
+            for it in items {
+                infer_expr(c, it)?
+            }
+            result.Result.Ok(types.FlkType.List(elem_ty))
         }
         ast.Expr.MapLit(entries, _) => {
-            for entry in entries {
-                resolve_expr(c, entry.key)?
-                resolve_expr(c, entry.value)?
+            var k_ty = types.FlkType.Dyn
+            var v_ty = types.FlkType.Dyn
+            if len(entries) > 0 {
+                k_ty = infer_expr(c, entries[0].key)?
+                v_ty = infer_expr(c, entries[0].value)?
             }
-            result.Result.Ok(true)
+            for entry in entries {
+                infer_expr(c, entry.key)?
+                infer_expr(c, entry.value)?
+            }
+            result.Result.Ok(types.FlkType.Map(k_ty, v_ty))
         }
         ast.Expr.Return(val, _) => {
             match val {
-                option.Option.Some(v) => resolve_expr(c, v)
-                option.Option.None => result.Result.Ok(true)
+                option.Option.Some(v) => infer_expr(c, v)
+                option.Option.None => result.Result.Ok(types.FlkType.Nil)
             }
         }
     }
 }
 
-fn bind_pattern_vars(c: Checker, pat: ast.Pattern) {
+fn bind_pattern_vars(c: Checker, pat: ast.Pattern, parent_ty: String) {
     match pat {
         ast.Pattern.Wildcard(_) => nil
         ast.Pattern.IntLit(_, _) => nil
@@ -270,12 +489,12 @@ fn bind_pattern_vars(c: Checker, pat: ast.Pattern) {
                 match scope.lookup(c.stack, name) {
                     option.Option.Some(sym) => {
                         if sym.kind != "variant" {
-                            scope.insert_symbol_allow_shadow(c.stack, name, "pattern_var", sp)
+                            scope.insert_symbol_allow_shadow_typed(c.stack, name, "pattern_var", parent_ty, sp)
                         }
                         nil
                     }
                     option.Option.None => {
-                        scope.insert_symbol_allow_shadow(c.stack, name, "pattern_var", sp)
+                        scope.insert_symbol_allow_shadow_typed(c.stack, name, "pattern_var", parent_ty, sp)
                         nil
                     }
                 }
@@ -284,13 +503,13 @@ fn bind_pattern_vars(c: Checker, pat: ast.Pattern) {
         }
         ast.Pattern.Variant(_, _, subs, _) => {
             for sub in subs {
-                bind_pattern_vars(c, sub)
+                bind_pattern_vars(c, sub, "dyn")
             }
             nil
         }
         ast.Pattern.ListPat(pats, _) => {
             for p in pats {
-                bind_pattern_vars(c, p)
+                bind_pattern_vars(c, p, "dyn")
             }
             nil
         }

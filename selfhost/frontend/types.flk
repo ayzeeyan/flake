@@ -1,0 +1,400 @@
+import ast
+import span
+import option
+import result
+
+pub enum FlkType {
+    Nil
+    Bool
+    Int
+    Float
+    String
+    List(FlkType)
+    Map(FlkType, FlkType)
+    Task(FlkType)
+    Named(String)
+    Param(String)
+    Dyn
+    Fn([FlkType], FlkType, [String])
+}
+
+pub struct TraitDef {
+    name: String,
+    method_names: [String],
+    span: span.Span,
+}
+
+pub struct ImplDef {
+    trait_name: String,
+    target_ty: String,
+    methods: [String],
+    span: span.Span,
+}
+
+pub struct StructDef {
+    name: String,
+    field_names: [String],
+    field_types: [FlkType],
+    span: span.Span,
+}
+
+pub struct EnumDef {
+    name: String,
+    variant_names: [String],
+    span: span.Span,
+}
+
+pub struct FnDef {
+    name: String,
+    param_names: [String],
+    param_types: [FlkType],
+    ret_ty: FlkType,
+    effects: [String],
+    span: span.Span,
+}
+
+pub struct TypeBound {
+    param_name: String,
+    trait_name: String,
+}
+
+pub struct TypeEnv {
+    traits: [TraitDef],
+    impls: [ImplDef],
+    structs: [StructDef],
+    enums: [EnumDef],
+    functions: [FnDef],
+    bounds: [TypeBound],
+    generic_params: [String],
+}
+
+pub fn new_type_env() -> TypeEnv {
+    var env = TypeEnv {
+        traits: [],
+        impls: [],
+        structs: [],
+        enums: [],
+        functions: [],
+        bounds: [],
+        generic_params: [],
+    }
+    init_builtin_traits(env)
+    env
+}
+
+fn init_builtin_traits(env: TypeEnv) {
+    let dummy = span.new_span(0, 0, 0, 0)
+    // Register standard Eq, Ord, Hash, Show marker/builtin traits
+    push(env.traits, TraitDef { name: "Eq", method_names: [], span: dummy })
+    push(env.traits, TraitDef { name: "Ord", method_names: [], span: dummy })
+    push(env.traits, TraitDef { name: "Hash", method_names: [], span: dummy })
+
+    // Primitive impls of Eq and Ord
+    for ty in ["Int", "Float", "String", "Bool"] {
+        push(env.impls, ImplDef { trait_name: "Eq", target_ty: ty, methods: [], span: dummy })
+        push(env.impls, ImplDef { trait_name: "Ord", target_ty: ty, methods: [], span: dummy })
+        push(env.impls, ImplDef { trait_name: "Hash", target_ty: ty, methods: [], span: dummy })
+    }
+}
+
+pub fn type_name(t: FlkType) -> String {
+    match t {
+        FlkType.Nil => "Nil"
+        FlkType.Bool => "Bool"
+        FlkType.Int => "Int"
+        FlkType.Float => "Float"
+        FlkType.String => "String"
+        FlkType.List(e) => "[{type_name(e)}]"
+        FlkType.Map(k, v) => "Map[{type_name(k)}, {type_name(v)}]"
+        FlkType.Task(r) => "Task[{type_name(r)}]"
+        FlkType.Named(n) => n
+        FlkType.Param(p) => p
+        FlkType.Dyn => "dyn"
+        FlkType.Fn(params, ret, _) => {
+            var p_strs = []
+            for p in params {
+                push(p_strs, type_name(p))
+            }
+            let joined_params = join(p_strs, ", ")
+            "fn({joined_params}) -> {type_name(ret)}"
+        }
+    }
+}
+
+pub fn strip_modifier(s: String) -> String {
+    if starts_with(s, "&mut ") {
+        return slice_from(s, 5)
+    }
+    if starts_with(s, "&") {
+        return slice_from(s, 1)
+    }
+    if starts_with(s, "ref ") {
+        return slice_from(s, 4)
+    }
+    if starts_with(s, "mut ") {
+        return slice_from(s, 4)
+    }
+    if starts_with(s, "owned ") {
+        return slice_from(s, 6)
+    }
+    s
+}
+
+fn slice_from(s: String, idx: Int) -> String {
+    var res = ""
+    var i = idx
+    let l = len(s)
+    while i < l {
+        res = "{res}{s[i]}"
+        i = i + 1
+    }
+    res
+}
+
+pub fn ast_type_to_flk(ty: ast.TypeExpr, generic_params: [String]) -> FlkType {
+    match ty {
+        ast.TypeExpr.Named(name, args) => {
+            let clean_name = strip_modifier(name)
+            for gp in generic_params {
+                if clean_name == gp {
+                    return FlkType.Param(clean_name)
+                }
+            }
+            if clean_name == "Int" { return FlkType.Int }
+            if clean_name == "Float" { return FlkType.Float }
+            if clean_name == "Bool" { return FlkType.Bool }
+            if clean_name == "String" { return FlkType.String }
+            if clean_name == "Nil" { return FlkType.Nil }
+            if clean_name == "dyn" || clean_name == "Dyn" { return FlkType.Dyn }
+            if clean_name == "Task" && len(args) > 0 {
+                return FlkType.Task(ast_type_to_flk(args[0], generic_params))
+            }
+            FlkType.Named(clean_name)
+        }
+        ast.TypeExpr.ListType(inner) => {
+            FlkType.List(ast_type_to_flk(inner, generic_params))
+        }
+        ast.TypeExpr.OptionalType(inner) => {
+            ast_type_to_flk(inner, generic_params)
+        }
+        ast.TypeExpr.TaskType(inner) => {
+            FlkType.Task(ast_type_to_flk(inner, generic_params))
+        }
+        ast.TypeExpr.FnType(params, ret, effs) => {
+            var pts = []
+            for p in params {
+                push(pts, ast_type_to_flk(p, generic_params))
+            }
+            FlkType.Fn(pts, ast_type_to_flk(ret, generic_params), effs)
+        }
+        ast.TypeExpr.DynType => FlkType.Dyn
+    }
+}
+
+pub fn types_compatible(expected: FlkType, actual: FlkType) -> Bool {
+    match expected {
+        FlkType.Dyn => true
+        _ => {
+            match actual {
+                FlkType.Dyn => true
+                _ => {
+                    match expected {
+                        FlkType.Param(_) => true
+                        FlkType.Nil => match actual { FlkType.Nil => true _ => false }
+                        FlkType.Bool => match actual { FlkType.Bool => true _ => false }
+                        FlkType.Int => match actual { FlkType.Int => true _ => false }
+                        FlkType.Float => match actual { FlkType.Float => true _ => false }
+                        FlkType.String => match actual { FlkType.String => true _ => false }
+                        FlkType.List(e1) => match actual {
+                            FlkType.List(e2) => types_compatible(e1, e2)
+                            _ => false
+                        }
+                        FlkType.Map(k1, v1) => match actual {
+                            FlkType.Map(k2, v2) => types_compatible(k1, k2) && types_compatible(v1, v2)
+                            _ => false
+                        }
+                        FlkType.Task(t1) => match actual {
+                            FlkType.Task(t2) => types_compatible(t1, t2)
+                            _ => false
+                        }
+                        FlkType.Named(n1) => match actual {
+                            FlkType.Named(n2) => n1 == n2
+                            FlkType.Param(_) => true
+                            _ => false
+                        }
+                        FlkType.Fn(_, _, _) => true
+                        FlkType.Dyn => true
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn add_trait(env: TypeEnv, t: ast.TraitDecl) -> result.Result[Bool, String] {
+    for existing in env.traits {
+        if existing.name == t.name {
+            return result.Result.Err("duplicate trait definition `{t.name}` at {span.format_span(t.span)}")
+        }
+    }
+    var m_names = []
+    for m in t.methods {
+        push(m_names, m.name)
+    }
+    push(env.traits, TraitDef {
+        name: t.name,
+        method_names: m_names,
+        span: t.span,
+    })
+    result.Result.Ok(true)
+}
+
+pub fn add_impl(env: TypeEnv, imp: ast.ImplDecl) -> result.Result[Bool, String] {
+    // 1. Check if trait exists
+    var found_trait = option.Option.None
+    for tr in env.traits {
+        if tr.name == imp.trait_name {
+            found_trait = option.Option.Some(tr)
+        }
+    }
+    match found_trait {
+        option.Option.None => {
+            return result.Result.Err("unknown trait `{imp.trait_name}` at {span.format_span(imp.span)}")
+        }
+        option.Option.Some(tr) => {
+            // 2. Check that every method in trait is implemented
+            for req in tr.method_names {
+                var implemented = false
+                for m in imp.methods {
+                    if m.name == req {
+                        implemented = true
+                    }
+                }
+                if !implemented {
+                    return result.Result.Err("missing method `{req}` for trait `{imp.trait_name}` at {span.format_span(imp.span)}")
+                }
+            }
+            // 3. Check that no extra undeclared methods exist
+            for m in imp.methods {
+                var declared = false
+                for req in tr.method_names {
+                    if m.name == req {
+                        declared = true
+                    }
+                }
+                if !declared {
+                    return result.Result.Err("method `{m.name}` is not a member of trait `{imp.trait_name}` at {span.format_span(m.span)}")
+                }
+            }
+            nil
+        }
+    }
+
+    let target_name = match imp.target_ty {
+        ast.TypeExpr.Named(n, _) => strip_modifier(n)
+        _ => ast.dump_type(imp.target_ty)
+    }
+
+    var m_names = []
+    for m in imp.methods {
+        push(m_names, m.name)
+    }
+
+    push(env.impls, ImplDef {
+        trait_name: imp.trait_name,
+        target_ty: target_name,
+        methods: m_names,
+        span: imp.span,
+    })
+    result.Result.Ok(true)
+}
+
+pub fn add_bound(env: TypeEnv, param: String, bound: String) {
+    push(env.bounds, TypeBound { param_name: param, trait_name: bound })
+}
+
+pub fn clear_bounds(env: TypeEnv) {
+    while len(env.bounds) > 0 {
+        pop(env.bounds)
+    }
+    while len(env.generic_params) > 0 {
+        pop(env.generic_params)
+    }
+}
+
+pub fn set_generic_params(env: TypeEnv, params: [String]) {
+    while len(env.generic_params) > 0 {
+        pop(env.generic_params)
+    }
+    for p in params {
+        push(env.generic_params, p)
+    }
+}
+
+pub fn is_generic_param(env: TypeEnv, name: String) -> Bool {
+    for p in env.generic_params {
+        if p == name {
+            return true
+        }
+    }
+    false
+}
+
+pub fn check_trait_method(env: TypeEnv, receiver_ty: FlkType, method_name: String, sp: span.Span) -> result.Result[FlkType, String] {
+    match receiver_ty {
+        FlkType.Dyn => result.Result.Ok(FlkType.Dyn)
+        FlkType.Param(pname) => {
+            // Check if pname has a bound that provides method_name
+            for b in env.bounds {
+                if b.param_name == pname {
+                    for tr in env.traits {
+                        if tr.name == b.trait_name {
+                            for m in tr.method_names {
+                                if m == method_name {
+                                    return result.Result.Ok(FlkType.Dyn)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Find which trait provides this method for the help message
+            var candidate_trait = ""
+            for tr in env.traits {
+                for m in tr.method_names {
+                    if m == method_name {
+                        candidate_trait = tr.name
+                    }
+                }
+            }
+            if len(candidate_trait) > 0 {
+                result.Result.Err("no method `{method_name}` on type parameter `{pname}` at {span.format_span(sp)}\nhelp: add a trait bound `{pname}: {candidate_trait}`")
+            } else {
+                result.Result.Err("no method `{method_name}` on type parameter `{pname}` at {span.format_span(sp)}")
+            }
+        }
+        _ => {
+            // Concrete type
+            let rname = type_name(receiver_ty)
+            // Check if any impl for rname provides this method
+            for imp in env.impls {
+                if imp.target_ty == rname {
+                    for m in imp.methods {
+                        if m == method_name {
+                            return result.Result.Ok(FlkType.Dyn)
+                        }
+                    }
+                }
+            }
+            // Check if method belongs to a known trait
+            for tr in env.traits {
+                for m in tr.method_names {
+                    if m == method_name {
+                        return result.Result.Err("type `{rname}` does not implement `{tr.name}` at {span.format_span(sp)}")
+                    }
+                }
+            }
+            result.Result.Err("no method `{method_name}` on type `{rname}` at {span.format_span(sp)}")
+        }
+    }
+}

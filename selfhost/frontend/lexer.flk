@@ -49,7 +49,6 @@ fn keyword_or_ident(text: String) -> tokens.TokenKind {
     if text == "false" { return tokens.TokenKind.KwFalse }
     if text == "nil" { return tokens.TokenKind.KwNil }
     if text == "as" { return tokens.TokenKind.KwAs }
-    if text == "Task" { return tokens.TokenKind.KwTask }
     tokens.TokenKind.Ident(text)
 }
 
