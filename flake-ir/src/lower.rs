@@ -813,6 +813,10 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
                         _ => None,
                     };
                     if let Some(name) = imported_type {
+                        exported
+                            .get_mut(&alias)
+                            .unwrap()
+                            .insert(name.clone());
                         imported_types
                             .insert(format!("{alias}.{name}"), qualify(&origin_name, name));
                         imported_types
@@ -1228,6 +1232,10 @@ fn lower_loop(b: &mut Builder, body: &AstBlock) {
 
 fn lower_for(b: &mut Builder, name: &str, iter: &Expr, body: &AstBlock) {
     let src = lower_expr(b, iter);
+    let item_ty = match b.local_ty(src) {
+        IrType::List(elem) => *elem,
+        _ => IrType::Dyn,
+    };
     let it = b.alloc(None, IrType::Iter);
     b.emit(Inst::MakeIter { dest: it, src });
     let header = b.new_block();
@@ -1235,7 +1243,7 @@ fn lower_for(b: &mut Builder, name: &str, iter: &Expr, body: &AstBlock) {
     let exit = b.new_block();
     b.emit(Inst::Jump { target: header });
     b.switch(header);
-    let value = b.alloc(Some(name.to_string()), IrType::Dyn);
+    let value = b.alloc(Some(name.to_string()), item_ty);
     let more = b.alloc(None, IrType::Bool);
     b.emit(Inst::IterNext {
         value,

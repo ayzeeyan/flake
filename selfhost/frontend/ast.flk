@@ -82,10 +82,10 @@ pub fn dump_type_params(tps: [TypeParam]) -> String {
 }
 
 pub struct FnDecl {
+    name: String,
     is_pub: Bool,
     is_strict: Bool,
     is_owned: Bool,
-    name: String,
     type_params: [TypeParam],
     params: [Param],
     ret_ty: option.Option[TypeExpr],

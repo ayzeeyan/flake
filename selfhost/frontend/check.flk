@@ -4,6 +4,8 @@ import option
 import result
 import scope
 import types
+import effects
+import ownership
 
 pub struct Checker {
     stack: scope.ScopeStack,
@@ -23,6 +25,13 @@ pub fn check_program(prog: ast.Program, filename: String) -> result.Result[Bool,
     var c = new_checker(filename)
     collect_globals(c, prog)?
     resolve_program(c, prog)?
+
+    var ec = effects.new_effect_checker(filename)
+    effects.check_program_effects(ec, prog)?
+
+    var oc = ownership.new_ownership_checker(filename, c.stack)
+    ownership.check_program_ownership(oc, prog)?
+
     result.Result.Ok(true)
 }
 
@@ -41,7 +50,7 @@ fn collect_globals(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
                     push(f_names, fld.name)
                     push(f_types, types.ast_type_to_flk(fld.ty, []))
                 }
-                push(c.types.structs, types.StructDef {
+                types.push_struct(c.types, types.StructDef {
                     name: s.name,
                     field_names: f_names,
                     field_types: f_types,
@@ -56,7 +65,7 @@ fn collect_globals(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
                     push(v_names, v.name)
                     scope.insert_symbol_allow_shadow(c.stack, v.name, "variant", e.span)
                 }
-                push(c.types.enums, types.EnumDef {
+                types.push_enum(c.types, types.EnumDef {
                     name: e.name,
                     variant_names: v_names,
                     span: e.span,

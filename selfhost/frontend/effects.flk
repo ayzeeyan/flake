@@ -1,0 +1,251 @@
+import ast
+import span
+import option
+import result
+
+pub struct EffectChecker {
+    fn_names: [String],
+    fn_effects_list: [[String]],
+    filename: String,
+}
+
+pub fn new_effect_checker(filename: String) -> EffectChecker {
+    EffectChecker {
+        fn_names: [],
+        fn_effects_list: [],
+        filename: filename,
+    }
+}
+
+pub fn has_effect(effs: [String], target: String) -> Bool {
+    for e in effs {
+        if e == target {
+            return true
+        }
+    }
+    false
+}
+
+pub fn add_effect(effs: [String], target: String) {
+    if !has_effect(effs, target) {
+        push(effs, target)
+    }
+}
+
+pub fn union_effects(dst: [String], src: [String]) {
+    for e in src {
+        add_effect(dst, e)
+    }
+}
+
+pub fn register_fn(ec: EffectChecker, f: ast.FnDecl) {
+    var names = ec.fn_names
+    push(names, f.name)
+    ec.fn_names = names
+
+    var effs = ec.fn_effects_list
+    push(effs, f.effects)
+    ec.fn_effects_list = effs
+}
+
+pub fn check_program_effects(ec: EffectChecker, prog: ast.Program) -> result.Result[Bool, String] {
+    // Pass 1: Register all functions
+    for item in prog.items {
+        match item {
+            ast.Item.Fn(f) => {
+                register_fn(ec, f)
+                nil
+            }
+            _ => nil
+        }
+    }
+
+    // Pass 2: Check each function body
+    for item in prog.items {
+        match item {
+            ast.Item.Fn(f) => {
+                check_fn_effects(ec, f)?
+                nil
+            }
+            _ => nil
+        }
+    }
+    result.Result.Ok(true)
+}
+
+pub fn check_fn_effects(ec: EffectChecker, f: ast.FnDecl) -> result.Result[Bool, String] {
+    var used_effects = []
+    collect_block_effects(ec, f.body, used_effects)
+
+    var allowed = []
+    if f.name == "main" && len(f.effects) == 0 {
+        // Top-level main without annotations gets top-level effects
+        push(allowed, "io")
+        push(allowed, "alloc")
+        push(allowed, "conc")
+        push(allowed, "panic")
+    } else {
+        for e in f.effects {
+            push(allowed, e)
+        }
+    }
+
+    // Always permit pure
+    for u in used_effects {
+        if !has_effect(allowed, u) {
+            let decl_str = if len(f.effects) == 0 { "pure" } else { join(f.effects, " + ") }
+            return result.Result.Err("{ec.filename}:{span.format_span(f.span)}: function `{f.name}` performs effects [{u}] not declared in `{decl_str}`")
+        }
+    }
+    result.Result.Ok(true)
+}
+
+fn collect_block_effects(ec: EffectChecker, b: ast.BlockExpr, used: [String]) {
+    for s in b.stmts {
+        collect_stmt_effects(ec, s, used)
+    }
+}
+
+fn collect_stmt_effects(ec: EffectChecker, s: ast.Stmt, used: [String]) {
+    match s {
+        ast.Stmt.Let(_, _, val, _) => collect_expr_effects(ec, val, used)
+        ast.Stmt.Var(_, _, val, _) => collect_expr_effects(ec, val, used)
+        ast.Stmt.While(cond, body, _) => {
+            collect_expr_effects(ec, cond, used)
+            collect_block_effects(ec, body, used)
+        }
+        ast.Stmt.For(_, iter, body, _) => {
+            collect_expr_effects(ec, iter, used)
+            collect_block_effects(ec, body, used)
+        }
+        ast.Stmt.Loop(body, _) => collect_block_effects(ec, body, used)
+        ast.Stmt.Expr(e) => collect_expr_effects(ec, e, used)
+    }
+}
+
+fn collect_expr_effects(ec: EffectChecker, e: ast.Expr, used: [String]) {
+    match e {
+        ast.Expr.IntLit(_, _) => nil
+        ast.Expr.FloatLit(_, _) => nil
+        ast.Expr.StringLit(_, _) => nil
+        ast.Expr.BoolLit(_, _) => nil
+        ast.Expr.NilLit(_) => nil
+        ast.Expr.Break(_) => nil
+        ast.Expr.Continue(_) => nil
+        ast.Expr.Ident(_, _) => nil
+        ast.Expr.Binary(_, left, right, _) => {
+            collect_expr_effects(ec, left, used)
+            collect_expr_effects(ec, right, used)
+        }
+        ast.Expr.Unary(_, inner, _) => collect_expr_effects(ec, inner, used)
+        ast.Expr.Call(callee, args, _) => {
+            collect_expr_effects(ec, callee, used)
+            for a in args {
+                collect_expr_effects(ec, a, used)
+            }
+            match callee {
+                ast.Expr.Ident(name, _) => {
+                    check_callee_effects(ec, name, used)
+                }
+                ast.Expr.Field(target, method, _) => {
+                    match target {
+                        ast.Expr.Ident(mod_name, _) => {
+                            if mod_name == "fs" || mod_name == "process" {
+                                add_effect(used, "io")
+                            }
+                        }
+                        _ => nil
+                    }
+                }
+                _ => nil
+            }
+        }
+        ast.Expr.Spawn(call, _) => {
+            add_effect(used, "conc")
+            collect_expr_effects(ec, call, used)
+        }
+        ast.Expr.Await(task, _) => {
+            add_effect(used, "conc")
+            collect_expr_effects(ec, task, used)
+        }
+        ast.Expr.Try(inner, _) => collect_expr_effects(ec, inner, used)
+        ast.Expr.Field(target, _, _) => collect_expr_effects(ec, target, used)
+        ast.Expr.Index(target, index, _) => {
+            collect_expr_effects(ec, target, used)
+            collect_expr_effects(ec, index, used)
+        }
+        ast.Expr.Assign(_, target, val, _) => {
+            collect_expr_effects(ec, target, used)
+            collect_expr_effects(ec, val, used)
+        }
+        ast.Expr.If(cond, then_b, else_b, _) => {
+            collect_expr_effects(ec, cond, used)
+            collect_block_effects(ec, then_b, used)
+            match else_b {
+                option.Option.Some(eb) => collect_expr_effects(ec, eb, used)
+                option.Option.None => nil
+            }
+        }
+        ast.Expr.Match(scrutinee, arms, _) => {
+            collect_expr_effects(ec, scrutinee, used)
+            for arm in arms {
+                match arm.guard {
+                    option.Option.Some(g) => collect_expr_effects(ec, g, used)
+                    option.Option.None => nil
+                }
+                collect_expr_effects(ec, arm.body, used)
+            }
+        }
+        ast.Expr.Block(b) => collect_block_effects(ec, b, used)
+        ast.Expr.Nursery(b, _) => {
+            add_effect(used, "conc")
+            collect_block_effects(ec, b, used)
+        }
+        ast.Expr.StructInit(_, fields, _) => {
+            for f in fields {
+                collect_expr_effects(ec, f.value, used)
+            }
+        }
+        ast.Expr.ListLit(items, _) => {
+            for it in items {
+                collect_expr_effects(ec, it, used)
+            }
+        }
+        ast.Expr.MapLit(entries, _) => {
+            for entry in entries {
+                collect_expr_effects(ec, entry.key, used)
+                collect_expr_effects(ec, entry.value, used)
+            }
+        }
+        ast.Expr.Return(val, _) => {
+            match val {
+                option.Option.Some(v) => collect_expr_effects(ec, v, used)
+                option.Option.None => nil
+            }
+        }
+    }
+}
+
+fn check_callee_effects(ec: EffectChecker, name: String, used: [String]) {
+    if name == "print" || name == "println" || name == "read_to_string" ||
+       name == "write_to_string" || name == "read_lines" || name == "write_lines" ||
+       name == "append_string" || name == "exists" || name == "remove" ||
+       name == "file_size" || name == "is_directory" || name == "is_regular_file" ||
+       name == "is_file" || name == "is_dir" || name == "read_dir" || name == "walk" ||
+       name == "sleep" || name == "now" {
+        add_effect(used, "io")
+        return
+    }
+    if name == "panic" {
+        add_effect(used, "panic")
+        return
+    }
+    var idx = 0
+    while idx < len(ec.fn_names) {
+        if ec.fn_names[idx] == name {
+            union_effects(used, ec.fn_effects_list[idx])
+            return
+        }
+        idx = idx + 1
+    }
+}

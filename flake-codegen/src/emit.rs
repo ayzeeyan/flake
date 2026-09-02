@@ -756,7 +756,11 @@ fn field_offset(
 ) -> Result<i32, CodegenError> {
     let ty = func.local(obj).map(|l| &l.ty);
     if let Some(IrType::Struct(name)) = ty {
-        if let Some(st) = module.structs.iter().find(|s| s.name == *name) {
+        if let Some(st) = module
+            .structs
+            .iter()
+            .find(|s| s.name == *name || s.name.ends_with(&format!(".{name}")))
+        {
             if let Some(i) = st.fields.iter().position(|(n, _)| n == field) {
                 return Ok(8 * i as i32);
             }

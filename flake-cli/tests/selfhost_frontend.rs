@@ -66,6 +66,10 @@ fn selfhost_check_examples() {
                 "examples/enum.flk",
                 "examples/traits.flk",
                 "examples/ast_show.flk",
+                "examples/effects.flk",
+                "examples/ownership.flk",
+                "examples/borrow.flk",
+                "examples/nursery.flk",
             ],
             vm,
         );
@@ -75,6 +79,10 @@ fn selfhost_check_examples() {
         assert!(out.contains("ok: examples/enum.flk"));
         assert!(out.contains("ok: examples/traits.flk"));
         assert!(out.contains("ok: examples/ast_show.flk"));
+        assert!(out.contains("ok: examples/effects.flk"));
+        assert!(out.contains("ok: examples/ownership.flk"));
+        assert!(out.contains("ok: examples/borrow.flk"));
+        assert!(out.contains("ok: examples/nursery.flk"));
     }
 }
 
@@ -161,10 +169,60 @@ fn selfhost_native_check() {
     cmd.arg("--");
     cmd.arg("--check");
     cmd.arg("examples/hello.flk");
+    cmd.arg("examples/effects.flk");
+    cmd.arg("examples/ownership.flk");
+    cmd.arg("examples/borrow.flk");
+    cmd.arg("examples/nursery.flk");
+    cmd.arg("examples/traits.flk");
+    cmd.arg("examples/enum.flk");
     let output = cmd.output().expect("failed to execute native flake run");
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
     let combined = format!("{stdout}{stderr}");
     assert!(output.status.success(), "native check failed: {combined}");
     assert!(combined.contains("ok: examples/hello.flk"));
+    assert!(combined.contains("ok: examples/effects.flk"));
+    assert!(combined.contains("ok: examples/ownership.flk"));
+    assert!(combined.contains("ok: examples/borrow.flk"));
+    assert!(combined.contains("ok: examples/nursery.flk"));
+    assert!(combined.contains("ok: examples/traits.flk"));
+    assert!(combined.contains("ok: examples/enum.flk"));
 }
+
+#[test]
+fn selfhost_check_effects_and_ownership_rejections() {
+    let dir = std::env::temp_dir().join(format!("flake_selfhost_test_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+
+    // 1. Hidden IO in pure function
+    let bad_io = dir.join("bad_io.flk");
+    std::fs::write(&bad_io, "fn shout(s: String) { print(s) }\nfn main() { shout(\"hi\") }").unwrap();
+
+    // 2. Use after move in strict function
+    let bad_move = dir.join("bad_move.flk");
+    std::fs::write(&bad_move, "strict fn consume(s: String) {}\nstrict fn test(s: String) { consume(s); consume(s) }\nfn main() {}").unwrap();
+
+    // 3. Escaping local reference
+    let bad_ref = dir.join("bad_ref.flk");
+    std::fs::write(&bad_ref, "strict fn leak() { let x = 42; return &x }\nfn main() {}").unwrap();
+
+    // 4. Capture ref across spawn
+    let bad_spawn = dir.join("bad_spawn.flk");
+    std::fs::write(&bad_spawn, "fn worker(r: &Int) / conc {}\nfn main() / conc { let x = 42; spawn worker(&x) }").unwrap();
+
+    for vm in [false, true] {
+        let (_ok_io, out_io) = run_selfhost(&["--check", bad_io.to_str().unwrap()], vm);
+        assert!(out_io.contains("not declared in `pure`"), "expected hidden IO error on vm={vm}: {out_io}");
+
+        let (_ok_mv, out_mv) = run_selfhost(&["--check", bad_move.to_str().unwrap()], vm);
+        assert!(out_mv.contains("use of moved value"), "expected use after move error on vm={vm}: {out_mv}");
+
+        let (_ok_rf, out_rf) = run_selfhost(&["--check", bad_ref.to_str().unwrap()], vm);
+        assert!(out_rf.contains("cannot return reference to local variable"), "expected ref escape error on vm={vm}: {out_rf}");
+
+        let (_ok_sp, out_sp) = run_selfhost(&["--check", bad_spawn.to_str().unwrap()], vm);
+        assert!(out_sp.contains("cannot capture reference across task boundary into `spawn`"), "expected spawn ref error on vm={vm}: {out_sp}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+

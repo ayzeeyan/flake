@@ -1314,10 +1314,10 @@ fn parse_fn_decl(p: Parser, is_pub: Bool, is_strict: Bool, is_owned: Bool) -> re
     let body = parse_block(p)?
 
     result.Result.Ok(ast.FnDecl {
+        name: name,
         is_pub: is_pub,
         is_strict: is_strict,
         is_owned: is_owned,
-        name: name,
         type_params: type_params,
         params: params,
         ret_ty: ret_ty,

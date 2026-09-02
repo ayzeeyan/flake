@@ -1,0 +1,241 @@
+import ast
+import span
+import option
+import result
+import scope
+
+pub struct OwnershipChecker {
+    filename: String,
+    stack: scope.ScopeStack,
+}
+
+pub fn new_ownership_checker(filename: String, stack: scope.ScopeStack) -> OwnershipChecker {
+    OwnershipChecker {
+        filename: filename,
+        stack: stack,
+    }
+}
+
+pub fn check_program_ownership(oc: OwnershipChecker, prog: ast.Program) -> result.Result[Bool, String] {
+    for item in prog.items {
+        match item {
+            ast.Item.Fn(f) => {
+                check_fn_ownership(oc, f)?
+                nil
+            }
+            _ => nil
+        }
+    }
+    result.Result.Ok(true)
+}
+
+fn check_fn_ownership(oc: OwnershipChecker, f: ast.FnDecl) -> result.Result[Bool, String] {
+    // 1. Check spawn sendability across all functions
+    check_spawn_sendability_in_block(oc, f.body)?
+
+    // 2. Strict/owned checking
+    if f.is_strict || f.is_owned {
+        check_strict_rules_in_fn(oc, f)?
+    }
+    result.Result.Ok(true)
+}
+
+fn check_spawn_sendability_in_block(oc: OwnershipChecker, b: ast.BlockExpr) -> result.Result[Bool, String] {
+    for s in b.stmts {
+        check_spawn_sendability_in_stmt(oc, s)?
+    }
+    result.Result.Ok(true)
+}
+
+fn check_spawn_sendability_in_stmt(oc: OwnershipChecker, s: ast.Stmt) -> result.Result[Bool, String] {
+    match s {
+        ast.Stmt.Let(_, _, val, _) => check_spawn_sendability_in_expr(oc, val)
+        ast.Stmt.Var(_, _, val, _) => check_spawn_sendability_in_expr(oc, val)
+        ast.Stmt.While(cond, body, _) => {
+            check_spawn_sendability_in_expr(oc, cond)?;
+            check_spawn_sendability_in_block(oc, body)
+        }
+        ast.Stmt.For(_, iter, body, _) => {
+            check_spawn_sendability_in_expr(oc, iter)?;
+            check_spawn_sendability_in_block(oc, body)
+        }
+        ast.Stmt.Loop(body, _) => check_spawn_sendability_in_block(oc, body)
+        ast.Stmt.Expr(e) => check_spawn_sendability_in_expr(oc, e)
+    }
+}
+
+fn check_spawn_sendability_in_expr(oc: OwnershipChecker, e: ast.Expr) -> result.Result[Bool, String] {
+    match e {
+        ast.Expr.Spawn(call, sp) => {
+            match call {
+                ast.Expr.Call(_, args, _) => {
+                    for a in args {
+                        match a {
+                            ast.Expr.Unary(op, _, arg_sp) => {
+                                if op == "&" || op == "&mut" {
+                                    return result.Result.Err("{oc.filename}:{span.format_span(arg_sp)}: cannot capture reference across task boundary into `spawn`")
+                                }
+                                nil
+                            }
+                            ast.Expr.Ident(name, arg_sp) => {
+                                let tname = scope.get_type(oc.stack, name)
+                                if starts_with(tname, "ref ") || starts_with(tname, "&") {
+                                    return result.Result.Err("{oc.filename}:{span.format_span(arg_sp)}: cannot capture reference `{name}` across task boundary into `spawn`")
+                                }
+                                nil
+                            }
+                            _ => nil
+                        }
+                    }
+                    nil
+                }
+                _ => nil
+            }
+            check_spawn_sendability_in_expr(oc, call)
+        }
+        ast.Expr.Call(callee, args, _) => {
+            check_spawn_sendability_in_expr(oc, callee)?;
+            for a in args {
+                check_spawn_sendability_in_expr(oc, a)?
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Binary(_, left, right, _) => {
+            check_spawn_sendability_in_expr(oc, left)?;
+            check_spawn_sendability_in_expr(oc, right)
+        }
+        ast.Expr.Unary(_, inner, _) => check_spawn_sendability_in_expr(oc, inner)
+        ast.Expr.If(cond, then_b, else_b, _) => {
+            check_spawn_sendability_in_expr(oc, cond)?;
+            check_spawn_sendability_in_block(oc, then_b)?;
+            match else_b {
+                option.Option.Some(eb) => check_spawn_sendability_in_expr(oc, eb)
+                option.Option.None => result.Result.Ok(true)
+            }
+        }
+        ast.Expr.Match(scrutinee, arms, _) => {
+            check_spawn_sendability_in_expr(oc, scrutinee)?;
+            for arm in arms {
+                check_spawn_sendability_in_expr(oc, arm.body)?
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Block(b) => check_spawn_sendability_in_block(oc, b)
+        ast.Expr.Nursery(b, _) => check_spawn_sendability_in_block(oc, b)
+        ast.Expr.Return(val, _) => {
+            match val {
+                option.Option.Some(v) => check_spawn_sendability_in_expr(oc, v)
+                option.Option.None => result.Result.Ok(true)
+            }
+        }
+        _ => result.Result.Ok(true)
+    }
+}
+
+fn check_strict_rules_in_fn(oc: OwnershipChecker, f: ast.FnDecl) -> result.Result[Bool, String] {
+    var moved_vars = []
+    var local_vars = []
+
+    // Collect local variable names declared inside this function
+    for p in f.params {
+        push(local_vars, p.name)
+    }
+
+    check_strict_block(oc, f.body, moved_vars, local_vars)
+}
+
+fn check_strict_block(oc: OwnershipChecker, b: ast.BlockExpr, moved: [String], locals: [String]) -> result.Result[Bool, String] {
+    for s in b.stmts {
+        check_strict_stmt(oc, s, moved, locals)?
+    }
+    result.Result.Ok(true)
+}
+
+fn check_strict_stmt(oc: OwnershipChecker, s: ast.Stmt, moved: [String], locals: [String]) -> result.Result[Bool, String] {
+    match s {
+        ast.Stmt.Let(name, _, val, _) => {
+            push(locals, name)
+            check_strict_expr(oc, val, moved, locals)
+        }
+        ast.Stmt.Var(name, _, val, _) => {
+            push(locals, name)
+            check_strict_expr(oc, val, moved, locals)
+        }
+        ast.Stmt.Expr(e) => check_strict_expr(oc, e, moved, locals)
+        ast.Stmt.While(cond, body, _) => {
+            check_strict_expr(oc, cond, moved, locals)?;
+            check_strict_block(oc, body, moved, locals)
+        }
+        ast.Stmt.For(_, iter, body, _) => {
+            check_strict_expr(oc, iter, moved, locals)?;
+            check_strict_block(oc, body, moved, locals)
+        }
+        ast.Stmt.Loop(body, _) => check_strict_block(oc, body, moved, locals)
+    }
+}
+
+fn check_strict_expr(oc: OwnershipChecker, e: ast.Expr, moved: [String], locals: [String]) -> result.Result[Bool, String] {
+    match e {
+        ast.Expr.Return(val, sp) => {
+            match val {
+                option.Option.Some(v) => {
+                    // Check local reference escape: return &s
+                    match v {
+                        ast.Expr.Unary(op, inner, inner_sp) => {
+                            if op == "&" || op == "&mut" {
+                                match inner {
+                                    ast.Expr.Ident(s_name, _) => {
+                                        for l in locals {
+                                            if l == s_name {
+                                                return result.Result.Err("{oc.filename}:{span.format_span(inner_sp)}: cannot return reference to local variable `{s_name}`")
+                                            }
+                                        }
+                                        nil
+                                    }
+                                    _ => nil
+                                }
+                            }
+                            nil
+                        }
+                        _ => nil
+                    }
+                    check_strict_expr(oc, v, moved, locals)
+                }
+                option.Option.None => result.Result.Ok(true)
+            }
+        }
+        ast.Expr.Call(callee, args, _) => {
+            check_strict_expr(oc, callee, moved, locals)?;
+            for a in args {
+                match a {
+                    ast.Expr.Ident(name, arg_sp) => {
+                        let tname = scope.get_type(oc.stack, name)
+                        // Int, Float, Bool, Nil are Copy types
+                        if tname != "Int" && tname != "Float" && tname != "Bool" && tname != "Nil" {
+                            // Check if already moved
+                            for m in moved {
+                                if m == name {
+                                    return result.Result.Err("{oc.filename}:{span.format_span(arg_sp)}: use of moved value `{name}`")
+                                }
+                            }
+                            push(moved, name)
+                        }
+                        nil
+                    }
+                    _ => {
+                        check_strict_expr(oc, a, moved, locals)?;
+                        nil
+                    }
+                }
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Binary(_, left, right, _) => {
+            check_strict_expr(oc, left, moved, locals)?;
+            check_strict_expr(oc, right, moved, locals)
+        }
+        ast.Expr.Unary(_, inner, _) => check_strict_expr(oc, inner, moved, locals)
+        ast.Expr.Block(b) => check_strict_block(oc, b, moved, locals)
+        _ => result.Result.Ok(true)
+    }
+}

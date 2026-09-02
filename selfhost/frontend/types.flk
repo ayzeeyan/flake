@@ -15,7 +15,7 @@ pub enum FlkType {
     Named(String)
     Param(String)
     Dyn
-    Fn([FlkType], FlkType, [String])
+    FnTy([FlkType], FlkType, [String])
 }
 
 pub struct TraitDef {
@@ -25,6 +25,7 @@ pub struct TraitDef {
 }
 
 pub struct ImplDef {
+    type_params: [ast.TypeParam],
     trait_name: String,
     target_ty: String,
     methods: [String],
@@ -82,18 +83,48 @@ pub fn new_type_env() -> TypeEnv {
     env
 }
 
+pub fn push_trait(env: TypeEnv, td: TraitDef) {
+    var trs = env.traits
+    push(trs, td)
+    env.traits = trs
+}
+
+pub fn push_impl(env: TypeEnv, id: ImplDef) {
+    var ims = env.impls
+    push(ims, id)
+    env.impls = ims
+}
+
+pub fn push_struct(env: TypeEnv, sd: StructDef) {
+    var sts = env.structs
+    push(sts, sd)
+    env.structs = sts
+}
+
+pub fn push_enum(env: TypeEnv, ed: EnumDef) {
+    var ens = env.enums
+    push(ens, ed)
+    env.enums = ens
+}
+
+pub fn push_bound(env: TypeEnv, bd: TypeBound) {
+    var bds = env.bounds
+    push(bds, bd)
+    env.bounds = bds
+}
+
 fn init_builtin_traits(env: TypeEnv) {
     let dummy = span.new_span(0, 0, 0, 0)
     // Register standard Eq, Ord, Hash, Show marker/builtin traits
-    push(env.traits, TraitDef { name: "Eq", method_names: [], span: dummy })
-    push(env.traits, TraitDef { name: "Ord", method_names: [], span: dummy })
-    push(env.traits, TraitDef { name: "Hash", method_names: [], span: dummy })
+    push_trait(env, TraitDef { name: "Eq", method_names: [], span: dummy })
+    push_trait(env, TraitDef { name: "Ord", method_names: [], span: dummy })
+    push_trait(env, TraitDef { name: "Hash", method_names: [], span: dummy })
 
     // Primitive impls of Eq and Ord
     for ty in ["Int", "Float", "String", "Bool"] {
-        push(env.impls, ImplDef { trait_name: "Eq", target_ty: ty, methods: [], span: dummy })
-        push(env.impls, ImplDef { trait_name: "Ord", target_ty: ty, methods: [], span: dummy })
-        push(env.impls, ImplDef { trait_name: "Hash", target_ty: ty, methods: [], span: dummy })
+        push_impl(env, ImplDef { type_params: [], trait_name: "Eq", target_ty: ty, methods: [], span: dummy })
+        push_impl(env, ImplDef { type_params: [], trait_name: "Ord", target_ty: ty, methods: [], span: dummy })
+        push_impl(env, ImplDef { type_params: [], trait_name: "Hash", target_ty: ty, methods: [], span: dummy })
     }
 }
 
@@ -110,7 +141,7 @@ pub fn type_name(t: FlkType) -> String {
         FlkType.Named(n) => n
         FlkType.Param(p) => p
         FlkType.Dyn => "dyn"
-        FlkType.Fn(params, ret, _) => {
+        FlkType.FnTy(params, ret, _) => {
             var p_strs = []
             for p in params {
                 push(p_strs, type_name(p))
@@ -185,7 +216,7 @@ pub fn ast_type_to_flk(ty: ast.TypeExpr, generic_params: [String]) -> FlkType {
             for p in params {
                 push(pts, ast_type_to_flk(p, generic_params))
             }
-            FlkType.Fn(pts, ast_type_to_flk(ret, generic_params), effs)
+            FlkType.FnTy(pts, ast_type_to_flk(ret, generic_params), effs)
         }
         ast.TypeExpr.DynType => FlkType.Dyn
     }
@@ -222,7 +253,7 @@ pub fn types_compatible(expected: FlkType, actual: FlkType) -> Bool {
                             FlkType.Param(_) => true
                             _ => false
                         }
-                        FlkType.Fn(_, _, _) => true
+                        FlkType.FnTy(_, _, _) => true
                         FlkType.Dyn => true
                     }
                 }
@@ -241,7 +272,7 @@ pub fn add_trait(env: TypeEnv, t: ast.TraitDecl) -> result.Result[Bool, String] 
     for m in t.methods {
         push(m_names, m.name)
     }
-    push(env.traits, TraitDef {
+    push_trait(env, TraitDef {
         name: t.name,
         method_names: m_names,
         span: t.span,
@@ -300,7 +331,8 @@ pub fn add_impl(env: TypeEnv, imp: ast.ImplDecl) -> result.Result[Bool, String] 
         push(m_names, m.name)
     }
 
-    push(env.impls, ImplDef {
+    push_impl(env, ImplDef {
+        type_params: imp.type_params,
         trait_name: imp.trait_name,
         target_ty: target_name,
         methods: m_names,
@@ -310,7 +342,7 @@ pub fn add_impl(env: TypeEnv, imp: ast.ImplDecl) -> result.Result[Bool, String] 
 }
 
 pub fn add_bound(env: TypeEnv, param: String, bound: String) {
-    push(env.bounds, TypeBound { param_name: param, trait_name: bound })
+    push_bound(env, TypeBound { param_name: param, trait_name: bound })
 }
 
 pub fn clear_bounds(env: TypeEnv) {

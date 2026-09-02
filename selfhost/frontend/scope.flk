@@ -67,7 +67,9 @@ pub fn insert_symbol_typed(stack: ScopeStack, name: String, kind: String, ty_nam
         ty_name: ty_name,
         span: sp,
     }
-    push(cur_scope.symbols, sym)
+    var syms1 = cur_scope.symbols
+    push(syms1, sym)
+    cur_scope.symbols = syms1
     result.Result.Ok(true)
 }
 
@@ -84,7 +86,9 @@ pub fn insert_symbol_allow_shadow_typed(stack: ScopeStack, name: String, kind: S
         ty_name: ty_name,
         span: sp,
     }
-    push(cur_scope.symbols, sym)
+    var syms2 = cur_scope.symbols
+    push(syms2, sym)
+    cur_scope.symbols = syms2
 }
 
 pub fn lookup(stack: ScopeStack, name: String) -> option.Option[Symbol] {
@@ -126,7 +130,8 @@ fn init_builtins(stack: ScopeStack) {
         "exists", "remove", "file_size", "is_directory", "is_regular_file",
         "is_file", "is_dir", "read_dir", "walk", "Option", "Result",
         "Some", "None", "Ok", "Err", "Task", "sleep", "now", "process", "fs",
-        "path", "math", "string", "list", "map", "channel", "bytes", "option", "result"
+        "path", "math", "string", "list", "map", "channel", "bytes", "option", "result",
+        "cancel", "is_cancelled"
     ]
     for b in builtins {
         insert_symbol_allow_shadow_typed(stack, b, "builtin", "", dummy)
