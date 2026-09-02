@@ -1,0 +1,115 @@
+import span
+import option
+import result
+
+pub struct Symbol {
+    name: String,
+    kind: String,
+    span: span.Span,
+}
+
+pub struct Scope {
+    symbols: [Symbol],
+}
+
+pub struct ScopeStack {
+    scopes: [Scope],
+}
+
+pub fn new_scope() -> Scope {
+    Scope {
+        symbols: [],
+    }
+}
+
+pub fn new_scope_stack() -> ScopeStack {
+    let root = new_scope()
+    var stack = ScopeStack {
+        scopes: [root],
+    }
+    init_builtins(stack)
+    stack
+}
+
+pub fn push_scope(stack: ScopeStack) {
+    let s = new_scope()
+    push(stack.scopes, s)
+}
+
+pub fn pop_scope(stack: ScopeStack) {
+    if len(stack.scopes) > 1 {
+        pop(stack.scopes)
+    }
+}
+
+pub fn insert_symbol(stack: ScopeStack, name: String, kind: String, sp: span.Span) -> result.Result[Bool, String] {
+    let top_idx = len(stack.scopes) - 1
+    let cur_scope = stack.scopes[top_idx]
+    for s in cur_scope.symbols {
+        if s.name == name {
+            if s.kind == "builtin" {
+                s.kind = kind
+                s.span = sp
+                return result.Result.Ok(true)
+            }
+            return result.Result.Err("duplicate definition of `{name}` at {span.format_span(sp)}")
+        }
+    }
+    let sym = Symbol {
+        name: name,
+        kind: kind,
+        span: sp,
+    }
+    push(cur_scope.symbols, sym)
+    result.Result.Ok(true)
+}
+
+pub fn insert_symbol_allow_shadow(stack: ScopeStack, name: String, kind: String, sp: span.Span) {
+    let top_idx = len(stack.scopes) - 1
+    let cur_scope = stack.scopes[top_idx]
+    let sym = Symbol {
+        name: name,
+        kind: kind,
+        span: sp,
+    }
+    push(cur_scope.symbols, sym)
+}
+
+pub fn lookup(stack: ScopeStack, name: String) -> option.Option[Symbol] {
+    var i = len(stack.scopes) - 1
+    while i >= 0 {
+        let sc = stack.scopes[i]
+        for s in sc.symbols {
+            if s.name == name {
+                return option.Option.Some(s)
+            }
+        }
+        i = i - 1
+    }
+    option.Option.None
+}
+
+pub fn is_defined(stack: ScopeStack, name: String) -> Bool {
+    match lookup(stack, name) {
+        option.Option.Some(_) => true
+        option.Option.None => false
+    }
+}
+
+fn init_builtins(stack: ScopeStack) {
+    let dummy = span.new_span(0, 0, 0, 0)
+    let builtins = [
+        "print", "println", "len", "str", "push", "pop", "int", "float", "bool",
+        "exit", "panic", "assert", "join", "split", "trim", "starts_with",
+        "ends_with", "contains", "replace", "to_uppercase", "to_lowercase",
+        "is_empty", "keys", "values", "clone", "args", "read_to_string",
+        "write_to_string", "read_lines", "write_lines", "append_string",
+        "exists", "remove", "file_size", "is_directory", "is_regular_file",
+        "is_file", "is_dir", "read_dir", "walk", "Option", "Result",
+        "Some", "None", "Ok", "Err", "Task", "sleep", "now", "process", "fs",
+        "path", "math", "string", "list", "map", "channel", "bytes", "option", "result"
+    ]
+    for b in builtins {
+        insert_symbol_allow_shadow(stack, b, "builtin", dummy)
+    }
+}

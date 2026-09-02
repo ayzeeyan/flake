@@ -4,6 +4,7 @@ import tokens
 import lexer
 import ast
 import parser
+import check
 import fs
 import path
 import list
@@ -16,7 +17,7 @@ fn print_usage() {
     print("Options:")
     print("  --tokens <file>      Tokenize and print token stream")
     print("  --ast <file>         Parse and print AST S-expression (default)")
-    print("  --check <file>       Parse and verify syntax without AST dump")
+    print("  --check <file>       Parse and typecheck file")
     print("  --walk <dir>         Recursively parse all .flk files in directory")
     print("  -h, --help           Display this help message")
 }
@@ -73,8 +74,15 @@ fn handle_check(file: String) / io + alloc {
     match fs.read_to_string(file) {
         Result.Ok(src) => {
             match parser.parse_source(src) {
-                Result.Ok(_) => {
-                    print("ok: {file}")
+                Result.Ok(prog) => {
+                    match check.check_program(prog, file) {
+                        Result.Ok(_) => {
+                            print("ok: {file}")
+                        }
+                        Result.Err(err) => {
+                            print("error: {err}")
+                        }
+                    }
                 }
                 Result.Err(err) => {
                     print("error: {file}: {err}")

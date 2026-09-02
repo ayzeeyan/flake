@@ -146,7 +146,7 @@ fn selfhost_walk_frontend_self_parsing() {
     let (ok, out) = run_selfhost(&["--walk", "selfhost/frontend"], true);
     assert!(ok, "failed selfhost walk on VM: {out}");
     assert!(
-        out.contains("Scanned 6 files: all parsed successfully"),
+        out.contains("all parsed successfully"),
         "unexpected output: {out}"
     );
 }

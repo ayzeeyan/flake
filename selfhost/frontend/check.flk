@@ -1,0 +1,298 @@
+import ast
+import span
+import option
+import result
+import scope
+
+pub struct Checker {
+    stack: scope.ScopeStack,
+    filename: String,
+}
+
+pub fn new_checker(filename: String) -> Checker {
+    Checker {
+        stack: scope.new_scope_stack(),
+        filename: filename,
+    }
+}
+
+pub fn check_program(prog: ast.Program, filename: String) -> result.Result[Bool, String] {
+    var c = new_checker(filename)
+    collect_globals(c, prog)?
+    resolve_program(c, prog)?
+    result.Result.Ok(true)
+}
+
+fn collect_globals(c: Checker, prog: ast.Program) -> result.Result[Bool, String] {
+    for item in prog.items {
+        match item {
+            ast.Item.Fn(f) => {
+                scope.insert_symbol(c.stack, f.name, "fn", f.span)?
+                nil
+            }
+            ast.Item.Struct(s) => {
+                scope.insert_symbol(c.stack, s.name, "struct", s.span)?
+                nil
+            }
+            ast.Item.Enum(e) => {
+                scope.insert_symbol(c.stack, e.name, "enum", e.span)?
+                for v in e.variants {
+                    scope.insert_symbol_allow_shadow(c.stack, v.name, "variant", e.span)
+                }
+                nil
+            }
+            ast.Item.Trait(t) => {
+                scope.insert_symbol(c.stack, t.name, "trait", t.span)?
+                nil
+            }
+            ast.Item.Impl(_) => nil
+            ast.Item.TypeAlias(ta) => {
+                scope.insert_symbol(c.stack, ta.name, "type", ta.span)?
+                nil
+            }
+            ast.Item.Import(imp) => {
+                let alias = match imp.alias {
+                    option.Option.Some(al) => al
+                    option.Option.None => imp.path[len(imp.path) - 1]
+                }
+                scope.insert_symbol_allow_shadow(c.stack, alias, "import", imp.span)
+                nil
+            }
+        }
+    }
+    result.Result.Ok(true)
+}
+
+fn resolve_program(c: Checker, prog: ast.Program) -> result.Result[Bool, String] {
+    for item in prog.items {
+        match item {
+            ast.Item.Fn(f) => {
+                scope.push_scope(c.stack)
+                for tp in f.type_params {
+                    scope.insert_symbol_allow_shadow(c.stack, tp.name, "type_param", f.span)
+                }
+                for p in f.params {
+                    scope.insert_symbol_allow_shadow(c.stack, p.name, "param", f.span)
+                }
+                resolve_block(c, f.body)?
+                scope.pop_scope(c.stack)
+                nil
+            }
+            ast.Item.Impl(imp) => {
+                for m in imp.methods {
+                    scope.push_scope(c.stack)
+                    for tp in imp.type_params {
+                        scope.insert_symbol_allow_shadow(c.stack, tp.name, "type_param", m.span)
+                    }
+                    for p in m.params {
+                        scope.insert_symbol_allow_shadow(c.stack, p.name, "param", m.span)
+                    }
+                    resolve_block(c, m.body)?
+                    scope.pop_scope(c.stack)
+                }
+                nil
+            }
+            _ => nil
+        }
+    }
+    result.Result.Ok(true)
+}
+
+fn resolve_block(c: Checker, b: ast.BlockExpr) -> result.Result[Bool, String] {
+    for s in b.stmts {
+        resolve_stmt(c, s)?
+    }
+    result.Result.Ok(true)
+}
+
+fn resolve_stmt(c: Checker, s: ast.Stmt) -> result.Result[Bool, String] {
+    match s {
+        ast.Stmt.Let(name, _, val, sp) => {
+            resolve_expr(c, val)?
+            scope.insert_symbol_allow_shadow(c.stack, name, "let", sp)
+            result.Result.Ok(true)
+        }
+        ast.Stmt.Var(name, _, val, sp) => {
+            resolve_expr(c, val)?
+            scope.insert_symbol_allow_shadow(c.stack, name, "var", sp)
+            result.Result.Ok(true)
+        }
+        ast.Stmt.While(cond, body, _) => {
+            resolve_expr(c, cond)?
+            scope.push_scope(c.stack)
+            resolve_block(c, body)?
+            scope.pop_scope(c.stack)
+            result.Result.Ok(true)
+        }
+        ast.Stmt.For(var_name, iter, body, sp) => {
+            resolve_expr(c, iter)?
+            scope.push_scope(c.stack)
+            scope.insert_symbol_allow_shadow(c.stack, var_name, "for_var", sp)
+            resolve_block(c, body)?
+            scope.pop_scope(c.stack)
+            result.Result.Ok(true)
+        }
+        ast.Stmt.Loop(body, _) => {
+            scope.push_scope(c.stack)
+            resolve_block(c, body)?
+            scope.pop_scope(c.stack)
+            result.Result.Ok(true)
+        }
+        ast.Stmt.Expr(e) => {
+            resolve_expr(c, e)
+        }
+    }
+}
+
+fn resolve_expr(c: Checker, e: ast.Expr) -> result.Result[Bool, String] {
+    match e {
+        ast.Expr.IntLit(_, _) => result.Result.Ok(true)
+        ast.Expr.FloatLit(_, _) => result.Result.Ok(true)
+        ast.Expr.StringLit(_, _) => result.Result.Ok(true)
+        ast.Expr.BoolLit(_, _) => result.Result.Ok(true)
+        ast.Expr.NilLit(_) => result.Result.Ok(true)
+        ast.Expr.Break(_) => result.Result.Ok(true)
+        ast.Expr.Continue(_) => result.Result.Ok(true)
+        ast.Expr.Ident(name, sp) => {
+            if !scope.is_defined(c.stack, name) {
+                return result.Result.Err("{c.filename}:{span.format_span(sp)}: undefined variable `{name}`")
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Binary(_, left, right, _) => {
+            resolve_expr(c, left)?
+            resolve_expr(c, right)
+        }
+        ast.Expr.Unary(_, inner, _) => {
+            resolve_expr(c, inner)
+        }
+        ast.Expr.Call(callee, args, _) => {
+            resolve_expr(c, callee)?
+            for a in args {
+                resolve_expr(c, a)?
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Spawn(call, _) => {
+            resolve_expr(c, call)
+        }
+        ast.Expr.Await(task, _) => {
+            resolve_expr(c, task)
+        }
+        ast.Expr.Try(inner, _) => {
+            resolve_expr(c, inner)
+        }
+        ast.Expr.Field(target, _, _) => {
+            resolve_expr(c, target)
+        }
+        ast.Expr.Index(target, index, _) => {
+            resolve_expr(c, target)?
+            resolve_expr(c, index)
+        }
+        ast.Expr.Assign(_, target, val, _) => {
+            resolve_expr(c, target)?
+            resolve_expr(c, val)
+        }
+        ast.Expr.If(cond, then_b, else_b, _) => {
+            resolve_expr(c, cond)?
+            scope.push_scope(c.stack)
+            resolve_block(c, then_b)?
+            scope.pop_scope(c.stack)
+            match else_b {
+                option.Option.Some(eb) => resolve_expr(c, eb)
+                option.Option.None => result.Result.Ok(true)
+            }
+        }
+        ast.Expr.Match(scrutinee, arms, _) => {
+            resolve_expr(c, scrutinee)?
+            for arm in arms {
+                scope.push_scope(c.stack)
+                bind_pattern_vars(c, arm.pattern)
+                match arm.guard {
+                    option.Option.Some(g) => { resolve_expr(c, g)?; nil }
+                    option.Option.None => nil
+                }
+                resolve_expr(c, arm.body)?
+                scope.pop_scope(c.stack)
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Block(b) => {
+            scope.push_scope(c.stack)
+            resolve_block(c, b)?
+            scope.pop_scope(c.stack)
+            result.Result.Ok(true)
+        }
+        ast.Expr.Nursery(b, _) => {
+            scope.push_scope(c.stack)
+            resolve_block(c, b)?
+            scope.pop_scope(c.stack)
+            result.Result.Ok(true)
+        }
+        ast.Expr.StructInit(_, fields, _) => {
+            for f in fields {
+                resolve_expr(c, f.value)?
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.ListLit(items, _) => {
+            for it in items {
+                resolve_expr(c, it)?
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.MapLit(entries, _) => {
+            for entry in entries {
+                resolve_expr(c, entry.key)?
+                resolve_expr(c, entry.value)?
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Return(val, _) => {
+            match val {
+                option.Option.Some(v) => resolve_expr(c, v)
+                option.Option.None => result.Result.Ok(true)
+            }
+        }
+    }
+}
+
+fn bind_pattern_vars(c: Checker, pat: ast.Pattern) {
+    match pat {
+        ast.Pattern.Wildcard(_) => nil
+        ast.Pattern.IntLit(_, _) => nil
+        ast.Pattern.FloatLit(_, _) => nil
+        ast.Pattern.StringLit(_, _) => nil
+        ast.Pattern.BoolLit(_, _) => nil
+        ast.Pattern.NilLit(_) => nil
+        ast.Pattern.Ident(name, sp) => {
+            if name != "_" {
+                match scope.lookup(c.stack, name) {
+                    option.Option.Some(sym) => {
+                        if sym.kind != "variant" {
+                            scope.insert_symbol_allow_shadow(c.stack, name, "pattern_var", sp)
+                        }
+                        nil
+                    }
+                    option.Option.None => {
+                        scope.insert_symbol_allow_shadow(c.stack, name, "pattern_var", sp)
+                        nil
+                    }
+                }
+            }
+            nil
+        }
+        ast.Pattern.Variant(_, _, subs, _) => {
+            for sub in subs {
+                bind_pattern_vars(c, sub)
+            }
+            nil
+        }
+        ast.Pattern.ListPat(pats, _) => {
+            for p in pats {
+                bind_pattern_vars(c, p)
+            }
+            nil
+        }
+    }
+}
