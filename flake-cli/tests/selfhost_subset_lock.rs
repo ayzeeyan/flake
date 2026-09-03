@@ -347,6 +347,66 @@ fn subset_lock_fails_on_forbidden_constructs() {
     assert!(err.contains("forbidden macro/internal call `__internal_call`"), "{err}");
 }
 
+fn audit_example_program(source: &Source, prog: &Program) -> Result<(), String> {
+    let approved_builtins: HashSet<&str> = APPROVED_BUILTINS.iter().copied().collect();
+    let allowed_effects: HashSet<&str> = ALLOWED_EFFECTS.iter().copied().collect();
+
+    for item in &prog.items {
+        match item {
+            Item::Import(_) => {
+                // Examples use standard library and relative project imports
+            }
+            Item::Fn(func) => {
+                audit_fn(source, func, &allowed_effects, &approved_builtins)?;
+            }
+            Item::Impl(imp) => {
+                for m in &imp.methods {
+                    audit_fn(source, m, &allowed_effects, &approved_builtins)?;
+                }
+            }
+            Item::Trait(t) => {
+                for m in &t.methods {
+                    for eff in m.effects.names() {
+                        if !allowed_effects.contains(eff) {
+                            let loc = source.locate(m.span.start);
+                            return Err(format!(
+                                "{}:{}: unapproved effect `{eff}` in trait method",
+                                source.name(), loc
+                            ));
+                        }
+                    }
+                }
+            }
+            Item::Struct(_) | Item::Enum(_) | Item::Type(_) | Item::Const(_) => {}
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn examples_sources_satisfy_stable_subset_lock() {
+    let examples_dir = repo_root().join("examples");
+    let mut files = Vec::new();
+    for entry in walkdir(examples_dir) {
+        if entry.extension().is_some_and(|ext| ext == "flk") {
+            files.push(entry);
+        }
+    }
+    assert_eq!(files.len(), 62, "expected exactly 62 example .flk files");
+
+    for file in &files {
+        let content = std::fs::read_to_string(file).expect("read file");
+        let filename = file.file_name().unwrap().to_str().unwrap();
+        let src = Source::new(filename, &content);
+        let prog = flake_parser::parse_str(&content).expect("parse example file");
+
+        audit_example_program(&src, &prog).unwrap_or_else(|err| {
+            panic!("subset audit failed for example {filename}: {err}");
+        });
+    }
+}
+
+
 fn walkdir(dir: PathBuf) -> Vec<PathBuf> {
     let mut result = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
