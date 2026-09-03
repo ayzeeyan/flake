@@ -108,10 +108,15 @@ struct FnCompiler<'a> {
     max_locals: u16,
     loops: Vec<LoopCtx>,
     names: &'a Names,
+    consts: &'a HashMap<String, flake_ast::ConstValue>,
 }
 
 impl<'a> FnCompiler<'a> {
-    fn new(params: Vec<String>, names: &'a Names) -> Self {
+    fn new(
+        params: Vec<String>,
+        names: &'a Names,
+        consts: &'a HashMap<String, flake_ast::ConstValue>,
+    ) -> Self {
         let locals = params
             .into_iter()
             .map(|name| Local { name, depth: 0 })
@@ -124,6 +129,7 @@ impl<'a> FnCompiler<'a> {
             max_locals,
             loops: Vec::new(),
             names,
+            consts,
         }
     }
 
@@ -337,6 +343,8 @@ impl<'a> FnCompiler<'a> {
             Expr::Ident(id) => {
                 if let Some(slot) = self.resolve_local(&id.name) {
                     self.chunk.emit(Op::GetLocal(slot));
+                } else if let Some(value) = self.consts.get(&id.name) {
+                    self.emit_const_value(value);
                 } else {
                     let name = self.names.global(&id.name);
                     let c = self.chunk.add_constant(Value::from_string(name));
@@ -601,6 +609,32 @@ impl<'a> FnCompiler<'a> {
                 self.compile_block_value(body, true)?;
                 self.chunk.emit(Op::ExitNursery);
                 Ok(())
+            }
+        }
+    }
+
+    fn emit_const_value(&mut self, value: &flake_ast::ConstValue) {
+        match value {
+            flake_ast::ConstValue::Nil => {
+                self.chunk.emit(Op::Nil);
+            }
+            flake_ast::ConstValue::Bool(true) => {
+                self.chunk.emit(Op::True);
+            }
+            flake_ast::ConstValue::Bool(false) => {
+                self.chunk.emit(Op::False);
+            }
+            flake_ast::ConstValue::Int(n) => {
+                let c = self.chunk.add_constant(Value::Int(*n));
+                self.chunk.emit(Op::Constant(c));
+            }
+            flake_ast::ConstValue::Float(n) => {
+                let c = self.chunk.add_constant(Value::Float(*n));
+                self.chunk.emit(Op::Constant(c));
+            }
+            flake_ast::ConstValue::String(s) => {
+                let c = self.chunk.add_constant(Value::from_string(s.clone()));
+                self.chunk.emit(Op::Constant(c));
             }
         }
     }
@@ -1086,40 +1120,51 @@ fn type_names(program: &Program) -> HashSet<String> {
 }
 
 fn compile_with_names(program: &Program, names: &Names) -> Result<Compiled, VmError> {
+    let consts = flake_ast::collect_const_values(program).unwrap_or_default();
     let mut functions = Vec::new();
     for item in &program.items {
         match item {
-            Item::Fn(func) => functions.push(compile_fn(func, names)?),
+            Item::Fn(func) => functions.push(compile_fn(func, names, &consts)?),
             Item::Impl(imp) => {
                 let type_ctor = impl_type_ctor(&imp.ty);
                 for method in &imp.methods {
-                    functions.push(compile_method(method, &type_ctor, names)?);
+                    functions.push(compile_method(method, &type_ctor, names, &consts)?);
                 }
             }
             Item::Import(_)
             | Item::Struct(_)
             | Item::Type(_)
             | Item::Enum(_)
-            | Item::Trait(_) => {}
+            | Item::Trait(_)
+            | Item::Const(_) => {}
         }
     }
     Ok(Compiled { functions })
 }
 
-fn compile_fn(func: &FnDecl, names: &Names) -> Result<Function, VmError> {
+fn compile_fn(
+    func: &FnDecl,
+    names: &Names,
+    consts: &HashMap<String, flake_ast::ConstValue>,
+) -> Result<Function, VmError> {
     let params: Vec<String> = func.params.iter().map(|p| p.name.name.clone()).collect();
     let arity = params.len() as u8;
-    let mut compiler = FnCompiler::new(params, names);
+    let mut compiler = FnCompiler::new(params, names, consts);
     compiler.chunk.set_span(func.span);
     compiler.compile_block_value(&func.body, false)?;
     compiler.chunk.emit(Op::Return);
     Ok(compiler.finish(names.global(&func.name.name), arity))
 }
 
-fn compile_method(func: &FnDecl, type_ctor: &str, names: &Names) -> Result<Function, VmError> {
+fn compile_method(
+    func: &FnDecl,
+    type_ctor: &str,
+    names: &Names,
+    consts: &HashMap<String, flake_ast::ConstValue>,
+) -> Result<Function, VmError> {
     let params: Vec<String> = func.params.iter().map(|p| p.name.name.clone()).collect();
     let arity = params.len() as u8;
-    let mut compiler = FnCompiler::new(params, names);
+    let mut compiler = FnCompiler::new(params, names, consts);
     compiler.chunk.set_span(func.span);
     compiler.compile_block_value(&func.body, false)?;
     compiler.chunk.emit(Op::Return);

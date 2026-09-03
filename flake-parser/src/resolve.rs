@@ -235,6 +235,7 @@ fn item_name(item: &Item) -> Option<&str> {
         Item::Trait(item) => Some(&item.name.name),
         Item::Import(item) => item.is_pub.then(|| import_alias(item)),
         Item::Impl(_) => None,
+        Item::Const(item) => Some(&item.name.name),
     }
 }
 
@@ -319,6 +320,7 @@ fn decl_name(item: &Item) -> Option<&str> {
         Item::Enum(item) => Some(&item.name.name),
         Item::Type(item) => Some(&item.name.name),
         Item::Trait(item) => Some(&item.name.name),
+        Item::Const(item) => Some(&item.name.name),
         Item::Import(_) | Item::Impl(_) => None,
     }
 }

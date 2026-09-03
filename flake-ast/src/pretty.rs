@@ -142,6 +142,17 @@ fn print_item(item: &Item, out: &mut String) {
                 out.push('}');
             }
         }
+        Item::Const(c) => {
+            if c.is_pub {
+                out.push_str("pub ");
+            }
+            out.push_str("const ");
+            out.push_str(&c.name.name);
+            out.push_str(": ");
+            print_type(&c.ty, out);
+            out.push_str(" = ");
+            print_expr(&c.value, 0, out);
+        }
         Item::Impl(i) => {
             out.push_str("impl");
             print_type_params(&i.type_params, out);

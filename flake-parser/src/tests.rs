@@ -644,7 +644,23 @@ impl Show for Int {
 }
 
 #[test]
+fn const_items_parse() {
+    let program = parse_ok(
+        r#"
+const SCALE: Int = 2 + 3
+pub const LABEL: String = "Flake" + " v0.13"
+fn main() / io { print(SCALE) }
+"#,
+    );
+    assert!(matches!(&program.items[0], Item::Const(c) if c.name.name == "SCALE" && !c.is_pub));
+    assert!(matches!(&program.items[1], Item::Const(c) if c.name.name == "LABEL" && c.is_pub));
+    let pretty = print_program(&program);
+    assert!(pretty.contains("const SCALE: Int = "));
+    assert!(pretty.contains("2 + 3"));
+    assert!(pretty.contains("const LABEL: String"));
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
-

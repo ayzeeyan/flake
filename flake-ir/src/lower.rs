@@ -36,6 +36,7 @@ struct Builder {
     fn_rets: HashMap<String, IrType>,
     enums: EnumTable,
     structs: StructTable,
+    consts: HashMap<String, Const>,
 }
 
 impl Builder {
@@ -44,6 +45,7 @@ impl Builder {
         fn_rets: HashMap<String, IrType>,
         enums: EnumTable,
         structs: StructTable,
+        consts: HashMap<String, Const>,
     ) -> Self {
         let entry = BlockId(0);
         Self {
@@ -60,6 +62,7 @@ impl Builder {
             fn_rets,
             enums,
             structs,
+            consts,
         }
     }
 
@@ -328,7 +331,9 @@ fn infer_expr_type(
             }
             None
         }
-        Expr::Binary { op, left, right, .. } => match op {
+        Expr::Binary {
+            op, left, right, ..
+        } => match op {
             flake_ast::BinOp::Add
             | flake_ast::BinOp::Sub
             | flake_ast::BinOp::Mul
@@ -350,8 +355,11 @@ fn infer_expr_type(
             then_block,
             else_block,
             ..
-        } => infer_block_type(then_block, env, fn_rets)
-            .or_else(|| else_block.as_ref().and_then(|b| infer_expr_type(b, env, fn_rets))),
+        } => infer_block_type(then_block, env, fn_rets).or_else(|| {
+            else_block
+                .as_ref()
+                .and_then(|b| infer_expr_type(b, env, fn_rets))
+        }),
         Expr::Block(b) => infer_block_type(b, env, fn_rets),
         _ => None,
     }
@@ -392,7 +400,14 @@ fn rewrite_expr(
     match expr {
         Expr::Call { callee, args, .. } => {
             for arg in args.iter_mut() {
-                rewrite_expr(arg, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+                rewrite_expr(
+                    arg,
+                    env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
             }
             if let Expr::Ident(id) = callee.as_mut() {
                 if let Some(gfn) = generic_fns.get(&id.name) {
@@ -407,7 +422,8 @@ fn rewrite_expr(
                             })
                         });
                         if is_bare_tparam {
-                            let concrete_ty = args.first().and_then(|a| infer_expr_type(a, env, fn_rets));
+                            let concrete_ty =
+                                args.first().and_then(|a| infer_expr_type(a, env, fn_rets));
                             if let Some(concrete_name) = concrete_ty {
                                 let spec_name = format!("{}_{concrete_name}", id.name);
                                 id.name = spec_name.clone();
@@ -417,7 +433,11 @@ fn rewrite_expr(
                                     let mut spec_fn = gfn.clone();
                                     spec_fn.name.name = spec_name.clone();
                                     spec_fn.type_params.clear();
-                                    substitute_type_param(&mut spec_fn, tparam_name, &concrete_name);
+                                    substitute_type_param(
+                                        &mut spec_fn,
+                                        tparam_name,
+                                        &concrete_name,
+                                    );
                                     new_in_this_pass.push(spec_fn);
                                 }
                             }
@@ -425,22 +445,71 @@ fn rewrite_expr(
                     }
                 }
             } else {
-                rewrite_expr(callee, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+                rewrite_expr(
+                    callee,
+                    env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
             }
         }
         Expr::Binary { left, right, .. } => {
-            rewrite_expr(left, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
-            rewrite_expr(right, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(
+                left,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
+            rewrite_expr(
+                right,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
         }
         Expr::Assign { target, value, .. } => {
-            rewrite_expr(target, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
-            rewrite_expr(value, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(
+                target,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
+            rewrite_expr(
+                value,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
         }
         Expr::Field { target, .. } => {
-            rewrite_expr(target, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(
+                target,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
         }
         Expr::Block(b) => {
-            rewrite_block(b, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_block(
+                b,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
         }
         Expr::If {
             cond,
@@ -448,17 +517,52 @@ fn rewrite_expr(
             else_block,
             ..
         } => {
-            rewrite_expr(cond, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
-            rewrite_block(then_block, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(
+                cond,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
+            rewrite_block(
+                then_block,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
             if let Some(eb) = else_block {
-                rewrite_expr(eb, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+                rewrite_expr(
+                    eb,
+                    env,
+                    fn_rets,
+                    generic_fns,
+                    generated_fns,
+                    new_in_this_pass,
+                );
             }
         }
         Expr::Spawn { call, .. } => {
-            rewrite_expr(call, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(
+                call,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
         }
         Expr::Await { task, .. } => {
-            rewrite_expr(task, env, fn_rets, generic_fns, generated_fns, new_in_this_pass);
+            rewrite_expr(
+                task,
+                env,
+                fn_rets,
+                generic_fns,
+                generated_fns,
+                new_in_this_pass,
+            );
         }
         _ => {}
     }
@@ -594,11 +698,7 @@ fn substitute_type_expr(ty: &mut TypeExpr, tparam: &str, concrete: &str) {
         | TypeExpr::Mut { inner, .. } => {
             substitute_type_expr(inner, tparam, concrete);
         }
-        TypeExpr::Fn {
-            params,
-            ret,
-            ..
-        } => {
+        TypeExpr::Fn { params, ret, .. } => {
             for p in params {
                 substitute_type_expr(p, tparam, concrete);
             }
@@ -813,10 +913,7 @@ fn names_for(graph: &ModuleGraph, module: &flake_parser::LoadedModule, is_entry:
                         _ => None,
                     };
                     if let Some(name) = imported_type {
-                        exported
-                            .get_mut(&alias)
-                            .unwrap()
-                            .insert(name.clone());
+                        exported.get_mut(&alias).unwrap().insert(name.clone());
                         imported_types
                             .insert(format!("{alias}.{name}"), qualify(&origin_name, name));
                         imported_types
@@ -885,6 +982,7 @@ fn lower_program_with(
     structs: &StructTable,
 ) -> Module {
     let traits = traits_with_methods_in_program(program);
+    let consts = collect_ir_consts(program);
     let mut module_structs = Vec::new();
     let mut functions = Vec::new();
     for item in &program.items {
@@ -906,7 +1004,7 @@ fn lower_program_with(
             }
             Item::Fn(func) => {
                 if !is_generic_with_trait_methods(func, &traits) {
-                    functions.push(lower_fn(func, names, fn_rets, enums, structs));
+                    functions.push(lower_fn(func, names, fn_rets, enums, structs, &consts));
                 }
             }
             Item::Impl(imp) => {
@@ -919,10 +1017,17 @@ fn lower_program_with(
                             first_param.ty = Some(imp.ty.clone());
                         }
                     }
-                    functions.push(lower_fn(&renamed_func, names, fn_rets, enums, structs));
+                    functions.push(lower_fn(
+                        &renamed_func,
+                        names,
+                        fn_rets,
+                        enums,
+                        structs,
+                        &consts,
+                    ));
                 }
             }
-            Item::Type(_) | Item::Import(_) | Item::Enum(_) | Item::Trait(_) => {}
+            Item::Type(_) | Item::Import(_) | Item::Enum(_) | Item::Trait(_) | Item::Const(_) => {}
         }
     }
     Module {
@@ -1081,18 +1186,40 @@ fn enum_variants<'a>(b: &'a Builder, target: &Expr) -> Option<(String, &'a EnumV
     }
 }
 
+fn ir_const(value: &flake_ast::ConstValue) -> (Const, IrType) {
+    match value {
+        flake_ast::ConstValue::Nil => (Const::Nil, IrType::Nil),
+        flake_ast::ConstValue::Bool(b) => (Const::Bool(*b), IrType::Bool),
+        flake_ast::ConstValue::Int(n) => (Const::Int(*n), IrType::Int),
+        flake_ast::ConstValue::Float(n) => (Const::Float(*n), IrType::Float),
+        flake_ast::ConstValue::String(s) => (Const::String(s.clone()), IrType::String),
+    }
+}
+
+fn collect_ir_consts(program: &Program) -> HashMap<String, Const> {
+    match flake_ast::collect_const_values(program) {
+        Ok(values) => values
+            .into_iter()
+            .map(|(k, v)| (k, ir_const(&v).0))
+            .collect(),
+        Err(_) => HashMap::new(),
+    }
+}
+
 fn lower_fn(
     func: &FnDecl,
     names: &Names,
     fn_rets: &HashMap<String, IrType>,
     enums: &EnumTable,
     structs: &StructTable,
+    consts: &HashMap<String, Const>,
 ) -> Function {
     let mut b = Builder::new(
         names.clone(),
         fn_rets.clone(),
         enums.clone(),
         structs.clone(),
+        consts.clone(),
     );
     let mut params = Vec::new();
     for p in &func.params {
@@ -1278,6 +1405,16 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
             Literal::String(s) => b.const_val(Const::String(s.clone()), IrType::String),
         },
         Expr::Ident(id) => lookup(b, &id.name).unwrap_or_else(|| {
+            if let Some(value) = b.consts.get(&id.name).cloned() {
+                let ty = match &value {
+                    Const::Nil => IrType::Nil,
+                    Const::Bool(_) => IrType::Bool,
+                    Const::Int(_) => IrType::Int,
+                    Const::Float(_) => IrType::Float,
+                    Const::String(_) => IrType::String,
+                };
+                return b.const_val(value, ty);
+            }
             let name = b
                 .names
                 .function_global(&id.name)
@@ -1555,13 +1692,14 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                     };
                     if let Some(type_ctor) = type_ctor {
                         let method_fn_name = format!("{type_ctor}_{}", field.name);
-                        let method_global = b.names.function_global(&method_fn_name).or_else(|| {
-                            if b.fn_rets.contains_key(&method_fn_name) {
-                                Some(method_fn_name)
-                            } else {
-                                None
-                            }
-                        });
+                        let method_global =
+                            b.names.function_global(&method_fn_name).or_else(|| {
+                                if b.fn_rets.contains_key(&method_fn_name) {
+                                    Some(method_fn_name)
+                                } else {
+                                    None
+                                }
+                            });
                         if let Some(global) = method_global {
                             let mut all_args = vec![target_id];
                             all_args.extend(arg_ids);

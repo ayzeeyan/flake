@@ -19,6 +19,7 @@ pub enum Item {
     Import(ImportDecl),
     Trait(TraitDecl),
     Impl(ImplDecl),
+    Const(ConstDecl),
 }
 
 impl Item {
@@ -32,6 +33,7 @@ impl Item {
             Self::Import(i) => i.span,
             Self::Trait(t) => t.span,
             Self::Impl(i) => i.span,
+            Self::Const(c) => c.span,
         }
     }
 
@@ -46,8 +48,19 @@ impl Item {
             Self::Import(i) => i.is_pub,
             Self::Trait(t) => t.is_pub,
             Self::Impl(_) => false,
+            Self::Const(c) => c.is_pub,
         }
     }
+}
+
+/// A compile-time constant: `const NAME: T = <expr>`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstDecl {
+    pub is_pub: bool,
+    pub name: Ident,
+    pub ty: TypeExpr,
+    pub value: Expr,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

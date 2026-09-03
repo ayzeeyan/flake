@@ -3,9 +3,9 @@
 use std::mem::discriminant;
 
 use flake_ast::{
-    AssignOp, BinOp, Block, EffectSet, Expr, FnDecl, Ident, ImplDecl, ImportDecl, InterpPart, Item,
-    LetStmt, Literal, Param, Pattern, Program, Source, Span, Stmt, StructDecl, StructField,
-    TraitDecl, TraitMethodSig, TypeAlias, TypeExpr, TypeParam, UnOp,
+    AssignOp, BinOp, Block, ConstDecl, EffectSet, Expr, FnDecl, Ident, ImplDecl, ImportDecl,
+    InterpPart, Item, LetStmt, Literal, Param, Pattern, Program, Source, Span, Stmt, StructDecl,
+    StructField, TraitDecl, TraitMethodSig, TypeAlias, TypeExpr, TypeParam, UnOp,
 };
 use flake_lexer::{Token, TokenKind, tokenize};
 
@@ -140,6 +140,9 @@ impl<'src> Parser<'src> {
         if matches!(self.kind(), TokenKind::Type) {
             return Ok(Item::Type(self.parse_type_alias(start, is_pub)?));
         }
+        if matches!(self.kind(), TokenKind::Const) {
+            return Ok(Item::Const(self.parse_const(start, is_pub)?));
+        }
         if matches!(self.kind(), TokenKind::Import) {
             return Ok(Item::Import(self.parse_import(start, is_pub)?));
         }
@@ -154,11 +157,11 @@ impl<'src> Parser<'src> {
         }
         if is_pub {
             return Err(self.error(
-                "expected `fn`, `struct`, `enum`, `type`, `trait`, or `import` after `pub`",
+                "expected `fn`, `struct`, `enum`, `type`, `const`, `trait`, or `import` after `pub`",
             ));
         }
         Err(self.unexpected(
-            "top-level item (`fn`, `struct`, `enum`, `type`, `trait`, `impl`, or `import`)",
+            "top-level item (`fn`, `struct`, `enum`, `type`, `const`, `trait`, `impl`, or `import`)",
         ))
     }
 
@@ -479,6 +482,26 @@ impl<'src> Parser<'src> {
             type_params,
             variants,
             span: start.merge(self.prev().span),
+        })
+    }
+
+    fn parse_const(&mut self, start: Span, is_pub: bool) -> Result<ConstDecl, ParseError> {
+        self.expect(&TokenKind::Const, "`const`")?;
+        let name = self.parse_ident()?;
+        self.skip_nl();
+        self.expect(&TokenKind::Colon, "`:`")?;
+        self.skip_nl();
+        let ty = self.parse_type()?;
+        self.skip_nl();
+        self.expect(&TokenKind::Eq, "`=`")?;
+        self.skip_nl();
+        let value = self.parse_expr(0)?;
+        Ok(ConstDecl {
+            is_pub,
+            name,
+            ty,
+            span: start.merge(value.span()),
+            value,
         })
     }
 

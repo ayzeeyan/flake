@@ -976,7 +976,6 @@ fn main() {}
     assert!(msg.contains("use of moved value `s`"), "{msg}");
 }
 
-
 #[test]
 fn spawn_rejects_nested_reference_arguments() {
     let msg = err(r#"
@@ -1006,12 +1005,8 @@ strict fn main() / conc {
     let t = spawn work(&s)
 }
 "#);
-    assert!(
-        msg.contains("cannot capture reference"),
-        "{msg}"
-    );
+    assert!(msg.contains("cannot capture reference"), "{msg}");
 }
-
 
 #[test]
 fn strict_match_arms_are_isolated_branches() {
@@ -1335,7 +1330,10 @@ fn max_unbounded[T](a: T, b: T) -> T {
 fn main() {}
 "#);
     assert!(msg.contains("does not implement `Ord`"), "{msg}");
-    assert!(msg.contains("T: Ord") || msg.contains("add a `Ord` bound"), "{msg}");
+    assert!(
+        msg.contains("T: Ord") || msg.contains("add a `Ord` bound"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -1485,7 +1483,10 @@ impl Show for Int {}
 
 fn main() {}
 "#);
-    assert!(msg.contains("missing method `show` for trait `Show`"), "{msg}");
+    assert!(
+        msg.contains("missing method `show` for trait `Show`"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -1506,7 +1507,10 @@ impl Show for Int {
 
 fn main() {}
 "#);
-    assert!(msg.contains("method `extra` is not a member of trait `Show`"), "{msg}");
+    assert!(
+        msg.contains("method `extra` is not a member of trait `Show`"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -1528,7 +1532,10 @@ fn display[T](x: T) -> String {
 
 fn main() {}
 "#);
-    assert!(msg.contains("no method `show` on type parameter `T`"), "{msg}");
+    assert!(
+        msg.contains("no method `show` on type parameter `T`"),
+        "{msg}"
+    );
     assert!(msg.contains("add a trait bound `T: Show`"), "{msg}");
 }
 
@@ -1549,12 +1556,46 @@ fn main() {
     let _ = true.show()
 }
 "#);
-    assert!(msg.contains("type `Bool` does not implement `Show`"), "{msg}");
+    assert!(
+        msg.contains("type `Bool` does not implement `Show`"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn const_items_typecheck() {
+    ok(r#"
+const SCALE: Int = 2 + 3
+const LABEL: String = "Flake" + " v0.13"
+fn main() / io {
+    print(SCALE)
+    print(LABEL)
+}
+"#);
+}
+
+#[test]
+fn const_rejects_io_call() {
+    let msg = err(r#"
+const BAD: String = read_file("x")
+fn main() {}
+"#);
+    assert!(
+        msg.contains("cannot call a function in a const expression"),
+        "{msg}"
+    );
+}
+
+#[test]
+fn const_rejects_type_mismatch() {
+    let msg = err(r#"
+const SCALE: Int = "nope"
+fn main() {}
+"#);
+    assert!(msg.contains("type mismatch"), "{msg}");
 }
 
 #[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
-
-

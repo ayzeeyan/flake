@@ -17,6 +17,16 @@ use crate::value::{Function, MapKey, NativeFn, TaskRef, TaskState, Value};
 
 const MAX_CALL_DEPTH: usize = 10_000;
 
+fn const_to_value(value: flake_ast::ConstValue) -> Value {
+    match value {
+        flake_ast::ConstValue::Nil => Value::Nil,
+        flake_ast::ConstValue::Bool(b) => Value::Bool(b),
+        flake_ast::ConstValue::Int(n) => Value::Int(n),
+        flake_ast::ConstValue::Float(n) => Value::Float(n),
+        flake_ast::ConstValue::String(s) => Value::from_string(s),
+    }
+}
+
 thread_local! {
     static PROGRAM_ARGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
@@ -311,6 +321,11 @@ impl<'io> Interpreter<'io> {
                         members.insert(alias.to_string(), value);
                     }
                 }
+                Item::Const(decl) => {
+                    if let Some(value) = module_env.get(&decl.name.name) {
+                        members.insert(decl.name.name.clone(), value);
+                    }
+                }
                 _ => {}
             }
         }
@@ -337,6 +352,11 @@ impl<'io> Interpreter<'io> {
         program: &Program,
         module_name: Option<&str>,
     ) -> Result<(), RuntimeError> {
+        if let Ok(consts) = flake_ast::collect_const_values(program) {
+            for (name, value) in consts {
+                env.define(&name, const_to_value(value), false);
+            }
+        }
         for item in &program.items {
             match item {
                 Item::Fn(func) => {
@@ -355,7 +375,7 @@ impl<'io> Interpreter<'io> {
                         .unwrap_or_else(|| st.name.name.clone());
                     env.define_type(&st.name.name, type_name);
                 }
-                Item::Type(_) | Item::Import(_) | Item::Trait(_) => {}
+                Item::Type(_) | Item::Import(_) | Item::Trait(_) | Item::Const(_) => {}
                 Item::Impl(imp) => {
                     let type_ctor = impl_type_ctor(&imp.ty);
                     for func in &imp.methods {
@@ -712,7 +732,8 @@ impl<'io> Interpreter<'io> {
                 else {
                     return Err(RuntimeError::new(*span, "`spawn` expects a function call").into());
                 };
-                let (func, arg_values) = if let Expr::Field { target, field, .. } = callee.as_ref() {
+                let (func, arg_values) = if let Expr::Field { target, field, .. } = callee.as_ref()
+                {
                     let target_val = self.eval_expr(target)?;
                     let is_struct_or_module_field = match &target_val {
                         Value::Struct { fields, .. } => fields.borrow().contains_key(&field.name),
@@ -1643,10 +1664,7 @@ impl<'io> Interpreter<'io> {
             }
             NativeFn::Args => {
                 expect_arity("args", args, 0, span)?;
-                let values: Vec<_> = program_args()
-                    .into_iter()
-                    .map(Value::from_string)
-                    .collect();
+                let values: Vec<_> = program_args().into_iter().map(Value::from_string).collect();
                 Ok(Value::List(Rc::new(RefCell::new(values))))
             }
             NativeFn::ListDir => {
@@ -1723,13 +1741,9 @@ fn sys_list_dir(path: &str) -> Result<Vec<String>, String> {
 
 fn sys_run_cmd(cmd: &str) -> Value {
     let output = if cfg!(windows) {
-        std::process::Command::new("cmd")
-            .args(["/C", cmd])
-            .output()
+        std::process::Command::new("cmd").args(["/C", cmd]).output()
     } else {
-        std::process::Command::new("sh")
-            .args(["-c", cmd])
-            .output()
+        std::process::Command::new("sh").args(["-c", cmd]).output()
     };
     match output {
         Ok(out) => {

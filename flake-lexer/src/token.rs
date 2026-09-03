@@ -78,6 +78,7 @@ pub enum TokenKind {
     Nursery,
     Trait,
     Impl,
+    Const,
 
     // Operators
     Plus,
@@ -160,6 +161,7 @@ impl TokenKind {
             "nursery" => Self::Nursery,
             "trait" => Self::Trait,
             "impl" => Self::Impl,
+            "const" => Self::Const,
             _ => return None,
         })
     }
@@ -201,6 +203,7 @@ impl TokenKind {
                 | Self::Nursery
                 | Self::Trait
                 | Self::Impl
+                | Self::Const
         )
     }
 
@@ -248,6 +251,7 @@ impl TokenKind {
             Self::Nursery => "`nursery`",
             Self::Trait => "`trait`",
             Self::Impl => "`impl`",
+            Self::Const => "`const`",
             Self::Plus => "`+`",
             Self::Minus => "`-`",
             Self::Star => "`*`",

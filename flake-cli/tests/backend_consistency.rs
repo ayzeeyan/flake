@@ -1246,7 +1246,6 @@ fn main() / io + alloc {
     assert_all_backends("systems-stdlib-edge-cases", source, expected);
 }
 
-
 #[test]
 fn concurrency_channels_and_structured_runtime_across_all_backends() {
     let source = r#"
@@ -1443,13 +1442,7 @@ fn main() {
 }
 "#;
     let expected = concat!(
-        "9\n",
-        "zeta\n",
-        "true\n",
-        "false\n",
-        "true\n",
-        "42\n",
-        "10\n",
+        "9\n", "zeta\n", "true\n", "false\n", "true\n", "42\n", "10\n",
     );
     assert_all_backends("generic-bounds-traits", source, expected);
 }
@@ -1591,4 +1584,18 @@ fn main() / io + alloc {
 }
 "#;
     assert_all_backends("process-run", source, "0\n");
+}
+
+#[test]
+fn const_items_fold_identically_across_all_backends() {
+    let source = r#"
+const SCALE: Int = 2 + 3
+const LABEL: String = "Flake" + " v0.13"
+
+fn main() / io {
+    print(SCALE)
+    print(LABEL)
+}
+"#;
+    assert_all_backends("const-fold", source, "5\nFlake v0.13\n");
 }
