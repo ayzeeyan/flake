@@ -1,81 +1,75 @@
-# Testing and backend consistency
+# Flake v1.0 Quality Gate & Verification Checklist
 
-Flake treats the tree-walking interpreter as the clearest executable model,
-then requires the bytecode VM and native x86-64 backend to agree with it on
-observable language behavior. Milestone 5 turns that policy into a dedicated
-integration suite instead of relying only on examples and backend-local tests.
+This document defines the **v1.0 release quality gate** and testing hierarchy for Flake. Every release must pass this checklist in its entirety before shipping.
 
-## Running the suites
+---
+
+## 1. The v1.0 Quality Gate Checklist
+
+The quality gate comprises five mandatory verification tiers executed on the primary native target:
 
 ```bash
+# Gate 1: Full workspace unit & integration test suite
 cargo test --workspace
-cargo test -p flake-cli --test backend_consistency
-cargo test -p flake-cli --test examples
+
+# Gate 2: Workspace-wide strict linter check
 cargo clippy --workspace --all-targets -- -D warnings
+
+# Gate 3: Tri-backend semantic consistency suite (Interpreter = VM = Native)
+cargo test -p flake-cli --test backend_consistency
+
+# Gate 4: Dual-checker & frozen stable subset lock (Selfhost + Examples)
+cargo test -p flake-cli --test selfhost_subset_lock
+cargo test -p flake-cli --test selfhost_frontend
+
+# Gate 5: Automated self-rebuilding bootstrap cycle (Stage 0 -> Stage 1 -> Stage 2)
+cargo run -p flake-cli -- bootstrap -v
+cargo test -p flake-cli --test bootstrap
 ```
 
-The native parity tests build and execute PE32+ x86-64 programs, so the full
-three-backend suite currently runs on Windows. Lexer, parser, checker,
-interpreter, VM, IR, and assembly-generation unit tests remain ordinary Rust
-tests in their owning crates.
+### Verification Criteria
 
-v0.9 adds coverage for marker traits and generic bounds, directory walk /
-`args()` stdlib depth, generic native comparison, and the `v09_flk_scan`
-flagship example.
+| Gate | Target Command | Scope | Pass Criteria |
+| :--- | :--- | :--- | :--- |
+| **Gate 1** | `cargo test --workspace` | All 9 workspace crates | 100% tests passing, 0 failures. |
+| **Gate 2** | `cargo clippy --workspace --all-targets -- -D warnings` | All crates, binaries, tests, benchmarks | 0 warnings. |
+| **Gate 3** | `backend_consistency.rs` | Interpreter, VM, and Native x86-64 | Identical stdout, return codes, and error markers across all three execution engines. |
+| **Gate 4** | `selfhost_subset_lock.rs` | 11 selfhost files + 62 examples | All files adhere to frozen stable subset; host `flake check` and selfhost `--walk` pass. |
+| **Gate 5** | `flake bootstrap` | Stage 0, Stage 1, Stage 2 | Stage 1 passes all selfhost and corpus tests; Stage 2 achieves 100% bitwise hash match (`SHA-256`) and behavioral identity. Report generated at `target/bootstrap/report.md`. |
 
-## Test layers
+---
 
-- Frontend unit tests cover tokens, parsing, AST shapes, type/effect rules,
-  ownership, module resolution, and diagnostic help.
-- Runtime unit tests cover interpreter and VM control flow, values, builtins,
-  structured task scopes, Result propagation, maps, and failure behavior.
-- IR and codegen tests pin lowering types, CFG shapes, register allocation,
-  ABI behavior, runtime helpers, PE metadata, and native process errors.
-- Example tests use one canonical entry-point registry to type-check every
-  runnable example and compare its complete stdout across the interpreter, VM,
-  and native backend. Adding an example to the registry automatically gives it
-  all three parity runs.
-- The table-driven consistency matrix runs focused programs for Float and
-  checked-integer operations, typed list display, ordered maps, strings,
-  structs, enums and scalar patterns, Result `?`, indirect wide calls,
-  recursion, short-circuiting, ranges, and task results. Every program has an
-  exact expected stdout.
-- Failure-matrix tests require all backends to reject assertions, missing map
-  keys, failing child tasks, and malformed builtin calls with the same semantic
-  markers even when backend presentation differs.
+## 2. Test Layer Architecture
 
-Temporary integration-test sources use process- and counter-qualified names,
-which keeps parallel test execution isolated and removes files after each run.
+Flake organizes testing into focused layers:
 
-## Consistency contract
+1. **Frontend Unit Tests** (`flake-lexer`, `flake-parser`, `flake-types`):
+   - Tokenization extents, source span mapping, line/col tracking.
+   - AST node construction and visitor integrity.
+   - Type inference, trait method dispatch, gradual typing (`dyn`), algebraic effects, linear ownership, and borrow checking.
+2. **Runtime Unit Tests** (`flake-interpreter`, `flake-vm`):
+   - Control flow (`if`, `match`, loops, recursion).
+   - Structured task scopes (`spawn`, `await`, `nursery`).
+   - Scalar and collection operations (`List`, `Map`, strings, math).
+   - Deterministic error propagation and Result-style `?`.
+3. **IR and Code Generation Tests** (`flake-ir`, `flake-codegen`):
+   - CFG lowering, SSA generation, and liveness analysis.
+   - Register allocation and callee-saved register preservation.
+   - PE32+ (Windows) and ELF64 (Linux syscall runtime) binary formatting.
+   - Multi-target cross-compilation matrix (`x86_64-windows`, `x86_64-linux`, `aarch64-linux`).
+4. **Backend Consistency Matrix** (`flake-cli/tests/backend_consistency.rs`):
+   - Table-driven programs covering arithmetic, string interpolation, enums, pattern matching, nursery concurrency, channels, and constant folding.
+   - Asserts identical observable execution and stdout across the tree-walking interpreter, stack bytecode VM, and native machine code.
+5. **Self-Hosted Checker & Bootstrap Tests** (`flake-cli/tests/selfhost_*.rs`, `bootstrap.rs`):
+   - Dual-checker parity between host `flake check` and `selfhost/frontend/main.flk`.
+   - Mandatory self-check on golden accept (16 files) and reject (9 cases) corpora.
+   - Stage 0 vs Stage 2 bitwise rebuild reproducibility.
 
-For a program accepted by the checker, the three execution paths should agree
-on values, mutations, printed formatting, and whether execution succeeds.
-Map display uses deterministic typed-key order. Builtin overloads such as
-`range(a, b)`, optional-message `assert`, and variadic numeric `min`/`max` are
-checked before execution so unsupported forms cannot drift between runtimes.
+---
 
-One scheduling-visible exception is intentional in v0.5: interpreter and VM
-tasks are deferred cooperatively, while native `spawn` remains a synchronous
-fallback. Pure task results must still agree across all backends. Ordering and
-single-join behavior are compared directly between the two cooperative
-backends. See [concurrency.md](concurrency.md).
+## 3. Consistency Contract
 
-VM instructions retain their originating AST span. Runtime diagnostics such as
-division by zero therefore highlight the failing expression rather than the
-start of the source file.
-
-## Adding a language feature
-
-A feature is not backend-complete until it has:
-
-1. frontend acceptance and rejection tests;
-2. interpreter and VM behavior tests;
-3. IR/native coverage where the feature is supported;
-4. a focused consistency-matrix case with exact output; and
-5. failure tests when it introduces a new runtime error boundary.
-
-If native behavior must remain partial, document the boundary explicitly and
-keep accepted programs deterministic on every backend where parity is claimed.
-The [examples guide](examples.md) explains how runnable teaching programs join
-this gate.
+For every valid program within the frozen stable subset:
+- **Output Agreement**: Formatted values, printed text, and return values are identical across Interpreter, VM, and Native backends.
+- **Determinism**: Map display maintains deterministic typed-key order. Floating-point comparisons and NaN handling agree across platforms.
+- **Span Precision**: Diagnostics pinpoint source file, line, and column spans identically across all compiler tiers.
