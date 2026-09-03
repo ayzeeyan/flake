@@ -143,7 +143,7 @@ fn selfhost_walk_all_examples() {
         let (ok, out) = run_selfhost(&["--walk", "examples"], vm);
         assert!(ok, "failed on vm={vm}: {out}");
         assert!(
-            out.contains("Scanned 60 files: all parsed successfully"),
+            out.contains("Scanned 61 files: all parsed successfully"),
             "unexpected output on vm={vm}: {out}"
         );
     }
@@ -196,7 +196,11 @@ fn selfhost_check_effects_and_ownership_rejections() {
 
     // 1. Hidden IO in pure function
     let bad_io = dir.join("bad_io.flk");
-    std::fs::write(&bad_io, "fn shout(s: String) / pure { print(s) }\nfn main() { shout(\"hi\") }").unwrap();
+    std::fs::write(
+        &bad_io,
+        "fn shout(s: String) / pure { print(s) }\nfn main() { shout(\"hi\") }",
+    )
+    .unwrap();
 
     // 2. Use after move in strict function
     let bad_move = dir.join("bad_move.flk");
@@ -204,24 +208,44 @@ fn selfhost_check_effects_and_ownership_rejections() {
 
     // 3. Escaping local reference
     let bad_ref = dir.join("bad_ref.flk");
-    std::fs::write(&bad_ref, "strict fn leak() { let x = 42; return &x }\nfn main() {}").unwrap();
+    std::fs::write(
+        &bad_ref,
+        "strict fn leak() { let x = 42; return &x }\nfn main() {}",
+    )
+    .unwrap();
 
     // 4. Capture ref across spawn
     let bad_spawn = dir.join("bad_spawn.flk");
-    std::fs::write(&bad_spawn, "fn worker(r: &Int) / conc {}\nfn main() / conc { let x = 42; spawn worker(&x) }").unwrap();
+    std::fs::write(
+        &bad_spawn,
+        "fn worker(r: &Int) / conc {}\nfn main() / conc { let x = 42; spawn worker(&x) }",
+    )
+    .unwrap();
 
     for vm in [false, true] {
         let (_ok_io, out_io) = run_selfhost(&["--check", bad_io.to_str().unwrap()], vm);
-        assert!(out_io.contains("not declared in `pure`"), "expected hidden IO error on vm={vm}: {out_io}");
+        assert!(
+            out_io.contains("not declared in `pure`"),
+            "expected hidden IO error on vm={vm}: {out_io}"
+        );
 
         let (_ok_mv, out_mv) = run_selfhost(&["--check", bad_move.to_str().unwrap()], vm);
-        assert!(out_mv.contains("use of moved value"), "expected use after move error on vm={vm}: {out_mv}");
+        assert!(
+            out_mv.contains("use of moved value"),
+            "expected use after move error on vm={vm}: {out_mv}"
+        );
 
         let (_ok_rf, out_rf) = run_selfhost(&["--check", bad_ref.to_str().unwrap()], vm);
-        assert!(out_rf.contains("cannot return reference to local variable"), "expected ref escape error on vm={vm}: {out_rf}");
+        assert!(
+            out_rf.contains("cannot return reference to local variable"),
+            "expected ref escape error on vm={vm}: {out_rf}"
+        );
 
         let (_ok_sp, out_sp) = run_selfhost(&["--check", bad_spawn.to_str().unwrap()], vm);
-        assert!(out_sp.contains("cannot capture reference across task boundary into `spawn`"), "expected spawn ref error on vm={vm}: {out_sp}");
+        assert!(
+            out_sp.contains("cannot capture reference across task boundary into `spawn`"),
+            "expected spawn ref error on vm={vm}: {out_sp}"
+        );
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -231,7 +255,12 @@ fn selfhost_check_multi_file_and_projects() {
     for vm in [false, true] {
         // 1. Multi-file check in a single invocation
         let (ok1, out1) = run_selfhost(
-            &["--check", "examples/hello.flk", "examples/traits.flk", "examples/enum.flk"],
+            &[
+                "--check",
+                "examples/hello.flk",
+                "examples/traits.flk",
+                "examples/enum.flk",
+            ],
             vm,
         );
         assert!(ok1, "failed multi-file check on vm={vm}: {out1}");
@@ -240,10 +269,7 @@ fn selfhost_check_multi_file_and_projects() {
         assert!(out1.contains("ok: examples/enum.flk"));
 
         // 2. Multi-file project with dotted submodule imports
-        let (ok2, out2) = run_selfhost(
-            &["--check", "examples/projects/v09_flk_scan/main.flk"],
-            vm,
-        );
+        let (ok2, out2) = run_selfhost(&["--check", "examples/projects/v09_flk_scan/main.flk"], vm);
         assert!(ok2, "failed project check on vm={vm}: {out2}");
         assert!(out2.contains("ok: examples/projects/v09_flk_scan/main.flk"));
 
@@ -267,7 +293,10 @@ fn selfhost_check_multi_file_and_projects() {
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
     let combined = format!("{stdout}{stderr}");
-    assert!(output.status.success(), "native project check failed: {combined}");
+    assert!(
+        output.status.success(),
+        "native project check failed: {combined}"
+    );
     assert!(combined.contains("ok: examples/projects/v09_flk_scan/main.flk"));
     assert!(combined.contains("ok: examples/visible.flk"));
 }
@@ -282,8 +311,14 @@ fn selfhost_walk_reports_check_errors() {
 
     for vm in [false, true] {
         let (_ok, out) = run_selfhost(&["--walk", dir.to_str().unwrap()], vm);
-        assert!(out.contains("FAIL:"), "expected walk failure on vm={vm}: {out}");
-        assert!(out.contains("1 passed, 1 failed"), "expected 1 passed, 1 failed on vm={vm}: {out}");
+        assert!(
+            out.contains("FAIL:"),
+            "expected walk failure on vm={vm}: {out}"
+        );
+        assert!(
+            out.contains("1 passed, 1 failed"),
+            "expected 1 passed, 1 failed on vm={vm}: {out}"
+        );
     }
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -334,13 +369,20 @@ fn selfhost_golden_corpus_agreement() {
     // 3. Native selfhost checker accepts the whole corpus
     let mut cmd = flake_bin();
     cmd.current_dir(repo_root());
-    cmd.arg("run").arg("--native").arg(selfhost_main()).arg("--").arg("--check");
+    cmd.arg("run")
+        .arg("--native")
+        .arg(selfhost_main())
+        .arg("--")
+        .arg("--check");
     for file in &accept_corpus {
         cmd.arg(file);
     }
     let native_out = cmd.output().expect("run native check");
     let native_str = String::from_utf8_lossy(&native_out.stdout);
-    assert!(native_out.status.success(), "native selfhost check failed on corpus");
+    assert!(
+        native_out.status.success(),
+        "native selfhost check failed on corpus"
+    );
     for file in &accept_corpus {
         assert!(
             native_str.contains(&format!("ok: {file}")),
@@ -356,13 +398,28 @@ fn selfhost_golden_reject_corpus_agreement() {
 
     // Defined negative corpus: comparing Rust host flake check and selfhost --check
     let cases = [
-        ("bad_effects.flk", "fn shout() / pure { print(\"hi\") }\nfn main() { shout() }"),
-        ("bad_move.flk", "strict fn consume(s: String) {}\nstrict fn test(s: String) { consume(s); consume(s) }\nfn main() {}"),
-        ("bad_escape.flk", "strict fn leak() { let x = 42; return &x }\nfn main() {}"),
-        ("bad_spawn_ref.flk", "fn worker(r: &Int) / conc {}\nfn main() / conc { let x = 42; spawn worker(&x) }"),
+        (
+            "bad_effects.flk",
+            "fn shout() / pure { print(\"hi\") }\nfn main() { shout() }",
+        ),
+        (
+            "bad_move.flk",
+            "strict fn consume(s: String) {}\nstrict fn test(s: String) { consume(s); consume(s) }\nfn main() {}",
+        ),
+        (
+            "bad_escape.flk",
+            "strict fn leak() { let x = 42; return &x }\nfn main() {}",
+        ),
+        (
+            "bad_spawn_ref.flk",
+            "fn worker(r: &Int) / conc {}\nfn main() / conc { let x = 42; spawn worker(&x) }",
+        ),
         ("bad_type.flk", "fn main() { let x: Int = \"hello\" }"),
         ("bad_name.flk", "fn main() { unknown_var_12345() }"),
-        ("bad_bound.flk", "trait Describable { fn describe(self) -> String }\nfn show[T](x: T) { x.describe() }\nfn main() {}"),
+        (
+            "bad_bound.flk",
+            "trait Describable { fn describe(self) -> String }\nfn show[T](x: T) { x.describe() }\nfn main() {}",
+        ),
     ];
 
     for (filename, source) in &cases {
@@ -391,6 +448,3 @@ fn selfhost_golden_reject_corpus_agreement() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
-
-
-

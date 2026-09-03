@@ -995,7 +995,8 @@ fn main() / io {
     let p = Point { x: 1, y: 2 }
     print(p.show())
 }
-"#)).expect("native trait methods");
+"#))
+    .expect("native trait methods");
     assert_eq!(out, "42\nhello\nPoint\n");
 }
 
@@ -1007,8 +1008,166 @@ fn main() / io {
     print(len(res))
     print(res[2])
 }
-"#)).expect("native run_cmd");
+"#))
+    .expect("native run_cmd");
     assert_eq!(out, "3\n0\n");
+}
+
+fn systems_api_source(dir: &str, file: &str) -> String {
+    format!(
+        r#"
+fn main() / io + alloc {{
+    write_file("{file}", "hello-native")
+    print(read_file("{file}"))
+    print(file_exists("{file}"))
+    print(is_file("{file}"))
+    let ents = list_dir("{dir}")
+    print(contains(ents, "flake-m1-sys.txt"))
+    remove_file("{file}")
+    let res = run_cmd("echo hello")
+    print(len(res))
+    print(res[2])
+    print(len(args()))
+}}
+"#
+    )
+}
+
+#[test]
+fn native_systems_api_fs_process_args() {
+    use crate::run_native_with_args;
+    let dir = std::env::temp_dir();
+    let path = dir.join("flake-m1-sys.txt");
+    let posix_dir = dir.to_string_lossy().replace('\\', "/");
+    let posix_file = path.to_string_lossy().replace('\\', "/");
+    let program = systems_api_source(&posix_dir, &posix_file);
+    let out = run_native_with_args(&src(&program), &["one".into(), "two".into()])
+        .expect("native systems API");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(out, "hello-native\ntrue\ntrue\ntrue\n3\n0\n2\n");
+}
+
+#[test]
+fn linux_elf_uses_syscalls_not_win32() {
+    use crate::{Target, compile_target};
+    let elf = compile_target(&src("fn main() { print(42) }"), Target::X86_64_LINUX)
+        .expect("x86_64 linux elf");
+    assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
+    assert!(
+        elf.windows(2).any(|w| w == [0x0f, 0x05]),
+        "Linux ELF should contain syscall (0f 05)"
+    );
+    let bytes = String::from_utf8_lossy(&elf);
+    assert!(
+        !bytes.contains("CreateProcessA"),
+        "Linux ELF must not import Win32 CreateProcessA"
+    );
+    assert!(
+        !bytes.contains("KERNEL32"),
+        "Linux ELF must not import KERNEL32"
+    );
+}
+
+#[test]
+fn linux_elf_systems_api_compiles() {
+    use crate::{Target, compile_target};
+    let source = src(r#"
+fn main() / io + alloc {
+    print(len(args()))
+    print(file_exists("."))
+    print(is_dir("."))
+    let ents = list_dir(".")
+    print(len(ents) >= 0)
+    let res = run_cmd("echo hello")
+    print(len(res))
+}
+"#);
+    let elf = compile_target(&source, Target::X86_64_LINUX).expect("linux systems ELF");
+    assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
+    assert!(elf.windows(2).any(|w| w == [0x0f, 0x05]));
+}
+
+#[test]
+fn aarch64_systems_api_is_partial_and_compiles() {
+    use crate::{Target, compile_target};
+    let elf = compile_target(
+        &src(r#"
+fn main() / io {
+    print(42)
+}
+"#),
+        Target::AARCH64_LINUX,
+    )
+    .expect("aarch64 elf");
+    assert_eq!(&elf[0..4], &[0x7f, b'E', b'L', b'F']);
+    assert_eq!(u16::from_le_bytes([elf[18], elf[19]]), 183);
+}
+
+#[test]
+fn linux_elf_runs_via_wsl_when_available() {
+    use crate::{Target, compile_target};
+    let dir = std::env::temp_dir();
+    let n = std::process::id();
+    let path = dir.join(format!("flake-linux-m1-{n}"));
+    let elf = compile_target(
+        &src(r#"
+fn main() / io {
+    let res = run_cmd("echo hello")
+    print(len(res))
+    print(res[2])
+    print(len(args()))
+}
+"#),
+        Target::X86_64_LINUX,
+    )
+    .expect("linux elf");
+    std::fs::write(&path, elf).expect("write elf");
+    let ran = run_elf_via_wsl(&path, &["a".into()]);
+    let _ = std::fs::remove_file(&path);
+    let Ok(out) = ran else {
+        return;
+    };
+    assert_eq!(out, "3\n0\n1\n", "unexpected linux native output: {out:?}");
+}
+
+fn windows_path_to_wsl(path: &std::path::Path) -> Option<String> {
+    let s = path.to_str()?;
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 && bytes[1] == b':' {
+        let drive = s.chars().next()?.to_ascii_lowercase();
+        let rest = s[2..].replace('\\', "/");
+        return Some(format!("/mnt/{drive}{rest}"));
+    }
+    None
+}
+
+fn run_elf_via_wsl(path: &std::path::Path, args: &[String]) -> Result<String, String> {
+    let linux_path = windows_path_to_wsl(path).ok_or_else(|| "not a drive path".to_string())?;
+    let probe = std::process::Command::new("wsl")
+        .args(["-e", "true"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !probe.status.success() {
+        return Err("wsl unavailable".into());
+    }
+    let _ = std::process::Command::new("wsl")
+        .args(["chmod", "+x", &linux_path])
+        .output();
+    let mut cmd = std::process::Command::new("wsl");
+    cmd.arg("-e").arg(&linux_path);
+    for a in args {
+        cmd.arg(a);
+    }
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(format!(
+            "linux elf exit {:?}\nstdout:\n{}\nstderr:\n{}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 #[test]

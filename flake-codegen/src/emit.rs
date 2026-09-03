@@ -4,6 +4,7 @@ use flake_ir::{BinOp, Callee, Const, Function, Inst, IrType, LocalId, Module, Un
 
 use crate::error::CodegenError;
 use crate::regalloc::{Frame, allocate};
+use crate::target::TargetOs;
 use crate::x86::{Asm, Cc, Reg};
 
 pub struct Compiled {
@@ -69,12 +70,23 @@ pub const IMPORTS: &[&str] = &[
 ];
 
 pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
+    compile_module_for(module, TargetOs::Windows)
+}
+
+pub fn compile_module_for(module: &Module, os: TargetOs) -> Result<Compiled, CodegenError> {
     let mut asm = Asm::new();
     let mut strings: Vec<Vec<u8>> = Vec::new();
     let mut iat_patches = Vec::new();
     let mut str_patches = Vec::new();
     let mut gas = String::new();
-    gas.push_str("# Flake x86-64 (Windows) — generated, no LLVM/Cranelift\n");
+    match os {
+        TargetOs::Windows => {
+            gas.push_str("# Flake x86-64 (Windows) — generated, no LLVM/Cranelift\n");
+        }
+        TargetOs::Linux => {
+            gas.push_str("# Flake x86-64 (Linux ELF) — syscalls, no libc/IAT\n");
+        }
+    }
     gas.push_str(".intel_syntax noprefix\n.text\n");
 
     intern_str(&mut strings, b"true");
@@ -83,8 +95,8 @@ pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
     intern_str(&mut strings, b"\n");
     intern_str(&mut strings, b" ");
 
-    emit_start(&mut asm, &mut iat_patches, &mut gas);
-    crate::runtime::emit_runtime(&mut asm, &mut iat_patches);
+    emit_start(&mut asm, &mut iat_patches, &mut gas, os);
+    crate::runtime::emit_runtime(&mut asm, &mut iat_patches, os);
 
     let mut uniq = 0u32;
     for func in &module.functions {
@@ -128,15 +140,22 @@ fn intern_cstring(strings: &mut Vec<Vec<u8>>, s: &str) -> usize {
     intern_str(strings, s.as_bytes())
 }
 
-fn emit_start(asm: &mut Asm, iat: &mut Vec<(usize, usize)>, gas: &mut String) {
-    asm.label("_start");
-    gas.push_str(".global _start\n_start:\n");
-    gas.push_str("    sub rsp, 40\n    call main\n    xor ecx, ecx\n    jmp ExitProcess\n");
-    asm.sub_ri(Reg::Rsp, 40);
-    asm.call_label("main");
-    asm.xor_rr(Reg::Rcx, Reg::Rcx);
-    let p = asm.call_indirect_rip();
-    iat.push((p, Import::ExitProcess as usize));
+fn emit_start(asm: &mut Asm, iat: &mut Vec<(usize, usize)>, gas: &mut String, os: TargetOs) {
+    match os {
+        TargetOs::Linux => {
+            crate::runtime_linux::emit_linux_start(asm, gas);
+        }
+        TargetOs::Windows => {
+            asm.label("_start");
+            gas.push_str(".global _start\n_start:\n");
+            gas.push_str("    sub rsp, 40\n    call main\n    xor ecx, ecx\n    call rt_exit\n");
+            asm.sub_ri(Reg::Rsp, 40);
+            asm.call_label("main");
+            asm.xor_rr(Reg::Rcx, Reg::Rcx);
+            asm.call_label("rt_exit");
+            let _ = iat;
+        }
+    }
 }
 
 fn prologue(asm: &mut Asm, frame: &Frame) {

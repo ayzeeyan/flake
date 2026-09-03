@@ -22,6 +22,7 @@ const EXAMPLES: &[&str] = &[
     "geometry.flk",
     "traits.flk",
     "ast_show.flk",
+    "systems_native.flk",
     "projects/inventory/main.flk",
     "projects/telemetry/main.flk",
     "projects/release/main.flk",
@@ -396,15 +397,18 @@ fn traits_output() {
 }
 
 #[test]
+fn systems_native_output() {
+    assert_eq!(
+        run_example("systems_native.flk"),
+        concat!("0\n", "true\n", "true\n", "0\n")
+    );
+}
+
+#[test]
 fn ast_show_output() {
     assert_eq!(
         run_example("ast_show.flk"),
-        concat!(
-            "42\n",
-            "x\n",
-            "(x + 42)\n",
-            "let total = (x + 42);\n",
-        )
+        concat!("42\n", "x\n", "(x + 42)\n", "let total = (x + 42);\n",)
     );
 }
 

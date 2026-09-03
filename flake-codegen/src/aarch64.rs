@@ -427,6 +427,41 @@ fn emit_aarch64_runtime(asm: &mut Aarch64Asm) {
     asm.svc(0);
     asm.ldp_post(Reg::X29, Reg::X30, Reg::SP, 16);
     asm.ret();
+
+    // Systems APIs are stubs on AArch64 in v0.13. The backend lowers only a
+    // scalar IR subset; these labels exist so a later Call lowering does not
+    // fail to resolve, and tests skip execution cleanly.
+    for name in [
+        "rt_exit",
+        "rt_print_i64",
+        "rt_print_nl",
+        "rt_read_file",
+        "rt_write_file",
+        "rt_file_exists",
+        "rt_env",
+        "rt_cwd",
+        "rt_remove_file",
+        "rt_is_dir",
+        "rt_is_file",
+        "rt_create_dir",
+        "rt_append_file",
+        "rt_list_dir",
+        "rt_args",
+        "rt_run_cmd",
+        "rt_list_new",
+        "rt_list_push",
+        "rt_sort_cstr_list",
+        "rt_strlen",
+        "rt_strndup",
+    ] {
+        emit_aarch64_stub(asm, name);
+    }
+}
+
+fn emit_aarch64_stub(asm: &mut Aarch64Asm, name: &str) {
+    asm.label(name);
+    asm.mov_i64(Reg::X0, 0);
+    asm.ret();
 }
 
 fn emit_aarch64_function(func: &Function, asm: &mut Aarch64Asm) -> Result<(), CodegenError> {

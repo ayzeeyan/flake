@@ -1,16 +1,19 @@
 //! Hand-written x86-64 runtime (Windows x64 ABI) used by generated code.
+//!
+//! OS-facing helpers (`rt_alloc`, `rt_print_cstr`, filesystem, `rt_run_cmd`, …)
+//! are Windows-specific. Linux ELF images emit the syscall implementations in
+//! `runtime_linux` instead. Shared helpers (strings, lists, maps) are identical.
 
 use crate::emit::Import;
+use crate::target::TargetOs;
 use crate::x86::{Asm, Cc, Reg};
 
-pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>, os: TargetOs) {
     emit_strlen(asm);
-    emit_print_cstr(asm, iat);
-    emit_print_i64(asm, iat);
+    emit_print_i64(asm);
     emit_print_nl(asm);
-    emit_concat(asm, iat);
-    emit_alloc(asm, iat);
-    emit_itoa(asm, iat);
+    emit_concat(asm);
+    emit_itoa(asm);
     emit_ftoa(asm);
     emit_streq(asm);
     emit_strcmp(asm);
@@ -38,29 +41,49 @@ pub fn emit_runtime(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     emit_split(asm);
     emit_str_index(asm);
     emit_atoi(asm);
-    emit_assert(asm, iat);
-    emit_read_file(asm, iat);
     emit_ends_with(asm);
     emit_contains(asm);
     emit_list_contains(asm);
     emit_range_contains(asm);
     emit_list_first_last(asm);
-    emit_write_file(asm, iat);
     emit_trim(asm);
     emit_case(asm, "rt_upper", false);
     emit_case(asm, "rt_lower", true);
-    emit_file_exists(asm, iat);
-    emit_env(asm, iat);
-    emit_cwd(asm, iat);
-    emit_remove_file(asm, iat);
-    emit_is_dir(asm, iat);
-    emit_is_file(asm, iat);
-    emit_create_dir(asm, iat);
-    emit_append_file(asm, iat);
     emit_sort_cstr_list(asm);
-    emit_list_dir(asm, iat);
-    emit_args(asm, iat);
-    emit_run_cmd(asm, iat);
+    emit_assert(asm);
+    match os {
+        TargetOs::Windows => {
+            emit_print_cstr(asm, iat);
+            emit_alloc(asm, iat);
+            emit_exit(asm, iat);
+            emit_read_file(asm, iat);
+            emit_write_file(asm, iat);
+            emit_file_exists(asm, iat);
+            emit_env(asm, iat);
+            emit_cwd(asm, iat);
+            emit_remove_file(asm, iat);
+            emit_is_dir(asm, iat);
+            emit_is_file(asm, iat);
+            emit_create_dir(asm, iat);
+            emit_append_file(asm, iat);
+            emit_list_dir(asm, iat);
+            emit_args(asm, iat);
+            emit_run_cmd(asm, iat);
+        }
+        TargetOs::Linux => crate::runtime_linux::emit_linux_os_runtime(asm),
+    }
+}
+
+pub(crate) fn rt_prologue(asm: &mut Asm, frame: i32) {
+    prologue(asm, frame);
+}
+
+pub(crate) fn rt_epilogue(asm: &mut Asm) {
+    epilogue(asm);
+}
+
+pub(crate) fn rt_lea_rbp(asm: &mut Asm, dst: Reg, disp: i32) {
+    lea_rbp(asm, dst, disp);
 }
 
 fn prologue(asm: &mut Asm, frame: i32) {
@@ -163,8 +186,8 @@ fn emit_print_nl(asm: &mut Asm) {
     epilogue(asm);
 }
 
-fn emit_print_i64(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
-    // rcx = number. Build decimal at [rbp-40 .. rbp-16] backwards.
+fn emit_print_i64(asm: &mut Asm) {
+    // rcx = number. Build a null-terminated decimal at [rbp-40 .. rbp-16].
     asm.label("rt_print_i64");
     prologue(asm, 80);
     asm.mov_rr(Reg::Rax, Reg::Rcx);
@@ -175,6 +198,7 @@ fn emit_print_i64(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]); // neg rax
     asm.label(".itoa_pos");
     lea_rbp(asm, Reg::R9, -16); // write cursor
+    asm.bytes.extend_from_slice(&[0xC6, 0x45, 0xF0, 0x00]); // [rbp-16] = 0
     asm.xor_rr(Reg::Rcx, Reg::Rcx); // length
     asm.label(".itoa_loop");
     asm.cqo();
@@ -192,19 +216,12 @@ fn emit_print_i64(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.bytes.extend_from_slice(&[0x41, 0xC6, 0x01, 0x2D]); // mov byte [r9], '-'
     asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC1]); // inc rcx
     asm.label(".itoa_emit");
-    asm.mov_rr(Reg::R8, Reg::Rcx); // len
-    asm.mov_rr(Reg::Rdx, Reg::R9); // buf
-    asm.mov_ri(Reg::Rcx, -11);
-    call_import(asm, iat, Import::GetStdHandle);
-    asm.mov_rr(Reg::Rcx, Reg::Rax);
-    lea_rbp(asm, Reg::R9, -8);
-    asm.xor_rr(Reg::Rax, Reg::Rax);
-    mov_mr_rsp(asm, 32, Reg::Rax);
-    call_import(asm, iat, Import::WriteFile);
+    asm.mov_rr(Reg::Rcx, Reg::R9);
+    asm.call_label("rt_print_cstr");
     epilogue(asm);
 }
 
-fn emit_concat(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+fn emit_concat(asm: &mut Asm) {
     // rcx = a, rdx = b → rax = malloc(a+b)
     asm.label("rt_concat2");
     prologue(asm, 80);
@@ -219,11 +236,8 @@ fn emit_concat(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.add_rr(Reg::Rax, Reg::Rdx);
     asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC0]);
     asm.mov_mr_rbp(-40, Reg::Rax);
-    call_import(asm, iat, Import::GetProcessHeap);
-    asm.mov_rr(Reg::Rcx, Reg::Rax);
-    asm.xor_rr(Reg::Rdx, Reg::Rdx);
-    asm.mov_rm_rbp(Reg::R8, -40);
-    call_import(asm, iat, Import::HeapAlloc);
+    asm.mov_rm_rbp(Reg::Rcx, -40);
+    asm.call_label("rt_alloc");
     asm.mov_mr_rbp(-48, Reg::Rax);
     // copy a
     asm.mov_rm_rbp(Reg::Rax, -48);
@@ -252,7 +266,7 @@ fn emit_alloc(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     epilogue(asm);
 }
 
-fn emit_itoa(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+fn emit_itoa(asm: &mut Asm) {
     // rcx = i64 → rax = pointer to decimal cstring (inside a 32-byte heap buffer).
     asm.label("rt_itoa");
     prologue(asm, 48);
@@ -287,7 +301,6 @@ fn emit_itoa(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.label(".itoa2_done");
     asm.mov_rr(Reg::Rax, Reg::R10);
     epilogue(asm);
-    let _ = iat;
 }
 
 fn emit_ftoa(asm: &mut Asm) {
@@ -1605,7 +1618,7 @@ fn emit_atoi(asm: &mut Asm) {
     asm.ret();
 }
 
-fn emit_assert(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+fn emit_assert(asm: &mut Asm) {
     // rcx = cond, rdx = message (0 = default).
     asm.label("rt_assert");
     prologue(asm, 48);
@@ -1624,10 +1637,22 @@ fn emit_assert(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.call_label("rt_print_cstr");
     asm.call_label("rt_print_nl");
     asm.mov_ri(Reg::Rcx, 1);
-    call_import(asm, iat, Import::ExitProcess);
+    asm.call_label("rt_exit");
     asm.label(".as_ok");
     asm.xor_rr(Reg::Rax, Reg::Rax);
     epilogue(asm);
+}
+
+fn emit_exit(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
+    // rcx = code. Does not return.
+    // `jmp [rip+IAT]` keeps the caller's 8-mod-16 rsp so ExitProcess sees a
+    // Windows-ABI stack; an extra `call` would misalign it and AV on return
+    // from `main`.
+    asm.label("rt_exit");
+    asm.bytes.extend_from_slice(&[0xFF, 0x25]);
+    let at = asm.bytes.len();
+    asm.bytes.extend_from_slice(&0i32.to_le_bytes());
+    iat.push((at, Import::ExitProcess as usize));
 }
 
 fn emit_read_file(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
@@ -2150,13 +2175,13 @@ fn emit_run_cmd(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.mov_rm_rbp(Reg::Rax, -24);
     asm.add_ri(Reg::Rax, 11);
     asm.mov_rr(Reg::Rdx, Reg::Rax); // dst
-    asm.mov_rm_rbp(Reg::Rcx, -16);  // len
-    asm.mov_rm_rbp(Reg::R8, -8);    // src
+    asm.mov_rm_rbp(Reg::Rcx, -16); // len
+    asm.mov_rm_rbp(Reg::R8, -8); // src
     asm.label(".rc_copy");
     asm.test_rr(Reg::Rcx, Reg::Rcx);
     asm.jcc_label(Cc::Z, ".rc_copy_done");
     asm.bytes.extend_from_slice(&[0x41, 0x8A, 0x00]); // mov al, [r8]
-    asm.bytes.extend_from_slice(&[0x88, 0x02]);       // mov [rdx], al
+    asm.bytes.extend_from_slice(&[0x88, 0x02]); // mov [rdx], al
     asm.bytes.extend_from_slice(&[0x49, 0xFF, 0xC0]); // inc r8
     asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC2]); // inc rdx
     asm.bytes.extend_from_slice(&[0x48, 0xFF, 0xC9]); // dec rcx
@@ -2171,14 +2196,14 @@ fn emit_run_cmd(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.mov_mr_rbp(-208, Reg::Rax);
     asm.mov_ri(Reg::Rax, 24); // nLength
     asm.mov_mr_rbp(-224, Reg::Rax);
-    asm.mov_ri(Reg::Rax, 1);  // bInheritHandle = TRUE
+    asm.mov_ri(Reg::Rax, 1); // bInheritHandle = TRUE
     asm.mov_mr_rbp(-208, Reg::Rax);
 
     // CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)
     lea_rbp(asm, Reg::Rcx, -232); // &hReadPipe
     lea_rbp(asm, Reg::Rdx, -240); // &hWritePipe
-    lea_rbp(asm, Reg::R8, -224);  // &sa
-    asm.xor_rr(Reg::R9, Reg::R9);  // nSize = 0
+    lea_rbp(asm, Reg::R8, -224); // &sa
+    asm.xor_rr(Reg::R9, Reg::R9); // nSize = 0
     call_import(asm, iat, Import::CreatePipe);
 
     // SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT (1), 0)
@@ -2209,7 +2234,7 @@ fn emit_run_cmd(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     asm.mov_rm_rbp(Reg::Rdx, -24);
     asm.xor_rr(Reg::R8, Reg::R8);
     asm.xor_rr(Reg::R9, Reg::R9);
-    asm.mov_ri(Reg::Rax, 1);        // bInheritHandles = TRUE
+    asm.mov_ri(Reg::Rax, 1); // bInheritHandles = TRUE
     mov_mr_rsp(asm, 32, Reg::Rax);
     asm.xor_rr(Reg::Rax, Reg::Rax);
     mov_mr_rsp(asm, 40, Reg::Rax);
@@ -2237,7 +2262,7 @@ fn emit_run_cmd(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
     // Read loop from hReadPipe
     asm.label(".rc_read_loop");
     asm.mov_rm_rbp(Reg::Rcx, -232); // hReadPipe
-    asm.mov_rm_rbp(Reg::Rdx, -64);  // stdout buffer
+    asm.mov_rm_rbp(Reg::Rdx, -64); // stdout buffer
     asm.mov_rm_rbp(Reg::Rax, -248); // total
     asm.add_rr(Reg::Rdx, Reg::Rax); // buf + total
     asm.mov_ri(Reg::R8, 65535);
@@ -2318,7 +2343,8 @@ fn emit_run_cmd(asm: &mut Asm, iat: &mut Vec<(usize, usize)>) {
 
     // Push exit_code (sign-extended dword [rbp - 48])
     asm.mov_rm_rbp(Reg::Rcx, -56);
-    asm.bytes.extend_from_slice(&[0x48, 0x63, 0x55, (-48i8) as u8]);
+    asm.bytes
+        .extend_from_slice(&[0x48, 0x63, 0x55, (-48i8) as u8]);
     asm.call_label("rt_list_push");
     asm.mov_rm_rbp(Reg::Rax, -56);
     epilogue(asm);

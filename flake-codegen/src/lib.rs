@@ -5,6 +5,7 @@ mod error;
 mod pe;
 mod regalloc;
 mod runtime;
+mod runtime_linux;
 pub mod target;
 mod x86;
 
@@ -18,7 +19,7 @@ use flake_ir::lower;
 
 pub use aarch64::compile_module_aarch64;
 pub use elf::write_elf;
-pub use emit::compile_module;
+pub use emit::{compile_module, compile_module_for};
 pub use error::CodegenError;
 pub use pe::write_pe;
 pub use target::{Target, TargetArch, TargetOs};
@@ -212,11 +213,11 @@ pub fn compile_target_module(
 ) -> Result<Vec<u8>, CodegenError> {
     match (target.arch, target.os) {
         (TargetArch::X86_64, TargetOs::Windows) => {
-            let compiled = compile_module(module)?;
+            let compiled = compile_module_for(module, TargetOs::Windows)?;
             Ok(write_pe(&compiled))
         }
         (TargetArch::X86_64, TargetOs::Linux) => {
-            let compiled = compile_module(module)?;
+            let compiled = compile_module_for(module, TargetOs::Linux)?;
             Ok(write_elf(&compiled, TargetArch::X86_64))
         }
         (TargetArch::Aarch64, TargetOs::Linux | TargetOs::Windows) => {
@@ -279,7 +280,7 @@ pub fn write_executable_with_asm_for_target(
     let module = lower(source).map_err(|e| CodegenError::new(e.to_string()))?;
     let (bytes, gas) = match target.arch {
         TargetArch::X86_64 => {
-            let compiled = compile_module(&module)?;
+            let compiled = compile_module_for(&module, target.os)?;
             let b = match target.os {
                 TargetOs::Windows => write_pe(&compiled),
                 TargetOs::Linux => write_elf(&compiled, TargetArch::X86_64),

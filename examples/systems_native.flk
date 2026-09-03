@@ -1,0 +1,22 @@
+// Native systems APIs: fs + process.run + args.
+// Works as a real native program on x86_64-windows and x86_64-linux.
+import fs
+import process
+import result
+
+fn main() / io + alloc {
+    let argv = process.program_args()
+    print(len(argv))
+    match process.current_dir() {
+        Result.Ok(dir) => print(len(dir) > 0)
+        Result.Err(_) => print(false)
+    }
+    match fs.read_dir(".") {
+        Result.Ok(ents) => print(len(ents) >= 0)
+        Result.Err(_) => print(false)
+    }
+    match process.run("echo hello") {
+        Result.Ok(out) => print(out.exit_code)
+        Result.Err(err) => print(err)
+    }
+}
