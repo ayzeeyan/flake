@@ -143,7 +143,7 @@ fn selfhost_walk_all_examples() {
         let (ok, out) = run_selfhost(&["--walk", "examples"], vm);
         assert!(ok, "failed on vm={vm}: {out}");
         assert!(
-            out.contains("Scanned 61 files: all parsed successfully"),
+            out.contains("Scanned 62 files: all parsed successfully"),
             "unexpected output on vm={vm}: {out}"
         );
     }
@@ -255,7 +255,7 @@ fn selfhost_native_binary_check_matches_interpreter() {
 
     let walk = run_bin(&["--walk", "examples"]);
     assert!(
-        walk.contains("Scanned 61 files: all parsed successfully"),
+        walk.contains("Scanned 62 files: all parsed successfully"),
         "native binary walk: {walk}"
     );
 }
@@ -413,6 +413,7 @@ fn selfhost_golden_corpus_agreement() {
         "examples/lists.flk",
         "examples/fizzbuzz.flk",
         "examples/fibonacci.flk",
+        "examples/const_fold.flk",
     ];
 
     for file in &accept_corpus {
@@ -490,6 +491,14 @@ fn selfhost_golden_reject_corpus_agreement() {
         (
             "bad_bound.flk",
             "trait Describable { fn describe(self) -> String }\nfn show[T](x: T) { x.describe() }\nfn main() {}",
+        ),
+        (
+            "bad_const_io.flk",
+            "const BAD: String = read_file(\"x\")\nfn main() {}",
+        ),
+        (
+            "bad_const_call.flk",
+            "fn helper() -> Int { 1 }\nconst BAD: Int = helper()\nfn main() {}",
         ),
     ];
 

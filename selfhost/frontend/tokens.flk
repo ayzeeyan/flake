@@ -10,6 +10,7 @@ pub enum TokenKind {
     KwEnum
     KwTrait
     KwImpl
+    KwConst
     KwType
     KwIf
     KwElse
@@ -107,6 +108,7 @@ pub fn token_kind_name(kind: TokenKind) -> String {
         TokenKind.KwEnum => "enum"
         TokenKind.KwTrait => "trait"
         TokenKind.KwImpl => "impl"
+        TokenKind.KwConst => "const"
         TokenKind.KwType => "type"
         TokenKind.KwIf => "if"
         TokenKind.KwElse => "else"

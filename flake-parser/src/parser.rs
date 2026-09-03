@@ -126,7 +126,9 @@ impl<'src> Parser<'src> {
         let owned = self.eat(&TokenKind::Owned);
 
         if matches!(self.kind(), TokenKind::Fn) {
-            return Ok(Item::Fn(self.parse_fn(start, is_pub, strict, owned)?));
+            return Ok(Item::Fn(
+                self.parse_fn(start, is_pub, strict, owned, false)?,
+            ));
         }
         if strict || owned {
             return Err(self.error("expected `fn` after `strict` / `owned`"));
@@ -141,7 +143,13 @@ impl<'src> Parser<'src> {
             return Ok(Item::Type(self.parse_type_alias(start, is_pub)?));
         }
         if matches!(self.kind(), TokenKind::Const) {
-            return Ok(Item::Const(self.parse_const(start, is_pub)?));
+            self.bump();
+            if matches!(self.kind(), TokenKind::Fn) {
+                return Ok(Item::Fn(
+                    self.parse_fn(start, is_pub, strict, owned, true)?,
+                ));
+            }
+            return Ok(Item::Const(self.parse_const_after_kw(start, is_pub)?));
         }
         if matches!(self.kind(), TokenKind::Import) {
             return Ok(Item::Import(self.parse_import(start, is_pub)?));
@@ -278,7 +286,8 @@ impl<'src> Parser<'src> {
             let is_pub = self.eat(&TokenKind::Pub);
             let strict = self.eat(&TokenKind::Strict);
             let owned = self.eat(&TokenKind::Owned);
-            let func = self.parse_fn(f_start, is_pub, strict, owned)?;
+            let is_const = self.eat(&TokenKind::Const);
+            let func = self.parse_fn(f_start, is_pub, strict, owned, is_const)?;
             methods.push(func);
             self.skip_nl();
         }
@@ -298,6 +307,7 @@ impl<'src> Parser<'src> {
         is_pub: bool,
         strict: bool,
         owned: bool,
+        is_const: bool,
     ) -> Result<FnDecl, ParseError> {
         self.expect(&TokenKind::Fn, "`fn`")?;
         let name = self.parse_ident()?;
@@ -322,6 +332,7 @@ impl<'src> Parser<'src> {
             is_pub,
             strict,
             owned,
+            is_const,
             name,
             type_params,
             params,
@@ -485,8 +496,7 @@ impl<'src> Parser<'src> {
         })
     }
 
-    fn parse_const(&mut self, start: Span, is_pub: bool) -> Result<ConstDecl, ParseError> {
-        self.expect(&TokenKind::Const, "`const`")?;
+    fn parse_const_after_kw(&mut self, start: Span, is_pub: bool) -> Result<ConstDecl, ParseError> {
         let name = self.parse_ident()?;
         self.skip_nl();
         self.expect(&TokenKind::Colon, "`:`")?;

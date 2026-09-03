@@ -41,7 +41,8 @@ fn collect_globals(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
     for item in prog.items {
         match item {
             ast.Item.Fn(f) => {
-                scope.insert_symbol(c.stack, f.name, "fn", f.span)?
+                let kind = if f.is_const { "const_fn" } else { "fn" }
+                scope.insert_symbol(c.stack, f.name, kind, f.span)?
                 nil
             }
             ast.Item.Struct(s) => {
@@ -89,6 +90,11 @@ fn collect_globals(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
             }
             ast.Item.Import(imp) => {
                 resolve_import_module(c, imp)
+                nil
+            }
+            ast.Item.Const(cn) => {
+                let ty_name = types.type_name(types.ast_type_to_flk(cn.ty, []))
+                scope.insert_symbol_typed(c.stack, cn.name, "const", ty_name, cn.span)?
                 nil
             }
         }
@@ -146,8 +152,9 @@ fn resolve_import_module(c: Checker, imp: ast.ImportDecl) {
                             match item {
                                 ast.Item.Fn(f) => {
                                     if f.is_pub {
-                                        scope.insert_symbol_allow_shadow(c.stack, "{alias}.{f.name}", "fn", f.span)
-                                        scope.insert_symbol_allow_shadow(c.stack, f.name, "fn", f.span)
+                                        let kind = if f.is_const { "const_fn" } else { "fn" }
+                                        scope.insert_symbol_allow_shadow(c.stack, "{alias}.{f.name}", kind, f.span)
+                                        scope.insert_symbol_allow_shadow(c.stack, f.name, kind, f.span)
                                     }
                                     nil
                                 }
@@ -209,6 +216,14 @@ fn resolve_import_module(c: Checker, imp: ast.ImportDecl) {
                                     types.add_impl(c.types, imp_item)
                                     nil
                                 }
+                                ast.Item.Const(cn) => {
+                                    if cn.is_pub {
+                                        let ty_name = types.type_name(types.ast_type_to_flk(cn.ty, []))
+                                        scope.insert_symbol_allow_shadow_typed(c.stack, "{alias}.{cn.name}", "const", ty_name, cn.span)
+                                        scope.insert_symbol_allow_shadow_typed(c.stack, cn.name, "const", ty_name, cn.span)
+                                    }
+                                    nil
+                                }
                                 _ => nil
                             }
                         }
@@ -246,6 +261,10 @@ fn resolve_program(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
                         option.Option.None => "dyn"
                     }
                     scope.insert_symbol_allow_shadow_typed(c.stack, p.name, "param", pty, f.span)
+                }
+
+                if f.is_const {
+                    check_const_fn(c, f)?
                 }
 
                 resolve_block(c, f.body)?
@@ -291,10 +310,101 @@ fn resolve_program(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
                 }
                 nil
             }
+            ast.Item.Const(cn) => {
+                check_const_decl(c, cn)?
+                nil
+            }
             _ => nil
         }
     }
     result.Result.Ok(true)
+}
+
+fn check_const_fn(c: Checker, f: ast.FnDecl) -> result.Result[Bool, String] {
+    if len(f.effects) > 0 {
+        for eff in f.effects {
+            if eff != "pure" {
+                return result.Result.Err("{c.filename}:{span.format_span(f.span)}: const functions must be pure")
+            }
+        }
+    }
+    ensure_const_block(c, f.body)
+}
+
+fn check_const_decl(c: Checker, cn: ast.ConstDecl) -> result.Result[Bool, String] {
+    ensure_const_expr(c, cn.value)?
+    let expected_flk = types.ast_type_to_flk(cn.ty, [])
+    let inf_ty = infer_expr(c, cn.value)?
+    if !types.types_compatible(expected_flk, inf_ty) {
+        let exp_name = types.type_name(expected_flk)
+        let act_name = types.type_name(inf_ty)
+        return result.Result.Err("{c.filename}:{span.format_span(cn.span)}: type mismatch: expected `{exp_name}`, found `{act_name}`")
+    }
+    result.Result.Ok(true)
+}
+
+fn ensure_const_block(c: Checker, b: ast.BlockExpr) -> result.Result[Bool, String] {
+    if len(b.stmts) == 0 {
+        return result.Result.Ok(true)
+    }
+    if len(b.stmts) == 1 {
+        return match b.stmts[0] {
+            ast.Stmt.Expr(e) => ensure_const_expr(c, e)
+            _ => result.Result.Err("{c.filename}:{span.format_span(b.span)}: const block cannot contain statements")
+        }
+    }
+    result.Result.Err("{c.filename}:{span.format_span(b.span)}: const block cannot contain statements")
+}
+
+fn ensure_const_expr(c: Checker, e: ast.Expr) -> result.Result[Bool, String] {
+    match e {
+        ast.Expr.IntLit(_, _) => result.Result.Ok(true)
+        ast.Expr.FloatLit(_, _) => result.Result.Ok(true)
+        ast.Expr.StringLit(_, _) => result.Result.Ok(true)
+        ast.Expr.BoolLit(_, _) => result.Result.Ok(true)
+        ast.Expr.NilLit(_) => result.Result.Ok(true)
+        ast.Expr.Ident(name, sp) => {
+            if !scope.is_defined(c.stack, name) {
+                return result.Result.Err("{c.filename}:{span.format_span(sp)}: undefined variable `{name}`")
+            }
+            result.Result.Ok(true)
+        }
+        ast.Expr.Unary(_, inner, _) => ensure_const_expr(c, inner)
+        ast.Expr.Binary(_, left, right, _) => {
+            ensure_const_expr(c, left)?
+            ensure_const_expr(c, right)
+        }
+        ast.Expr.If(cond, then_block, else_opt, sp) => {
+            ensure_const_expr(c, cond)?
+            ensure_const_block(c, then_block)?
+            match else_opt {
+                option.Option.Some(else_e) => ensure_const_expr(c, else_e)
+                option.Option.None => result.Result.Err("{c.filename}:{span.format_span(sp)}: const `if` requires an `else` branch")
+            }
+        }
+        ast.Expr.Block(b) => ensure_const_block(c, b)
+        ast.Expr.Call(callee, args, sp) => {
+            match callee {
+                ast.Expr.Ident(fn_name, _) => {
+                    let k = scope.get_kind(c.stack, fn_name)
+                    if k != "const_fn" {
+                        return result.Result.Err("{c.filename}:{span.format_span(sp)}: cannot call non-const function `{fn_name}` from a const expression")
+                    }
+                }
+                _ => {
+                    return result.Result.Err("{c.filename}:{span.format_span(sp)}: cannot call a function in a const expression")
+                }
+            }
+            for a in args {
+                ensure_const_expr(c, a)?
+            }
+            result.Result.Ok(true)
+        }
+        _ => {
+            let sp = ast.expr_span(e)
+            result.Result.Err("{c.filename}:{span.format_span(sp)}: expression is not a constant")
+        }
+    }
 }
 
 fn resolve_block(c: Checker, b: ast.BlockExpr) -> result.Result[Bool, String] {

@@ -86,6 +86,7 @@ pub struct FnDecl {
     is_pub: Bool,
     is_strict: Bool,
     is_owned: Bool,
+    is_const: Bool,
     type_params: [TypeParam],
     params: [Param],
     ret_ty: option.Option[TypeExpr],
@@ -160,6 +161,14 @@ pub struct ImportDecl {
     span: span.Span,
 }
 
+pub struct ConstDecl {
+    is_pub: Bool,
+    name: String,
+    ty: TypeExpr,
+    value: Expr,
+    span: span.Span,
+}
+
 pub enum Item {
     Fn(FnDecl)
     Struct(StructDecl)
@@ -168,6 +177,7 @@ pub enum Item {
     Impl(ImplDecl)
     TypeAlias(TypeAliasDecl)
     Import(ImportDecl)
+    Const(ConstDecl)
 }
 
 // -------------------------------------------------------------
@@ -491,6 +501,7 @@ pub fn dump_item(item: Item) -> String {
                 option.Option.None => "(import {path_str})"
             }
         }
+        Item.Const(c) => "(const {c.name} {dump_type(c.ty)} {dump_expr(c.value)})"
     }
 }
 
@@ -502,4 +513,34 @@ pub fn dump_program(p: Program) -> String {
     let nl_indent = "\n  "
     let joined_items = join(item_strs, nl_indent)
     "(program\n  {joined_items}\n)"
+}
+
+pub fn expr_span(e: Expr) -> span.Span {
+    match e {
+        Expr.IntLit(_, sp) => sp
+        Expr.FloatLit(_, sp) => sp
+        Expr.StringLit(_, sp) => sp
+        Expr.BoolLit(_, sp) => sp
+        Expr.NilLit(sp) => sp
+        Expr.Ident(_, sp) => sp
+        Expr.Binary(_, _, _, sp) => sp
+        Expr.Unary(_, _, sp) => sp
+        Expr.Call(_, _, sp) => sp
+        Expr.Spawn(_, sp) => sp
+        Expr.Await(_, sp) => sp
+        Expr.Try(_, sp) => sp
+        Expr.Field(_, _, sp) => sp
+        Expr.Index(_, _, sp) => sp
+        Expr.Assign(_, _, _, sp) => sp
+        Expr.If(_, _, _, sp) => sp
+        Expr.Match(_, _, sp) => sp
+        Expr.Block(b) => b.span
+        Expr.Nursery(_, sp) => sp
+        Expr.StructInit(_, _, sp) => sp
+        Expr.ListLit(_, sp) => sp
+        Expr.MapLit(_, sp) => sp
+        Expr.Return(_, sp) => sp
+        Expr.Break(sp) => sp
+        Expr.Continue(sp) => sp
+    }
 }

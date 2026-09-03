@@ -7,7 +7,9 @@ mod report;
 mod span;
 
 pub use ast::*;
-pub use ctfe::{ConstError, ConstValue, collect_const_values, eval_const_expr};
+pub use ctfe::{
+    ConstError, ConstValue, collect_const_values, eval_const_expr, eval_const_expr_with_fns,
+};
 pub use pretty::print_program;
 pub use report::render;
 pub use span::{LineCol, Source, Span};

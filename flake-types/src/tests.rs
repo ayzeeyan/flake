@@ -1563,6 +1563,34 @@ fn main() {
 }
 
 #[test]
+fn const_fn_folds_in_const_item() {
+    ok(r#"
+const fn double(x: Int) -> Int {
+    x * 2
+}
+const SCALE: Int = double(2) + 1
+fn main() / io {
+    print(SCALE)
+}
+"#);
+}
+
+#[test]
+fn const_rejects_non_const_call() {
+    let msg = err(
+        r#"
+fn helper() -> Int { 1 }
+const BAD: Int = helper()
+fn main() {}
+"#,
+    );
+    assert!(
+        msg.contains("cannot call non-const function `helper`"),
+        "{msg}"
+    );
+}
+
+#[test]
 fn const_items_typecheck() {
     ok(r#"
 const SCALE: Int = 2 + 3
@@ -1581,7 +1609,8 @@ const BAD: String = read_file("x")
 fn main() {}
 "#);
     assert!(
-        msg.contains("cannot call a function in a const expression"),
+        msg.contains("cannot call non-const function `read_file`")
+            || msg.contains("cannot call a function in a const expression"),
         "{msg}"
     );
 }
@@ -1593,6 +1622,29 @@ const SCALE: Int = "nope"
 fn main() {}
 "#);
     assert!(msg.contains("type mismatch"), "{msg}");
+}
+
+#[test]
+fn const_fn_rejects_impure() {
+    let msg = err(r#"
+const fn shout() / io {
+    42
+}
+fn main() {}
+"#);
+    assert!(msg.contains("const functions must be pure"), "{msg}");
+}
+
+#[test]
+fn const_rejects_recursion_limit() {
+    let msg = err(r#"
+const fn inf(x: Int) -> Int {
+    inf(x + 1)
+}
+const BAD: Int = inf(0)
+fn main() {}
+"#);
+    assert!(msg.contains("recursion limit"), "{msg}");
 }
 
 #[test]

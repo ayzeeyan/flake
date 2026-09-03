@@ -58,6 +58,8 @@ struct Checker {
     active_param_bounds: HashMap<String, Vec<String>>,
     consts: HashMap<String, Type>,
     const_values: HashMap<String, flake_ast::ConstValue>,
+    const_fns: HashSet<String>,
+    ast_const_fns: HashMap<String, flake_ast::FnDecl>,
 }
 
 #[allow(dead_code)]
@@ -313,6 +315,8 @@ impl Checker {
             active_param_bounds: HashMap::new(),
             consts: HashMap::new(),
             const_values: HashMap::new(),
+            const_fns: HashSet::new(),
+            ast_const_fns: HashMap::new(),
         };
         this.install_builtins();
         this
@@ -1018,12 +1022,95 @@ impl Checker {
         let declared = self.lower_type(&decl.ty)?;
         let inferred = self.check_expr(&decl.value)?;
         self.unify(&inferred, &declared, decl.value.span())?;
-        ensure_const_expr(&decl.value)?;
-        let value = flake_ast::eval_const_expr(&decl.value, &self.const_values)
+        self.ensure_const_expr(&decl.value)?;
+        let fns: HashMap<String, &flake_ast::FnDecl> =
+            self.ast_const_fns.iter().map(|(k, v)| (k.clone(), v)).collect();
+        let value = flake_ast::eval_const_expr_with_fns(&decl.value, &self.const_values, &fns)
             .map_err(|err| TypeError::new(err.span, err.message))?;
         self.consts.insert(decl.name.name.clone(), declared);
         self.const_values.insert(decl.name.name.clone(), value);
         Ok(())
+    }
+
+    fn check_const_fn(&mut self, func: &flake_ast::FnDecl) -> Result<(), TypeError> {
+        if func.effects.specified {
+            let names: Vec<_> = func.effects.names().collect();
+            if names.iter().any(|n| *n != "pure") {
+                return Err(TypeError::new(
+                    func.span,
+                    "const functions must be pure",
+                ));
+            }
+        }
+        self.ensure_const_block(&func.body)
+    }
+
+    fn ensure_const_expr(&self, expr: &Expr) -> Result<(), TypeError> {
+        match expr {
+            Expr::Literal { .. } | Expr::Ident(_) => Ok(()),
+            Expr::Unary { expr, .. } => self.ensure_const_expr(expr),
+            Expr::Binary { left, right, .. } => {
+                self.ensure_const_expr(left)?;
+                self.ensure_const_expr(right)
+            }
+            Expr::If {
+                cond,
+                then_block,
+                else_block,
+                span,
+            } => {
+                self.ensure_const_expr(cond)?;
+                self.ensure_const_block(then_block)?;
+                match else_block {
+                    Some(e) => self.ensure_const_expr(e),
+                    None => Err(TypeError::new(*span, "const `if` requires an `else` branch")),
+                }
+            }
+            Expr::Block(block) => self.ensure_const_block(block),
+            Expr::Interpolated { parts, .. } => {
+                for part in parts {
+                    if let InterpPart::Expr(e) = part {
+                        self.ensure_const_expr(e)?;
+                    }
+                }
+                Ok(())
+            }
+            Expr::Call { callee, args, span } => {
+                let Expr::Ident(id) = callee.as_ref() else {
+                    return Err(TypeError::new(
+                        *span,
+                        "cannot call a function in a const expression",
+                    ));
+                };
+                if !self.const_fns.contains(&id.name) {
+                    return Err(TypeError::new(
+                        *span,
+                        format!(
+                            "cannot call non-const function `{}` from a const expression",
+                            id.name
+                        ),
+                    ));
+                }
+                for arg in args {
+                    self.ensure_const_expr(arg)?;
+                }
+                Ok(())
+            }
+            other => Err(TypeError::new(other.span(), "expression is not a constant")),
+        }
+    }
+
+    fn ensure_const_block(&self, block: &Block) -> Result<(), TypeError> {
+        if !block.stmts.is_empty() {
+            return Err(TypeError::new(
+                block.span,
+                "const block cannot contain statements",
+            ));
+        }
+        match &block.tail {
+            Some(expr) => self.ensure_const_expr(expr),
+            None => Ok(()),
+        }
     }
 
     fn lookup(&self, name: &str) -> Option<Type> {
@@ -1244,6 +1331,10 @@ impl Checker {
                 }
                 self.overloaded_builtins.remove(&func.name.name);
                 self.functions.insert(func.name.name.clone(), ty);
+                if func.is_const {
+                    self.const_fns.insert(func.name.name.clone());
+                    self.ast_const_fns.insert(func.name.name.clone(), func.clone());
+                }
             }
         }
 
@@ -1255,7 +1346,12 @@ impl Checker {
 
         for item in &program.items {
             match item {
-                Item::Fn(func) => self.check_fn(func)?,
+                Item::Fn(func) => {
+                    self.check_fn(func)?;
+                    if func.is_const {
+                        self.check_const_fn(func)?;
+                    }
+                }
                 Item::Impl(imp) => self.check_impl_methods(imp)?,
                 Item::Import(_)
                 | Item::Struct(_)
@@ -3542,60 +3638,6 @@ impl Checker {
             }
             Expr::Literal { .. } | Expr::Ident(_) => Ok(()),
         }
-    }
-}
-
-fn ensure_const_expr(expr: &Expr) -> Result<(), TypeError> {
-    match expr {
-        Expr::Literal { .. } | Expr::Ident(_) => Ok(()),
-        Expr::Unary { expr, .. } => ensure_const_expr(expr),
-        Expr::Binary { left, right, .. } => {
-            ensure_const_expr(left)?;
-            ensure_const_expr(right)
-        }
-        Expr::If {
-            cond,
-            then_block,
-            else_block,
-            span,
-        } => {
-            ensure_const_expr(cond)?;
-            ensure_const_block(then_block)?;
-            match else_block {
-                Some(e) => ensure_const_expr(e),
-                None => Err(TypeError::new(
-                    *span,
-                    "const `if` requires an `else` branch",
-                )),
-            }
-        }
-        Expr::Block(block) => ensure_const_block(block),
-        Expr::Interpolated { parts, .. } => {
-            for part in parts {
-                if let InterpPart::Expr(e) = part {
-                    ensure_const_expr(e)?;
-                }
-            }
-            Ok(())
-        }
-        Expr::Call { span, .. } => Err(TypeError::new(
-            *span,
-            "cannot call a function in a const expression",
-        )),
-        other => Err(TypeError::new(other.span(), "expression is not a constant")),
-    }
-}
-
-fn ensure_const_block(block: &Block) -> Result<(), TypeError> {
-    if !block.stmts.is_empty() {
-        return Err(TypeError::new(
-            block.span,
-            "const block cannot contain statements",
-        ));
-    }
-    match &block.tail {
-        Some(expr) => ensure_const_expr(expr),
-        None => Ok(()),
     }
 }
 

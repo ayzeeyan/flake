@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{BinOp, Block, Expr, InterpPart, Item, Literal, Program, UnOp};
+use crate::ast::{BinOp, Block, Expr, FnDecl, InterpPart, Item, Literal, Program, UnOp};
 use crate::span::Span;
 
 /// A value produced by const folding.
@@ -31,12 +31,34 @@ impl ConstError {
     }
 }
 
+const CTFE_FUEL: u32 = 10_000;
+const MAX_CALL_DEPTH: u32 = 256;
+
+struct CtfeContext<'a> {
+    fns: &'a HashMap<String, &'a FnDecl>,
+    fuel: u32,
+    depth: u32,
+}
+
 /// Evaluate every `const` item in declaration order.
 pub fn collect_const_values(program: &Program) -> Result<HashMap<String, ConstValue>, ConstError> {
+    let mut fns = HashMap::new();
+    for item in &program.items {
+        if let Item::Fn(func) = item {
+            if func.is_const {
+                fns.insert(func.name.name.clone(), func);
+            }
+        }
+    }
     let mut env = HashMap::new();
+    let mut ctx = CtfeContext {
+        fns: &fns,
+        fuel: CTFE_FUEL,
+        depth: 0,
+    };
     for item in &program.items {
         if let Item::Const(decl) = item {
-            let value = eval_const_expr(&decl.value, &env)?;
+            let value = eval_const_expr_inner(&decl.value, &env, &mut ctx)?;
             env.insert(decl.name.name.clone(), value);
         }
     }
@@ -48,6 +70,34 @@ pub fn eval_const_expr(
     expr: &Expr,
     env: &HashMap<String, ConstValue>,
 ) -> Result<ConstValue, ConstError> {
+    let fns = HashMap::new();
+    let mut ctx = CtfeContext {
+        fns: &fns,
+        fuel: CTFE_FUEL,
+        depth: 0,
+    };
+    eval_const_expr_inner(expr, env, &mut ctx)
+}
+
+/// Fold a const-eligible expression with available const functions.
+pub fn eval_const_expr_with_fns(
+    expr: &Expr,
+    env: &HashMap<String, ConstValue>,
+    fns: &HashMap<String, &FnDecl>,
+) -> Result<ConstValue, ConstError> {
+    let mut ctx = CtfeContext {
+        fns,
+        fuel: CTFE_FUEL,
+        depth: 0,
+    };
+    eval_const_expr_inner(expr, env, &mut ctx)
+}
+
+fn eval_const_expr_inner(
+    expr: &Expr,
+    env: &HashMap<String, ConstValue>,
+    ctx: &mut CtfeContext<'_>,
+) -> Result<ConstValue, ConstError> {
     match expr {
         Expr::Literal { value, .. } => Ok(literal_value(value)),
         Expr::Ident(id) => env.get(&id.name).cloned().ok_or_else(|| {
@@ -57,7 +107,7 @@ pub fn eval_const_expr(
             )
         }),
         Expr::Unary { op, expr, span } => {
-            let v = eval_const_expr(expr, env)?;
+            let v = eval_const_expr_inner(expr, env, ctx)?;
             eval_unary(*op, v, *span)
         }
         Expr::Binary {
@@ -67,10 +117,10 @@ pub fn eval_const_expr(
             span,
         } => {
             if matches!(*op, BinOp::And | BinOp::Or) {
-                return eval_logic(*op, left, right, env, *span);
+                return eval_logic(*op, left, right, env, ctx, *span);
             }
-            let l = eval_const_expr(left, env)?;
-            let r = eval_const_expr(right, env)?;
+            let l = eval_const_expr_inner(left, env, ctx)?;
+            let r = eval_const_expr_inner(right, env, ctx)?;
             eval_binary(*op, l, r, *span)
         }
         Expr::If {
@@ -79,35 +129,38 @@ pub fn eval_const_expr(
             else_block,
             span,
         } => {
-            let c = eval_const_expr(cond, env)?;
+            let c = eval_const_expr_inner(cond, env, ctx)?;
             let ConstValue::Bool(flag) = c else {
                 return Err(ConstError::new(*span, "const `if` condition must be Bool"));
             };
             if flag {
-                eval_const_block(then_block, env)
+                eval_const_block(then_block, env, ctx)
             } else {
                 let else_expr = else_block.as_deref().ok_or_else(|| {
                     ConstError::new(*span, "const `if` requires an `else` branch")
                 })?;
-                eval_const_expr(else_expr, env)
+                eval_const_expr_inner(else_expr, env, ctx)
             }
         }
-        Expr::Block(block) => eval_const_block(block, env),
+        Expr::Block(block) => eval_const_block(block, env, ctx),
         Expr::Interpolated { parts, span } => {
             let mut out = String::new();
             for part in parts {
                 match part {
                     InterpPart::Text(t) => out.push_str(t),
-                    InterpPart::Expr(e) => out.push_str(&display_const(&eval_const_expr(e, env)?)),
+                    InterpPart::Expr(e) => {
+                        out.push_str(&display_const(&eval_const_expr_inner(e, env, ctx)?))
+                    }
                 }
             }
             let _ = span;
             Ok(ConstValue::String(out))
         }
-        Expr::Call { span, .. } => Err(ConstError::new(
-            *span,
-            "cannot call a function in a const expression",
-        )),
+        Expr::Call {
+            callee,
+            args,
+            span,
+        } => eval_const_call(callee, args, env, ctx, *span),
         other => Err(ConstError::new(
             other.span(),
             "expression is not a constant",
@@ -115,9 +168,58 @@ pub fn eval_const_expr(
     }
 }
 
+fn eval_const_call(
+    callee: &Expr,
+    args: &[Expr],
+    env: &HashMap<String, ConstValue>,
+    ctx: &mut CtfeContext<'_>,
+    span: Span,
+) -> Result<ConstValue, ConstError> {
+    let Expr::Ident(id) = callee else {
+        return Err(ConstError::new(
+            span,
+            "cannot call a function in a const expression",
+        ));
+    };
+    let Some(func) = ctx.fns.get(&id.name) else {
+        return Err(ConstError::new(
+            span,
+            format!("cannot call non-const function `{}` from a const expression", id.name),
+        ));
+    };
+    if ctx.fuel == 0 || ctx.depth >= MAX_CALL_DEPTH {
+        return Err(ConstError::new(
+            span,
+            "const evaluation exceeded recursion limit",
+        ));
+    }
+    ctx.fuel -= 1;
+    ctx.depth += 1;
+    if args.len() != func.params.len() {
+        return Err(ConstError::new(
+            span,
+            format!(
+                "const function `{}` expected {} argument(s), got {}",
+                id.name,
+                func.params.len(),
+                args.len()
+            ),
+        ));
+    }
+    let mut local = env.clone();
+    for (param, arg) in func.params.iter().zip(args) {
+        let value = eval_const_expr_inner(arg, env, ctx)?;
+        local.insert(param.name.name.clone(), value);
+    }
+    let res = eval_const_block(&func.body, &local, ctx);
+    ctx.depth -= 1;
+    res
+}
+
 fn eval_const_block(
     block: &Block,
     env: &HashMap<String, ConstValue>,
+    ctx: &mut CtfeContext<'_>,
 ) -> Result<ConstValue, ConstError> {
     if !block.stmts.is_empty() {
         return Err(ConstError::new(
@@ -126,7 +228,7 @@ fn eval_const_block(
         ));
     }
     match &block.tail {
-        Some(expr) => eval_const_expr(expr, env),
+        Some(expr) => eval_const_expr_inner(expr, env, ctx),
         None => Ok(ConstValue::Nil),
     }
 }
@@ -161,9 +263,10 @@ fn eval_logic(
     left: &Expr,
     right: &Expr,
     env: &HashMap<String, ConstValue>,
+    ctx: &mut CtfeContext<'_>,
     span: Span,
 ) -> Result<ConstValue, ConstError> {
-    let l = eval_const_expr(left, env)?;
+    let l = eval_const_expr_inner(left, env, ctx)?;
     let ConstValue::Bool(lv) = l else {
         return Err(ConstError::new(
             span,
@@ -174,7 +277,7 @@ fn eval_logic(
         BinOp::And if !lv => Ok(ConstValue::Bool(false)),
         BinOp::Or if lv => Ok(ConstValue::Bool(true)),
         BinOp::And | BinOp::Or => {
-            let r = eval_const_expr(right, env)?;
+            let r = eval_const_expr_inner(right, env, ctx)?;
             let ConstValue::Bool(rv) = r else {
                 return Err(ConstError::new(
                     span,

@@ -185,6 +185,9 @@ fn print_fn(f: &FnDecl, out: &mut String) {
     if f.owned {
         out.push_str("owned ");
     }
+    if f.is_const {
+        out.push_str("const ");
+    }
     out.push_str("fn ");
     out.push_str(&f.name.name);
     print_type_params(&f.type_params, out);

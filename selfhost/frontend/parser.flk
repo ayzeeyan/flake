@@ -1229,7 +1229,7 @@ pub fn parse_stmt(p: Parser) -> result.Result[ast.Stmt, String] {
 // Top-Level Item Parsing
 // -------------------------------------------------------------
 
-fn parse_fn_decl(p: Parser, is_pub: Bool, is_strict: Bool, is_owned: Bool) -> result.Result[ast.FnDecl, String] {
+fn parse_fn_decl(p: Parser, is_pub: Bool, is_strict: Bool, is_owned: Bool, is_const: Bool) -> result.Result[ast.FnDecl, String] {
     let fn_tok = advance(p) // consume `fn`
     let name = consume_ident(p, "function name")?
     let type_params = parse_type_params_opt(p)?
@@ -1330,6 +1330,7 @@ fn parse_fn_decl(p: Parser, is_pub: Bool, is_strict: Bool, is_owned: Bool) -> re
         is_pub: is_pub,
         is_strict: is_strict,
         is_owned: is_owned,
+        is_const: is_const,
         type_params: type_params,
         params: params,
         ret_ty: ret_ty,
@@ -1360,8 +1361,37 @@ pub fn parse_item(p: Parser) -> result.Result[ast.Item, String] {
     let tok = peek(p)
     match tok.kind {
         tokens.TokenKind.KwFn => {
-            let f = parse_fn_decl(p, is_pub, is_strict, is_owned)?
+            let f = parse_fn_decl(p, is_pub, is_strict, is_owned, false)?
             result.Result.Ok(ast.Item.Fn(f))
+        }
+        tokens.TokenKind.KwConst => {
+            advance(p)
+            match peek(p).kind {
+                tokens.TokenKind.KwFn => {
+                    let f = parse_fn_decl(p, is_pub, is_strict, is_owned, true)?
+                    result.Result.Ok(ast.Item.Fn(f))
+                }
+                _ => {
+                    let name = consume_ident(p, "const name")?
+                    match peek(p).kind {
+                        tokens.TokenKind.Colon => { advance(p); nil }
+                        _ => { return result.Result.Err("expected `:` after const name at {span.format_span(peek(p).span)}") }
+                    }
+                    let ty = parse_type(p)?
+                    match peek(p).kind {
+                        tokens.TokenKind.Eq => { advance(p); nil }
+                        _ => { return result.Result.Err("expected `=` after const type at {span.format_span(peek(p).span)}") }
+                    }
+                    let value = parse_expr(p)?
+                    result.Result.Ok(ast.Item.Const(ast.ConstDecl {
+                        is_pub: is_pub,
+                        name: name,
+                        ty: ty,
+                        value: value,
+                        span: tok.span,
+                    }))
+                }
+            }
         }
         tokens.TokenKind.KwStruct => {
             advance(p)
@@ -1643,7 +1673,7 @@ pub fn parse_item(p: Parser) -> result.Result[ast.Item, String] {
                 match peek(p).kind {
                     tokens.TokenKind.RBrace => { advance(p); break }
                     tokens.TokenKind.KwFn => {
-                        let f = parse_fn_decl(p, false, false, false)?
+                        let f = parse_fn_decl(p, false, false, false, false)?
                         push(methods, f)
                     }
                     _ => {

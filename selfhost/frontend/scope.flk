@@ -3,8 +3,8 @@ import option
 import result
 
 pub struct Symbol {
-    name: String,
     kind: String,
+    name: String,
     ty_name: String,
     span: span.Span,
 }
@@ -115,6 +115,13 @@ pub fn is_defined(stack: ScopeStack, name: String) -> Bool {
 pub fn get_type(stack: ScopeStack, name: String) -> String {
     match lookup(stack, name) {
         option.Option.Some(sym) => sym.ty_name
+        option.Option.None => ""
+    }
+}
+
+pub fn get_kind(stack: ScopeStack, name: String) -> String {
+    match lookup(stack, name) {
+        option.Option.Some(sym) => sym.kind
         option.Option.None => ""
     }
 }

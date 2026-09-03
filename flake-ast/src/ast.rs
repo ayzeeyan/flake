@@ -131,6 +131,8 @@ pub struct FnDecl {
     pub strict: bool,
     /// Function is an `owned` ownership context.
     pub owned: bool,
+    /// Function may be evaluated in a const expression.
+    pub is_const: bool,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,

@@ -25,6 +25,7 @@ fn keyword_or_ident(text: String) -> tokens.TokenKind {
     if text == "enum" { return tokens.TokenKind.KwEnum }
     if text == "trait" { return tokens.TokenKind.KwTrait }
     if text == "impl" { return tokens.TokenKind.KwImpl }
+    if text == "const" { return tokens.TokenKind.KwConst }
     if text == "type" { return tokens.TokenKind.KwType }
     if text == "if" { return tokens.TokenKind.KwIf }
     if text == "else" { return tokens.TokenKind.KwElse }

@@ -1,0 +1,18 @@
+// Const items and CTFE lite in Flake v0.13.
+const fn double(x: Int) -> Int {
+    x * 2
+}
+
+const fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+const SCALE: Int = double(2) + 1
+const OFFSET: Int = add(10, 20)
+const GREETING: String = "Flake" + " v0.13"
+
+fn main() / io {
+    print(SCALE)
+    print(OFFSET)
+    print(GREETING)
+}

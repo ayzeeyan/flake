@@ -1599,3 +1599,18 @@ fn main() / io {
 "#;
     assert_all_backends("const-fold", source, "5\nFlake v0.13\n");
 }
+
+#[test]
+fn const_fn_folds_identically_across_all_backends() {
+    let source = r#"
+const fn double(x: Int) -> Int {
+    x * 2
+}
+const SCALE: Int = double(2) + 1
+
+fn main() / io {
+    print(SCALE)
+}
+"#;
+    assert_all_backends("const-fn-fold", source, "5\n");
+}
