@@ -865,6 +865,18 @@ fn parse_postfix(p: Parser) -> result.Result[ast.Expr, String] {
                     var sname = ""
                     match expr {
                         ast.Expr.Ident(n, _) => { sname = n; nil }
+                        ast.Expr.Field(target, field, _) => {
+                            match target {
+                                ast.Expr.Ident(mod_name, _) => {
+                                    sname = "{mod_name}.{field}"
+                                    nil
+                                }
+                                _ => {
+                                    sname = field
+                                    nil
+                                }
+                            }
+                        }
                         _ => { sname = ast.dump_expr(expr); nil }
                     }
                     expr = ast.Expr.StructInit(sname, fields, tok.span)

@@ -6,6 +6,8 @@ import scope
 import types
 import effects
 import ownership
+import fs
+import parser
 
 pub struct Checker {
     stack: scope.ScopeStack,
@@ -86,16 +88,139 @@ fn collect_globals(c: Checker, prog: ast.Program) -> result.Result[Bool, String]
                 nil
             }
             ast.Item.Import(imp) => {
-                let alias = match imp.alias {
-                    option.Option.Some(al) => al
-                    option.Option.None => imp.path[len(imp.path) - 1]
-                }
-                scope.insert_symbol_allow_shadow(c.stack, alias, "import", imp.span)
+                resolve_import_module(c, imp)
                 nil
             }
         }
     }
     result.Result.Ok(true)
+}
+
+fn get_directory(filepath: String) -> String {
+    var last_slash = -1
+    var i = 0
+    while i < len(filepath) {
+        let ch = filepath[i]
+        if ch == "/" || ch == "\\" {
+            last_slash = i
+        }
+        i = i + 1
+    }
+    if last_slash < 0 {
+        return "."
+    }
+    var res = ""
+    var j = 0
+    while j < last_slash {
+        res = "{res}{filepath[j]}"
+        j = j + 1
+    }
+    res
+}
+
+fn resolve_import_module(c: Checker, imp: ast.ImportDecl) {
+    let alias = match imp.alias {
+        option.Option.Some(al) => al
+        option.Option.None => imp.path[len(imp.path) - 1]
+    }
+    scope.insert_symbol_allow_shadow(c.stack, alias, "import", imp.span)
+
+    let mod_rel = join(imp.path, "/")
+    let dir = get_directory(c.filename)
+
+    var cand1 = "{dir}/{mod_rel}.flk"
+    var cand2 = "std/{mod_rel}.flk"
+
+    var target_file = ""
+    if fs.exists(cand1) {
+        target_file = cand1
+    } else if fs.exists(cand2) {
+        target_file = cand2
+    }
+    if len(target_file) > 0 {
+        match fs.read_to_string(target_file) {
+            Result.Ok(src) => {
+                match parser.parse_source(src) {
+                    Result.Ok(imported_prog) => {
+                        for item in imported_prog.items {
+                            match item {
+                                ast.Item.Fn(f) => {
+                                    if f.is_pub {
+                                        scope.insert_symbol_allow_shadow(c.stack, "{alias}.{f.name}", "fn", f.span)
+                                        scope.insert_symbol_allow_shadow(c.stack, f.name, "fn", f.span)
+                                    }
+                                    nil
+                                }
+                                ast.Item.Struct(s) => {
+                                    if s.is_pub {
+                                        scope.insert_symbol_allow_shadow(c.stack, "{alias}.{s.name}", "struct", s.span)
+                                        scope.insert_symbol_allow_shadow(c.stack, s.name, "struct", s.span)
+                                        var f_names = []
+                                        var f_types = []
+                                        for fld in s.fields {
+                                            push(f_names, fld.name)
+                                            push(f_types, types.ast_type_to_flk(fld.ty, []))
+                                        }
+                                        types.push_struct(c.types, types.StructDef {
+                                            name: s.name,
+                                            field_names: f_names,
+                                            field_types: f_types,
+                                            span: s.span,
+                                        })
+                                        types.push_struct(c.types, types.StructDef {
+                                            name: "{alias}.{s.name}",
+                                            field_names: f_names,
+                                            field_types: f_types,
+                                            span: s.span,
+                                        })
+                                    }
+                                    nil
+                                }
+                                ast.Item.Enum(e) => {
+                                    if e.is_pub {
+                                        scope.insert_symbol_allow_shadow(c.stack, "{alias}.{e.name}", "enum", e.span)
+                                        scope.insert_symbol_allow_shadow(c.stack, e.name, "enum", e.span)
+                                        var v_names = []
+                                        for v in e.variants {
+                                            push(v_names, v.name)
+                                            scope.insert_symbol_allow_shadow(c.stack, "{alias}.{v.name}", "variant", e.span)
+                                            scope.insert_symbol_allow_shadow(c.stack, "{alias}.{e.name}.{v.name}", "variant", e.span)
+                                        }
+                                        types.push_enum(c.types, types.EnumDef {
+                                            name: e.name,
+                                            variant_names: v_names,
+                                            span: e.span,
+                                        })
+                                        types.push_enum(c.types, types.EnumDef {
+                                            name: "{alias}.{e.name}",
+                                            variant_names: v_names,
+                                            span: e.span,
+                                        })
+                                    }
+                                    nil
+                                }
+                                ast.Item.Trait(t) => {
+                                    if t.is_pub {
+                                        types.add_trait(c.types, t)
+                                    }
+                                    nil
+                                }
+                                ast.Item.Impl(imp_item) => {
+                                    types.add_impl(c.types, imp_item)
+                                    nil
+                                }
+                                _ => nil
+                            }
+                        }
+                        nil
+                    }
+                    _ => nil
+                }
+                nil
+            }
+            _ => nil
+        }
+    }
 }
 
 fn resolve_program(c: Checker, prog: ast.Program) -> result.Result[Bool, String] {

@@ -196,7 +196,7 @@ fn selfhost_check_effects_and_ownership_rejections() {
 
     // 1. Hidden IO in pure function
     let bad_io = dir.join("bad_io.flk");
-    std::fs::write(&bad_io, "fn shout(s: String) { print(s) }\nfn main() { shout(\"hi\") }").unwrap();
+    std::fs::write(&bad_io, "fn shout(s: String) / pure { print(s) }\nfn main() { shout(\"hi\") }").unwrap();
 
     // 2. Use after move in strict function
     let bad_move = dir.join("bad_move.flk");
@@ -225,4 +225,68 @@ fn selfhost_check_effects_and_ownership_rejections() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn selfhost_check_multi_file_and_projects() {
+    for vm in [false, true] {
+        // 1. Multi-file check in a single invocation
+        let (ok1, out1) = run_selfhost(
+            &["--check", "examples/hello.flk", "examples/traits.flk", "examples/enum.flk"],
+            vm,
+        );
+        assert!(ok1, "failed multi-file check on vm={vm}: {out1}");
+        assert!(out1.contains("ok: examples/hello.flk"));
+        assert!(out1.contains("ok: examples/traits.flk"));
+        assert!(out1.contains("ok: examples/enum.flk"));
+
+        // 2. Multi-file project with dotted submodule imports
+        let (ok2, out2) = run_selfhost(
+            &["--check", "examples/projects/v09_flk_scan/main.flk"],
+            vm,
+        );
+        assert!(ok2, "failed project check on vm={vm}: {out2}");
+        assert!(out2.contains("ok: examples/projects/v09_flk_scan/main.flk"));
+
+        // 3. Visibility and sibling module import
+        let (ok3, out3) = run_selfhost(&["--check", "examples/visible.flk"], vm);
+        assert!(ok3, "failed visible check on vm={vm}: {out3}");
+        assert!(out3.contains("ok: examples/visible.flk"));
+    }
+
+    // 4. Native multi-file project check
+    let mut cmd = flake_bin();
+    cmd.current_dir(repo_root());
+    cmd.arg("run");
+    cmd.arg("--native");
+    cmd.arg(selfhost_main());
+    cmd.arg("--");
+    cmd.arg("--check");
+    cmd.arg("examples/projects/v09_flk_scan/main.flk");
+    cmd.arg("examples/visible.flk");
+    let output = cmd.output().expect("failed to execute native flake run");
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
+    let combined = format!("{stdout}{stderr}");
+    assert!(output.status.success(), "native project check failed: {combined}");
+    assert!(combined.contains("ok: examples/projects/v09_flk_scan/main.flk"));
+    assert!(combined.contains("ok: examples/visible.flk"));
+}
+
+#[test]
+fn selfhost_walk_reports_check_errors() {
+    let dir = std::env::temp_dir().join(format!("flake_walk_err_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+
+    std::fs::write(dir.join("good.flk"), "fn main() {}").unwrap();
+    std::fs::write(dir.join("bad.flk"), "fn main() { let x: Int = \"str\" }").unwrap();
+
+    for vm in [false, true] {
+        let (_ok, out) = run_selfhost(&["--walk", dir.to_str().unwrap()], vm);
+        assert!(out.contains("FAIL:"), "expected walk failure on vm={vm}: {out}");
+        assert!(out.contains("1 passed, 1 failed"), "expected 1 passed, 1 failed on vm={vm}: {out}");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 

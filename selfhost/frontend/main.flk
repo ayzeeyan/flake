@@ -107,13 +107,24 @@ fn handle_walk(dir: String) / io + alloc {
                     match fs.read_to_string(f) {
                         Result.Ok(src) => {
                             match parser.parse_source(src) {
-                                Result.Ok(_) => {
-                                    passed = passed + 1
+                                Result.Ok(prog) => {
+                                    match check.check_program(prog, f) {
+                                        Result.Ok(_) => {
+                                            passed = passed + 1
+                                            nil
+                                        }
+                                        Result.Err(err) => {
+                                            failed = failed + 1
+                                            print("FAIL: {f}: {err}")
+                                            nil
+                                        }
+                                    }
                                     nil
                                 }
                                 Result.Err(err) => {
                                     failed = failed + 1
                                     print("FAIL: {f}: {err}")
+                                    nil
                                 }
                             }
                             nil

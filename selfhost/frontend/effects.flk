@@ -77,25 +77,42 @@ pub fn check_fn_effects(ec: EffectChecker, f: ast.FnDecl) -> result.Result[Bool,
     var used_effects = []
     collect_block_effects(ec, f.body, used_effects)
 
+    let is_specified = len(f.effects) > 0
     var allowed = []
-    if f.name == "main" && len(f.effects) == 0 {
+    if f.name == "main" && !is_specified {
         // Top-level main without annotations gets top-level effects
         push(allowed, "io")
         push(allowed, "alloc")
         push(allowed, "conc")
         push(allowed, "panic")
-    } else {
+    } else if is_specified {
         for e in f.effects {
-            push(allowed, e)
+            if e != "pure" {
+                push(allowed, e)
+            }
+        }
+    } else {
+        // Unannotated function: effects are inferred from body
+        for u in used_effects {
+            push(allowed, u)
         }
     }
 
-    // Always permit pure
     for u in used_effects {
         if !has_effect(allowed, u) {
-            let decl_str = if len(f.effects) == 0 { "pure" } else { join(f.effects, " + ") }
+            let decl_str = if !is_specified { "pure" } else { join(f.effects, " + ") }
             return result.Result.Err("{ec.filename}:{span.format_span(f.span)}: function `{f.name}` performs effects [{u}] not declared in `{decl_str}`")
         }
+    }
+
+    let stored = if is_specified { f.effects } else { used_effects }
+    var idx = 0
+    while idx < len(ec.fn_names) {
+        if ec.fn_names[idx] == f.name {
+            ec.fn_effects_list[idx] = stored
+            return result.Result.Ok(true)
+        }
+        idx = idx + 1
     }
     result.Result.Ok(true)
 }

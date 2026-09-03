@@ -102,7 +102,7 @@ enum Commands {
 }
 
 fn main() -> ExitCode {
-    const STACK_SIZE: usize = 8 * 1024 * 1024;
+    const STACK_SIZE: usize = 16 * 1024 * 1024;
     std::thread::Builder::new()
         .name("flake-main".into())
         .stack_size(STACK_SIZE)

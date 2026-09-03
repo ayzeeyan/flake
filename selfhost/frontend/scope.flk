@@ -131,7 +131,11 @@ fn init_builtins(stack: ScopeStack) {
         "is_file", "is_dir", "read_dir", "walk", "Option", "Result",
         "Some", "None", "Ok", "Err", "Task", "sleep", "now", "process", "fs",
         "path", "math", "string", "list", "map", "channel", "bytes", "option", "result",
-        "cancel", "is_cancelled"
+        "cancel", "is_cancelled", "is_completed", "task_status",
+        "upper", "lower", "sum", "abs", "sqrt", "min", "max", "range",
+        "is_err", "is_ok", "first", "last", "type_of", "read_file", "write_file",
+        "file_exists", "remove_file", "append_file", "create_dir", "env", "cwd",
+        "has_key", "entries", "run_cmd", "repeat"
     ]
     for b in builtins {
         insert_symbol_allow_shadow_typed(stack, b, "builtin", "", dummy)
