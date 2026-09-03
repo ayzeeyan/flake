@@ -2,6 +2,7 @@
 
 mod repl;
 mod report;
+mod bootstrap;
 
 use std::fs;
 use std::io::{self, Write};
@@ -99,6 +100,18 @@ enum Commands {
     },
     /// Start an interactive Flake REPL
     Repl,
+    /// Run the bootstrap cycle (Stage 0 build, Stage 1 self-check, Stage 2 rebuild & verify)
+    Bootstrap {
+        /// Target triple (default: host target)
+        #[arg(long)]
+        target: Option<String>,
+        /// Keep intermediate build binaries and artifacts in target/bootstrap/
+        #[arg(long)]
+        keep: bool,
+        /// Verbose diagnostic output
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -150,6 +163,11 @@ fn run_cli() -> ExitCode {
             let code = repl::run();
             ExitCode::from(code as u8)
         }
+        Commands::Bootstrap {
+            target,
+            keep,
+            verbose,
+        } => bootstrap::run_bootstrap(target, keep, verbose),
     }
 }
 
