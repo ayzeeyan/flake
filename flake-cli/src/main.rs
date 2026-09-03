@@ -18,7 +18,7 @@ use flake_types::check;
 #[derive(Debug, Parser)]
 #[command(
     name = "flake",
-    version,
+    version = "1.0.0",
     about = "Flake — Clarity, crystallized.",
     long_about = "Flake is a safe, modern systems language with gradual ownership \
 and a first-class effect system that makes side effects visible and controllable.\n\n\
