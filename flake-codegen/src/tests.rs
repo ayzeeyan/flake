@@ -1194,6 +1194,73 @@ fn run_elf_via_wsl(path: &std::path::Path, args: &[String]) -> Result<String, St
 }
 
 #[test]
+fn target_matrix_compilation_coverage() {
+    use crate::{Target, compile_target};
+
+    let targets = [
+        Target::X86_64_WINDOWS,
+        Target::X86_64_LINUX,
+        Target::AARCH64_LINUX,
+    ];
+
+    let fs_src = src(r#"
+fn main() / io + alloc {
+    let _ = file_exists("foo.txt")
+    let _ = is_dir(".")
+    let _ = list_dir(".")
+}
+"#);
+
+    let process_src = src(r#"
+fn main() / io + alloc {
+    let _ = args()
+    let _ = run_cmd("echo 1")
+    let _ = cwd()
+    let _ = env("PATH")
+}
+"#);
+
+    let const_src = src(r#"
+const fn double(x: Int) -> Int { x * 2 }
+const SCALE: Int = double(2) + 1
+const MSG: String = "val: " + "5"
+fn main() / io {
+    print(SCALE)
+    print(MSG)
+}
+"#);
+
+    for target in targets {
+        let fs_bin = compile_target(&fs_src, target).expect("compile fs for target");
+        assert_target_format(&fs_bin, target);
+
+        let proc_bin = compile_target(&process_src, target).expect("compile process for target");
+        assert_target_format(&proc_bin, target);
+
+        let const_bin = compile_target(&const_src, target).expect("compile const for target");
+        assert_target_format(&const_bin, target);
+    }
+}
+
+fn assert_target_format(bin: &[u8], target: crate::Target) {
+    match (target.arch, target.os) {
+        (crate::TargetArch::X86_64, crate::TargetOs::Windows) => {
+            assert_eq!(&bin[0..2], b"MZ", "expected Windows PE MZ header");
+            assert!(bin.windows(4).any(|w| w == b"PE\0\0"), "expected PE signature");
+        }
+        (crate::TargetArch::X86_64, crate::TargetOs::Linux) => {
+            assert_eq!(&bin[0..4], &[0x7f, b'E', b'L', b'F'], "expected Linux ELF header");
+            assert_eq!(u16::from_le_bytes([bin[18], bin[19]]), 62, "expected EM_X86_64");
+        }
+        (crate::TargetArch::Aarch64, _) => {
+            assert_eq!(&bin[0..4], &[0x7f, b'E', b'L', b'F'], "expected AArch64 ELF header");
+            assert_eq!(u16::from_le_bytes([bin[18], bin[19]]), 183, "expected EM_AARCH64");
+        }
+    }
+}
+
+#[test]
 fn version_is_semver() {
     assert!(crate::version().contains('.'));
 }
+

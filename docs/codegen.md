@@ -77,9 +77,25 @@ A small hand-written runtime is linked into every image:
 | `rt_trim` / `rt_upper` / `rt_lower` | string helpers |
 | `rt_file_exists` / `rt_env` / `rt_cwd` / `rt_remove_file` | OS |
 
-Imports are resolved from `KERNEL32.dll` via a standard PE import table.
+### Windows PE Runtime
+On Windows, imports are resolved from `KERNEL32.dll` via a standard PE import table (`IAT`).
 
-## What compiles natively in v0.5
+### Linux ELF Syscall Runtime
+On Linux (`x86_64-linux`), the executable contains zero dynamic linker dependencies or libc calls. All OS interactions route through direct Linux syscalls via `flake-codegen/src/runtime_linux.rs`:
+- Memory allocation: `sys_mmap` (syscall 9) with `PROT_READ | PROT_WRITE`, `MAP_PRIVATE | MAP_ANONYMOUS`
+- File I/O: `sys_open` (2), `sys_read` (0), `sys_write` (1), `sys_close` (3), `sys_unlink` (87)
+- Directory reading: `sys_getdents64` (217)
+- Process execution & arguments: `sys_fork` (57), `sys_execve` (59), `sys_wait4` (61), `sys_getcwd` (79)
+- Termination: `sys_exit` (60)
+Generated Linux ELF binaries do not depend on external libraries or interpreters.
+
+### AArch64 Linux ELF (Partial Target)
+On AArch64 (`aarch64-linux`), the compiler produces valid 64-bit ELF executables (`EM_AARCH64 = 183`) using pure Rust instruction encoding.
+- Arithmetic, register moves, immediate loading, memory load/store, conditional branches, and function calls are fully encoded.
+- Advanced systems tooling APIs (`fs`, `process.run`) are implemented as explicit stubs.
+- Compilation is verified on all host systems; execution tests run where ARM64 or QEMU runners are present and skip cleanly otherwise.
+
+## What compiles natively in v0.13
 
 Integers, bools, floats (SSE2), strings, `if`/`while`/`for`/`match`, enums
 (as tagged lists), functions (including more than four arguments and indirect

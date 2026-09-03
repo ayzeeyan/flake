@@ -528,3 +528,53 @@ fn selfhost_golden_reject_corpus_agreement() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn selfhost_target_matrix_build_coverage() {
+    let dir = std::env::temp_dir().join(format!("flake_target_matrix_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+
+    let targets = [
+        ("x86_64-windows", "flake-selfhost.exe"),
+        ("x86_64-linux", "flake-selfhost-linux"),
+        ("aarch64-linux", "flake-selfhost-aarch64"),
+    ];
+
+    for (target, out_name) in targets {
+        let out_path = dir.join(out_name);
+        let mut build = flake_bin();
+        build.current_dir(repo_root());
+        build
+            .arg("build")
+            .arg(selfhost_main())
+            .arg("--target")
+            .arg(target)
+            .arg("-o")
+            .arg(&out_path);
+        let out = build.output().expect("flake build selfhost for target");
+        assert!(
+            out.status.success(),
+            "build failed for target {target}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let bytes = std::fs::read(&out_path).expect("read built selfhost binary");
+        match target {
+            "x86_64-windows" => {
+                assert_eq!(&bytes[0..2], b"MZ");
+                assert!(bytes.windows(4).any(|w| w == b"PE\0\0"));
+            }
+            "x86_64-linux" => {
+                assert_eq!(&bytes[0..4], &[0x7f, b'E', b'L', b'F']);
+                assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62);
+            }
+            "aarch64-linux" => {
+                assert_eq!(&bytes[0..4], &[0x7f, b'E', b'L', b'F']);
+                assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 183);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+

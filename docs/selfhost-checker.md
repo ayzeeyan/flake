@@ -52,7 +52,13 @@ selfhost/frontend/
 - Concurrency sendability:
   - Enforces that asynchronous tasks launched via `spawn` cannot capture borrowed references (`&x`, `&mut x`) across task boundaries.
 
-### 5. Multi-File Module Resolution (`check.flk`)
+### 5. Constant Checking and CTFE Lite (`check.flk`)
+- Resolves top-level `const NAME: T = <expr>` declarations.
+- Enforces strict purity for `const fn`: rejects impure effects (`/ io`, `/ conc`).
+- Validates constant expressions (`ensure_const_expr`): permits only literals, arithmetic, comparisons, logic, if/else with mandatory else, block expressions, and calls to declared `const fn` functions.
+- Rejects non-constant expressions, statement blocks, and runtime I/O inside const contexts.
+
+### 6. Multi-File Module Resolution (`check.flk`)
 - Resolves relative project module imports (`import domain.unit as unit` $\to$ `domain/unit.flk`).
 - Resolves sibling module imports (`import secretmath` $\to$ `secretmath.flk`).
 - Resolves standard library imports (`import fs`, `import list`, `import result` $\to$ `std/*.flk`).
@@ -76,9 +82,22 @@ flake run --vm selfhost/frontend/main.flk -- --check examples/hello.flk examples
 flake run --native selfhost/frontend/main.flk -- --check examples/projects/v09_flk_scan/main.flk
 ```
 
-### 2. Recursive Directory Walk
+### 2. Standalone Native Binary
+The selfhost frontend can be built as a standalone native binary without needing Rust or the Flake VM at check time:
 ```bash
-# Scans and type-checks all .flk files in the directory tree
+flake build selfhost/frontend/main.flk -o flake-check-selfhost.exe
+./flake-check-selfhost.exe --check examples/const_fold.flk
+./flake-check-selfhost.exe --walk examples
+```
+Cross-compilation across the target matrix is supported:
+```bash
+flake build selfhost/frontend/main.flk --target x86_64-linux -o flake-check-selfhost-linux
+flake build selfhost/frontend/main.flk --target aarch64-linux -o flake-check-selfhost-aarch64
+```
+
+### 3. Recursive Directory Walk
+```bash
+# Scans and type-checks all 62 .flk files in the examples tree
 flake run selfhost/frontend/main.flk -- --walk examples
 ```
 
@@ -86,13 +105,14 @@ flake run selfhost/frontend/main.flk -- --walk examples
 
 ## Comparison with Rust Host Checker (`flake check`)
 
-The Rust host compiler (`flake-types`) remains the authoritative compiler of record during Phase 3. The self-hosted checker is tested against a defined golden corpus to guarantee semantic parity:
+The Rust host compiler (`flake-types`) remains the authoritative compiler of record during Phase 3 and Phase 4. The self-hosted checker is tested against a defined golden corpus to guarantee semantic parity:
 
 | Feature | Rust Host (`flake check`) | Self-Hosted (`--check`) | Parity Status |
 | :--- | :--- | :--- | :--- |
 | **Diagnostic format** | `{file}:{line}:{col}: {msg}` | `{file}:{line}:{col}: {msg}` | Identical format |
-| **Accept corpus** | 100% accepted | 100% accepted | 15/15 golden files agree |
+| **Accept corpus** | 100% accepted | 100% accepted | 16/16 golden files agree |
 | **Reject corpus** | 100% rejected | 100% rejected | All negative cases agree |
+| **Const validation** | Folds & checks purity | Rejects impure const calls | Parity verified |
 | **Multi-file resolution** | Sibling, nested, `std/` | Sibling, nested, `std/` | Parity verified |
 | **Sendability** | Disallows `&` across `spawn` | Disallows `&` across `spawn` | Parity verified |
 | **Strict moves** | Rejects use-after-move | Rejects use-after-move | Parity verified |

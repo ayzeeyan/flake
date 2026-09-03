@@ -1614,3 +1614,86 @@ fn main() / io {
 "#;
     assert_all_backends("const-fn-fold", source, "5\n");
 }
+
+#[test]
+fn const_logic_and_conditions_across_all_backends() {
+    let source = r#"
+const FLAG_A: Bool = true && !false
+const FLAG_B: Bool = false || (true && true)
+const CHOICE: Int = if FLAG_A && FLAG_B { 100 } else { 200 }
+
+fn main() / io {
+    print(FLAG_A)
+    print(FLAG_B)
+    print(CHOICE)
+}
+"#;
+    assert_all_backends("const-logic", source, "true\ntrue\n100\n");
+}
+
+#[test]
+fn const_comparisons_and_arithmetic_across_all_backends() {
+    let source = r#"
+const ADD: Int = 10 + 5
+const SUB: Int = 20 - 7
+const MUL: Int = 6 * 7
+const DIV: Int = 50 / 5
+const MOD: Int = 29 % 5
+const EQ: Bool = ADD == 15
+const NEQ: Bool = SUB != 13
+const LT: Bool = DIV < MUL
+const GTE: Bool = MOD >= 4
+
+fn main() / io {
+    print(ADD)
+    print(SUB)
+    print(MUL)
+    print(DIV)
+    print(MOD)
+    print(EQ)
+    print(NEQ)
+    print(LT)
+    print(GTE)
+}
+"#;
+    assert_all_backends(
+        "const-arith-cmp",
+        source,
+        "15\n13\n42\n10\n4\ntrue\nfalse\ntrue\ntrue\n",
+    );
+}
+
+#[test]
+fn const_fn_composition_across_all_backends() {
+    let source = r#"
+const fn square(x: Int) -> Int {
+    x * x
+}
+
+const fn sum_of_squares(a: Int, b: Int) -> Int {
+    square(a) + square(b)
+}
+
+const RESULT: Int = sum_of_squares(3, 4)
+
+fn main() / io {
+    print(RESULT)
+}
+"#;
+    assert_all_backends("const-composition", source, "25\n");
+}
+
+#[test]
+fn const_string_concat_and_interp_across_all_backends() {
+    let source = r#"
+const PART1: String = "Hello"
+const PART2: String = ", " + "world"
+const MESSAGE: String = "{PART1}{PART2}!"
+
+fn main() / io {
+    print(MESSAGE)
+}
+"#;
+    assert_all_backends("const-strings", source, "Hello, world!\n");
+}
+
