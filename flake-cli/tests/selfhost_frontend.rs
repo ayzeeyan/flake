@@ -578,3 +578,129 @@ fn selfhost_target_matrix_build_coverage() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn stage1_mandatory_self_check_of_selfhost_and_corpus() {
+    let dir = std::env::temp_dir().join(format!("flake_stage1_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let stage0_bin = dir.join("flake-check-stage0.exe");
+
+    // 1. Build Stage 0 binary
+    let mut build = flake_bin();
+    build.current_dir(repo_root());
+    build
+        .arg("build")
+        .arg(selfhost_main())
+        .arg("-o")
+        .arg(&stage0_bin);
+    let out = build.output().expect("flake build stage0");
+    assert!(
+        out.status.success(),
+        "Stage 0 build failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    struct Cleaner(std::path::PathBuf);
+    impl Drop for Cleaner {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleaner = Cleaner(dir.clone());
+
+    let run_stage0 = |args: &[&str]| -> (bool, String) {
+        let output = Command::new(&stage0_bin)
+            .current_dir(repo_root())
+            .args(args)
+            .output()
+            .expect("run stage0 binary");
+        let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+        let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
+        (output.status.success(), format!("{stdout}{stderr}"))
+    };
+
+    // 2. Stage 0 binary --walk selfhost
+    let (ok, walk_selfhost) = run_stage0(&["--walk", "selfhost"]);
+    assert!(
+        ok && walk_selfhost.contains("Scanned 11 files: all parsed successfully"),
+        "Stage 0 --walk selfhost failed:\n{walk_selfhost}"
+    );
+
+    // 3. Stage 0 binary --walk examples
+    let (ok, walk_examples) = run_stage0(&["--walk", "examples"]);
+    assert!(
+        ok && walk_examples.contains("Scanned 62 files: all parsed successfully"),
+        "Stage 0 --walk examples failed:\n{walk_examples}"
+    );
+
+    // 4. Stage 0 binary checks golden accept corpus (16 files)
+    let accept_corpus = [
+        "examples/hello.flk",
+        "examples/enum.flk",
+        "examples/traits.flk",
+        "examples/effects.flk",
+        "examples/ownership.flk",
+        "examples/borrow.flk",
+        "examples/modules.flk",
+        "examples/projects/v09_flk_scan/main.flk",
+        "examples/visible.flk",
+        "examples/nursery.flk",
+        "examples/concurrency.flk",
+        "examples/math.flk",
+        "examples/lists.flk",
+        "examples/fizzbuzz.flk",
+        "examples/fibonacci.flk",
+        "examples/const_fold.flk",
+    ];
+    for file in &accept_corpus {
+        let (ok, out) = run_stage0(&["--check", file]);
+        assert!(
+            ok && out.contains(&format!("ok: {file}")),
+            "Stage 0 failed to check accept corpus file {file}:\n{out}"
+        );
+    }
+
+    // 5. Stage 0 binary checks golden reject corpus (9 negative cases)
+    let reject_cases = [
+        (
+            "bad_effects.flk",
+            "fn shout() / pure { print(\"hi\") }\nfn main() { shout() }",
+        ),
+        (
+            "bad_move.flk",
+            "strict fn consume(s: String) {}\nstrict fn test(s: String) { consume(s); consume(s) }\nfn main() {}",
+        ),
+        (
+            "bad_escape.flk",
+            "strict fn leak() { let x = 42; return &x }\nfn main() {}",
+        ),
+        (
+            "bad_spawn_ref.flk",
+            "fn worker(r: &Int) / conc {}\nfn main() / conc { let x = 42; spawn worker(&x) }",
+        ),
+        ("bad_type.flk", "fn main() { let x: Int = \"hello\" }"),
+        ("bad_name.flk", "fn main() { unknown_var_12345() }"),
+        (
+            "bad_bound.flk",
+            "trait Describable { fn describe(self) -> String }\nfn show[T](x: T) { x.describe() }\nfn main() {}",
+        ),
+        (
+            "bad_const_io.flk",
+            "const BAD: String = read_file(\"x\")\nfn main() {}",
+        ),
+        (
+            "bad_const_call.flk",
+            "fn helper() -> Int { 1 }\nconst BAD: Int = helper()\nfn main() {}",
+        ),
+    ];
+    for (filename, source) in &reject_cases {
+        let path = dir.join(filename);
+        std::fs::write(&path, source).unwrap();
+        let (_ok, out) = run_stage0(&["--check", path.to_str().unwrap()]);
+        assert!(
+            out.contains("error:"),
+            "Stage 0 unexpectedly accepted negative case {filename}:\n{out}"
+        );
+    }
+}
+
+
