@@ -1,5 +1,54 @@
 # Flake Roadmap
 
+**Flake v0.12.0 is complete.** Theme: **Self-hosted checker (types, effects, ownership) (Phase 3 of 6 toward v1.0)**.
+
+There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
+
+## Road to v1.0
+
+1. v0.10 Trait methods                         done
+2. v0.11 Self-hosted lexer + parser            done
+3. v0.12 Self-hosted checker                   done
+4. v0.13 Native completeness + CTFE lite       ← next
+5. v0.14 Bootstrap
+6. v1.0  Freeze and ship
+
+## v0.12.0 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Checker architecture + name resolution | **done** |
+| 2 | Types, generics, and trait bounds | **done** |
+| 3 | Effects + ownership + concurrency rules | **done** |
+| 4 | CLI, multi-file, Native | **done** |
+| 5 | Golden corpus vs Rust `flake check` | **done** |
+| 6 | Docs and release v0.12.0 | **done** |
+
+## What v0.12.0 delivers
+
+- **Self-Hosted Semantic Checker (`selfhost/frontend/check.flk`, `scope.flk`, `types.flk`, `effects.flk`, `ownership.flk`)**:
+  - Full two-pass semantic analysis written purely in Flake consuming the selfhost AST.
+  - Hierarchical scope management with local definitions, shadowing rules, function items, struct types, enum variants, and imports.
+- **Type Checking, Generics, and Trait Bounds (`types.flk`)**:
+  - Structural type equivalence, type inference for `let`/`var` declarations, binary expressions, if/else, and match patterns.
+  - Trait definition and implementation registry supporting generic trait bounds (`T: Show` -> `x.show()`).
+  - Primitive trait implementations for `Eq`, `Ord`, and `Hash`.
+- **First-Class Effect Checking & Inference (`effects.flk`)**:
+  - Algebraic effect tracking for `io`, `alloc`, `conc`, `panic`, and `pure`.
+  - Effect inference on unannotated functions propagating to callers.
+  - Verification that pure functions cannot perform side effects or call unannotated functions that do.
+- **Gradual Ownership & Concurrency Sendability (`ownership.flk`)**:
+  - Linear move tracking preventing use-after-move in `strict` and `owned` functions.
+  - Escaping local reference prevention (`return &x`).
+  - Concurrency sendability rules rejecting borrowed references across `spawn` task boundaries.
+- **Multi-File Project Resolution & Walk Mode (`main.flk`)**:
+  - Dotted project submodule resolution (e.g. `domain.unit as unit` -> `domain/unit.flk`).
+  - Sibling and standard library module resolution with `pub` visibility enforcement.
+  - Multi-file checking and recursive walk checking reporting errors with line and column spans.
+- **Backend Parity & Golden Corpus**:
+  - 100% check pass rate on all 60 examples in the repository across Interpreter, Bytecode VM, and Native x86-64.
+  - Golden corpus agreement tests verifying accept and reject parity between Rust host `flake check` and self-hosted checker.
+
 **Flake v0.11.0 is complete.** Theme: **Self-hosted frontend (lexer + parser written in Flake) (Phase 2 of 6 toward v1.0)**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.

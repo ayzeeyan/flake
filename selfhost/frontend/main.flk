@@ -11,14 +11,14 @@ import list
 import result
 
 fn print_usage() {
-    print("Flake Self-Hosted Frontend v0.11.0")
+    print("Flake Self-Hosted Frontend & Checker v0.12.0")
     print("Usage: flake run selfhost/frontend/main.flk -- [OPTIONS] <FILE...>")
     print("")
     print("Options:")
     print("  --tokens <file>      Tokenize and print token stream")
     print("  --ast <file>         Parse and print AST S-expression (default)")
-    print("  --check <file>       Parse and typecheck file")
-    print("  --walk <dir>         Recursively parse all .flk files in directory")
+    print("  --check <file...>    Parse and check types, effects, and ownership")
+    print("  --walk <dir>         Recursively parse and check all .flk files in directory")
     print("  -h, --help           Display this help message")
 }
 
