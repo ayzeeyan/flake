@@ -1001,6 +1001,29 @@ fn main() / io {
 }
 
 #[test]
+fn native_list_alias_push_survives_growth() {
+    let out = run_native(&src(r#"
+fn grow(xs: [Int]) {
+    var i = 0
+    while i < 40 {
+        push(xs, i)
+        i = i + 1
+    }
+}
+
+fn main() {
+    var xs = []
+    grow(xs)
+    print(len(xs))
+    print(xs[0])
+    print(xs[39])
+}
+"#))
+    .expect("aliased list push");
+    assert_eq!(out, "40\n0\n39\n");
+}
+
+#[test]
 fn native_run_cmd() {
     let out = run_native(&src(r#"
 fn main() / io {

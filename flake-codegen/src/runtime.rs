@@ -408,7 +408,8 @@ fn emit_join(asm: &mut Asm) {
     epilogue(asm);
     asm.label(".join_go");
     asm.mov_rm_rbp(Reg::Rcx, -8);
-    asm.mov_rm(Reg::Rax, Reg::Rcx, 16); // first item ([len, cap, items...])
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm(Reg::Rax, Reg::Rax, 0); // first item
     asm.mov_mr_rbp(-24, Reg::Rax); // acc
     asm.mov_ri(Reg::R8, 1); // i
     asm.mov_mr_rbp(-32, Reg::R8);
@@ -425,8 +426,9 @@ fn emit_join(asm: &mut Asm) {
     asm.mov_rm_rbp(Reg::R8, -32);
     asm.shl_ri(Reg::R8, 3);
     asm.mov_rm_rbp(Reg::R9, -8);
+    asm.mov_rm(Reg::R9, Reg::R9, 16);
     asm.add_rr(Reg::R9, Reg::R8);
-    asm.mov_rm(Reg::Rdx, Reg::R9, 16);
+    asm.mov_rm(Reg::Rdx, Reg::R9, 0);
     asm.call_label("rt_concat2");
     asm.mov_mr_rbp(-24, Reg::Rax);
     asm.mov_rm_rbp(Reg::R8, -32);
@@ -644,7 +646,8 @@ fn emit_bool_repr(asm: &mut Asm) {
 }
 
 fn emit_list_new(asm: &mut Asm) {
-    // rcx = cap → rax = [len=0, cap, items...]
+    // rcx = cap → rax = header {len, cap, data} with a separate items array.
+    // The header pointer is identity-stable across later `rt_list_push` growth.
     asm.label("rt_list_new");
     prologue(asm, 48);
     asm.mov_mr_rbp(-8, Reg::Rcx);
@@ -653,20 +656,24 @@ fn emit_list_new(asm: &mut Asm) {
     asm.mov_ri(Reg::Rcx, 8);
     asm.mov_mr_rbp(-8, Reg::Rcx);
     asm.label(".ln_cap");
-    asm.mov_rm_rbp(Reg::Rax, -8);
-    asm.shl_ri(Reg::Rax, 3);
-    asm.add_ri(Reg::Rax, 16);
-    asm.mov_rr(Reg::Rcx, Reg::Rax);
+    asm.mov_ri(Reg::Rcx, 24);
     asm.call_label("rt_alloc");
+    asm.mov_mr_rbp(-16, Reg::Rax); // header
+    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.shl_ri(Reg::Rcx, 3);
+    asm.call_label("rt_alloc");
+    asm.mov_rm_rbp(Reg::Rcx, -16);
     asm.xor_rr(Reg::R10, Reg::R10);
-    asm.mov_mr(Reg::Rax, 0, Reg::R10);
+    asm.mov_mr(Reg::Rcx, 0, Reg::R10);
     asm.mov_rm_rbp(Reg::R10, -8);
-    asm.mov_mr(Reg::Rax, 8, Reg::R10);
+    asm.mov_mr(Reg::Rcx, 8, Reg::R10);
+    asm.mov_mr(Reg::Rcx, 16, Reg::Rax); // data
+    asm.mov_rr(Reg::Rax, Reg::Rcx);
     epilogue(asm);
 }
 
 fn emit_list_push(asm: &mut Asm) {
-    // rcx = list, rdx = val → rax = list (possibly reallocated).
+    // rcx = list header, rdx = val → rax = same header (data may grow).
     asm.label("rt_list_push");
     prologue(asm, 64);
     asm.mov_mr_rbp(-8, Reg::Rcx);
@@ -683,32 +690,32 @@ fn emit_list_push(asm: &mut Asm) {
     asm.label(".lp_dbl");
     asm.add_rr(Reg::Rax, Reg::Rax);
     asm.label(".lp_newcap");
-    asm.mov_mr_rbp(-24, Reg::Rax);
+    asm.mov_mr_rbp(-24, Reg::Rax); // new cap
     asm.shl_ri(Reg::Rax, 3);
-    asm.add_ri(Reg::Rax, 16);
     asm.mov_rr(Reg::Rcx, Reg::Rax);
     asm.call_label("rt_alloc");
-    asm.mov_mr_rbp(-32, Reg::Rax);
+    asm.mov_mr_rbp(-32, Reg::Rax); // new data
     asm.mov_rm_rbp(Reg::Rdx, -8);
+    asm.mov_rm(Reg::Rdx, Reg::Rdx, 16); // old data
     asm.mov_rm_rbp(Reg::Rcx, -8);
-    asm.mov_rm(Reg::Rcx, Reg::Rcx, 0);
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 0); // len
     asm.shl_ri(Reg::Rcx, 3);
-    asm.add_ri(Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::Rax, -32);
     copy_bytes(asm, ".lpcp");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
     asm.mov_rm_rbp(Reg::Rax, -32);
+    asm.mov_mr(Reg::Rcx, 16, Reg::Rax);
     asm.mov_rm_rbp(Reg::R10, -24);
-    asm.mov_mr(Reg::Rax, 8, Reg::R10);
-    asm.mov_mr_rbp(-8, Reg::Rax);
+    asm.mov_mr(Reg::Rcx, 8, Reg::R10);
     asm.label(".lp_fit");
     asm.mov_rm_rbp(Reg::Rcx, -8);
-    asm.mov_rm(Reg::R8, Reg::Rcx, 0);
+    asm.mov_rm(Reg::R8, Reg::Rcx, 0); // len
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16); // data
     asm.mov_rr(Reg::R9, Reg::R8);
     asm.shl_ri(Reg::R9, 3);
-    asm.add_rr(Reg::Rcx, Reg::R9);
+    asm.add_rr(Reg::Rax, Reg::R9);
     asm.mov_rm_rbp(Reg::Rdx, -16);
-    asm.mov_mr(Reg::Rcx, 16, Reg::Rdx);
-    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_mr(Reg::Rax, 0, Reg::Rdx);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr(Reg::Rcx, 0, Reg::R8);
     asm.mov_rr(Reg::Rax, Reg::Rcx);
@@ -726,10 +733,11 @@ fn emit_list_pop(asm: &mut Asm) {
     asm.label(".po_go");
     asm.add_ri(Reg::R8, -1);
     asm.mov_mr(Reg::Rcx, 0, Reg::R8);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
     asm.mov_rr(Reg::R9, Reg::R8);
     asm.shl_ri(Reg::R9, 3);
-    asm.add_rr(Reg::Rcx, Reg::R9);
-    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.add_rr(Reg::Rax, Reg::R9);
+    asm.mov_rm(Reg::Rax, Reg::Rax, 0);
     asm.ret();
 }
 
@@ -760,15 +768,17 @@ fn emit_list_concat(asm: &mut Asm) {
     asm.cmp_rr(Reg::R8, Reg::R9);
     asm.jcc_label(Cc::Ge, ".lc1_done");
     asm.mov_rm_rbp(Reg::Rcx, -8); // list1
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rr(Reg::R10, Reg::R8);
     asm.shl_ri(Reg::R10, 3);
     asm.add_rr(Reg::Rcx, Reg::R10);
-    asm.mov_rm(Reg::R11, Reg::Rcx, 16); // item
+    asm.mov_rm(Reg::R11, Reg::Rcx, 0); // item
     asm.mov_rm_rbp(Reg::Rax, -48); // new list
+    asm.mov_rm(Reg::Rax, Reg::Rax, 16);
     asm.mov_rr(Reg::R10, Reg::R8);
     asm.shl_ri(Reg::R10, 3);
     asm.add_rr(Reg::Rax, Reg::R10);
-    asm.mov_mr(Reg::Rax, 16, Reg::R11);
+    asm.mov_mr(Reg::Rax, 0, Reg::R11);
     asm.mov_rm_rbp(Reg::R8, -56);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr_rbp(-56, Reg::R8);
@@ -784,16 +794,18 @@ fn emit_list_concat(asm: &mut Asm) {
     asm.cmp_rr(Reg::R8, Reg::R9);
     asm.jcc_label(Cc::Ge, ".lc2_done");
     asm.mov_rm_rbp(Reg::Rdx, -16); // list2
+    asm.mov_rm(Reg::Rdx, Reg::Rdx, 16);
     asm.mov_rr(Reg::R10, Reg::R8);
     asm.shl_ri(Reg::R10, 3);
     asm.add_rr(Reg::Rdx, Reg::R10);
-    asm.mov_rm(Reg::R11, Reg::Rdx, 16); // item
+    asm.mov_rm(Reg::R11, Reg::Rdx, 0); // item
     asm.mov_rm_rbp(Reg::Rax, -48); // new list
+    asm.mov_rm(Reg::Rax, Reg::Rax, 16);
     asm.mov_rm_rbp(Reg::R10, -24); // len1
     asm.add_rr(Reg::R10, Reg::R8); // len1 + j
     asm.shl_ri(Reg::R10, 3);
     asm.add_rr(Reg::Rax, Reg::R10);
-    asm.mov_mr(Reg::Rax, 16, Reg::R11);
+    asm.mov_mr(Reg::Rax, 0, Reg::R11);
     asm.mov_rm_rbp(Reg::R8, -56);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr_rbp(-56, Reg::R8);
@@ -845,10 +857,11 @@ fn emit_display_list(asm: &mut Asm) {
     asm.mov_mr_rbp(-16, Reg::Rax);
     asm.label(".dl_item");
     asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.mov_rm_rbp(Reg::R8, -24);
     asm.shl_ri(Reg::R8, 3);
     asm.add_rr(Reg::Rcx, Reg::R8);
-    asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 0);
     asm.mov_rm_rbp(Reg::Rax, -48);
     asm.mov_ri(Reg::R10, 1);
     asm.cmp_rr(Reg::Rax, Reg::R10);
@@ -1204,10 +1217,11 @@ fn emit_map_keys(asm: &mut Asm) {
     asm.add_rr(Reg::Rcx, Reg::R10);
     asm.mov_rm(Reg::R11, Reg::Rcx, 16); // key = map[16 + i*16]
     asm.mov_rm_rbp(Reg::Rax, -24); // list
+    asm.mov_rm(Reg::Rax, Reg::Rax, 16);
     asm.mov_rr(Reg::R10, Reg::R8);
     asm.shl_ri(Reg::R10, 3); // i * 8
     asm.add_rr(Reg::Rax, Reg::R10);
-    asm.mov_mr(Reg::Rax, 16, Reg::R11); // list[16 + i*8] = key
+    asm.mov_mr(Reg::Rax, 0, Reg::R11); // data[i] = key
     asm.mov_rm_rbp(Reg::R8, -32);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr_rbp(-32, Reg::R8);
@@ -1241,10 +1255,11 @@ fn emit_map_values(asm: &mut Asm) {
     asm.add_rr(Reg::Rcx, Reg::R10);
     asm.mov_rm(Reg::R11, Reg::Rcx, 24); // val = map[24 + i*16]
     asm.mov_rm_rbp(Reg::Rax, -24); // list
+    asm.mov_rm(Reg::Rax, Reg::Rax, 16);
     asm.mov_rr(Reg::R10, Reg::R8);
     asm.shl_ri(Reg::R10, 3); // i * 8
     asm.add_rr(Reg::Rax, Reg::R10);
-    asm.mov_mr(Reg::Rax, 16, Reg::R11); // list[16 + i*8] = val
+    asm.mov_mr(Reg::Rax, 0, Reg::R11); // data[i] = val
     asm.mov_rm_rbp(Reg::R8, -32);
     asm.add_ri(Reg::R8, 1);
     asm.mov_mr_rbp(-32, Reg::R8);
@@ -1289,17 +1304,19 @@ fn emit_map_entries(asm: &mut Asm) {
     asm.mov_rm(Reg::R11, Reg::Rcx, 16); // key
     asm.mov_rm(Reg::Rdx, Reg::Rcx, 24); // val
     asm.mov_rm_rbp(Reg::Rax, -40); // pair
-    asm.mov_mr(Reg::Rax, 16, Reg::R11); // pair[0] = key
-    asm.mov_mr(Reg::Rax, 24, Reg::Rdx); // pair[1] = val
+    asm.mov_rm(Reg::Rax, Reg::Rax, 16);
+    asm.mov_mr(Reg::Rax, 0, Reg::R11); // pair[0] = key
+    asm.mov_mr(Reg::Rax, 8, Reg::Rdx); // pair[1] = val
 
     // Store pair into outer list
     asm.mov_rm_rbp(Reg::Rax, -24); // outer list
+    asm.mov_rm(Reg::Rax, Reg::Rax, 16);
     asm.mov_rm_rbp(Reg::R8, -32); // i
     asm.mov_rr(Reg::R10, Reg::R8);
     asm.shl_ri(Reg::R10, 3); // i * 8
     asm.add_rr(Reg::Rax, Reg::R10);
     asm.mov_rm_rbp(Reg::R11, -40); // pair
-    asm.mov_mr(Reg::Rax, 16, Reg::R11); // outer[i] = pair
+    asm.mov_mr(Reg::Rax, 0, Reg::R11); // outer[i] = pair
 
     asm.mov_rm_rbp(Reg::R8, -32);
     asm.add_ri(Reg::R8, 1);
@@ -1780,9 +1797,10 @@ fn emit_list_contains(asm: &mut Asm) {
     asm.mov_rm_rbp(Reg::R8, -24);
     asm.cmp_rr(Reg::R8, Reg::R9);
     asm.jcc_label(Cc::Ge, ".lc_no");
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.shl_ri(Reg::R8, 3);
     asm.add_rr(Reg::Rcx, Reg::R8);
-    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
     asm.mov_rm_rbp(Reg::Rdx, -16);
     asm.cmp_rr(Reg::Rax, Reg::Rdx);
     asm.jcc_label(Cc::E, ".lc_yes");
@@ -1843,6 +1861,7 @@ fn emit_list_first_last(asm: &mut Asm) {
     asm.test_rr(Reg::Rax, Reg::Rax);
     asm.jcc_label(Cc::Z, ".lf_empty");
     asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm(Reg::Rax, Reg::Rax, 0);
     asm.ret();
     asm.label("rt_list_last");
     asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
@@ -1850,8 +1869,9 @@ fn emit_list_first_last(asm: &mut Asm) {
     asm.jcc_label(Cc::Z, ".lf_empty");
     asm.add_ri(Reg::Rax, -1);
     asm.shl_ri(Reg::Rax, 3);
+    asm.mov_rm(Reg::Rcx, Reg::Rcx, 16);
     asm.add_rr(Reg::Rcx, Reg::Rax);
-    asm.mov_rm(Reg::Rax, Reg::Rcx, 16);
+    asm.mov_rm(Reg::Rax, Reg::Rcx, 0);
     asm.ret();
     asm.label(".lf_empty");
     asm.xor_rr(Reg::Rax, Reg::Rax);
@@ -2452,13 +2472,13 @@ fn emit_sort_cstr_list(asm: &mut Asm) {
     asm.test_rr(Reg::R10, Reg::R10);
     asm.jcc_label(Cc::Z, ".ss_nexti");
     asm.mov_rm_rbp(Reg::Rax, -8);
+    asm.mov_rm(Reg::Rax, Reg::Rax, 16); // data
     // load items[j] and items[j-1]
     asm.mov_rm_rbp(Reg::R11, -32); // j
     asm.shl_ri(Reg::R11, 3);
-    asm.add_ri(Reg::R11, 16);
     asm.add_rr(Reg::Rax, Reg::R11);
     asm.mov_rm(Reg::Rdx, Reg::Rax, 0); // items[j]
-    asm.mov_rm(Reg::Rcx, Reg::Rax, -8); // items[j-1]  — need [rax-8]
+    asm.mov_rm(Reg::Rcx, Reg::Rax, -8); // items[j-1]
     asm.mov_mr_rbp(-40, Reg::Rax); // addr of items[j]
     asm.call_label("rt_strcmp");
     asm.bytes.extend_from_slice(&[0x48, 0x85, 0xC0]); // test rax, rax

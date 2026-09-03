@@ -190,6 +190,77 @@ fn selfhost_native_check() {
 }
 
 #[test]
+fn selfhost_native_binary_check_matches_interpreter() {
+    let bin = std::env::temp_dir().join(format!("flake-check-selfhost-{}.exe", std::process::id()));
+    let build = flake_bin()
+        .current_dir(repo_root())
+        .arg("build")
+        .arg(selfhost_main())
+        .arg("-o")
+        .arg(&bin)
+        .output()
+        .expect("flake build selfhost");
+    assert!(
+        build.status.success(),
+        "build failed:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    struct Remove(std::path::PathBuf);
+    impl Drop for Remove {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _bin = Remove(bin.clone());
+
+    let run_bin = |args: &[&str]| {
+        let output = Command::new(&bin)
+            .current_dir(repo_root())
+            .args(args)
+            .output()
+            .expect("run flake-check-selfhost");
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n")
+    };
+
+    let interp_hello = run_selfhost(
+        &["--check", "examples/hello.flk", "examples/traits.flk"],
+        false,
+    );
+    assert!(
+        interp_hello.0,
+        "interpreter check failed: {}",
+        interp_hello.1
+    );
+    let native_hello = run_bin(&["--check", "examples/hello.flk", "examples/traits.flk"]);
+    assert!(
+        native_hello.contains("ok: examples/hello.flk"),
+        "{native_hello}"
+    );
+    assert!(
+        native_hello.contains("ok: examples/traits.flk"),
+        "{native_hello}"
+    );
+    assert_eq!(
+        interp_hello
+            .1
+            .lines()
+            .filter(|l| l.starts_with("ok:"))
+            .collect::<Vec<_>>(),
+        native_hello
+            .lines()
+            .filter(|l| l.starts_with("ok:"))
+            .collect::<Vec<_>>(),
+        "interpreter vs native binary accept mismatch"
+    );
+
+    let walk = run_bin(&["--walk", "examples"]);
+    assert!(
+        walk.contains("Scanned 61 files: all parsed successfully"),
+        "native binary walk: {walk}"
+    );
+}
+
+#[test]
 fn selfhost_check_effects_and_ownership_rejections() {
     let dir = std::env::temp_dir().join(format!("flake_selfhost_test_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);

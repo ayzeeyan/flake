@@ -587,16 +587,23 @@ fn emit_inst(
         Inst::MakeList { dest, items } => {
             let n = items.len() as i64;
             let cap = n.max(16);
-            asm.mov_ri(Reg::Rcx, 16 + 8 * cap);
+            asm.mov_ri(Reg::Rcx, 24);
             asm.call_label("rt_alloc");
+            let spill = frame.spill;
+            asm.mov_mr_rbp(spill, Reg::Rax);
+            asm.mov_ri(Reg::Rcx, 8 * cap);
+            asm.call_label("rt_alloc");
+            for (i, item) in items.iter().enumerate() {
+                frame.load(asm, *item, Reg::R10);
+                asm.mov_mr(Reg::Rax, 8 * i as i32, Reg::R10);
+            }
+            asm.mov_rr(Reg::Rdx, Reg::Rax);
+            asm.mov_rm_rbp(Reg::Rax, spill);
             asm.mov_ri(Reg::R10, n);
             asm.mov_mr(Reg::Rax, 0, Reg::R10);
             asm.mov_ri(Reg::R10, cap);
             asm.mov_mr(Reg::Rax, 8, Reg::R10);
-            for (i, item) in items.iter().enumerate() {
-                frame.load(asm, *item, Reg::R10);
-                asm.mov_mr(Reg::Rax, 16 + 8 * i as i32, Reg::R10);
-            }
+            asm.mov_mr(Reg::Rax, 16, Reg::Rdx);
             frame.store(asm, *dest, Reg::Rax);
         }
         Inst::GetIndex { dest, obj, index } => {
@@ -860,10 +867,11 @@ fn emit_iter_next(
     asm.mov_rm(Reg::R10, Reg::R8, 0); // len
     asm.cmp_rr(Reg::R9, Reg::R10);
     asm.jcc_label(Cc::Ge, format!(".ndone{id}"));
+    asm.mov_rm(Reg::R8, Reg::R8, 16); // data
     asm.mov_rr(Reg::R11, Reg::R9);
     asm.shl_ri(Reg::R11, 3);
     asm.add_rr(Reg::R8, Reg::R11);
-    asm.mov_rm(Reg::R8, Reg::R8, 16);
+    asm.mov_rm(Reg::R8, Reg::R8, 0);
     frame.store(asm, *value, Reg::R8);
     asm.add_ri(Reg::R9, 1);
     asm.mov_mr(Reg::Rax, 16, Reg::R9);
@@ -1773,8 +1781,9 @@ fn emit_get_index(
             emit_runtime_failure(asm, strings, strs, "index out of bounds");
             asm.label(ok);
             asm.shl_ri(Reg::R10, 3);
-            asm.add_rr(Reg::Rax, Reg::R10);
             asm.mov_rm(Reg::Rax, Reg::Rax, 16);
+            asm.add_rr(Reg::Rax, Reg::R10);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 0);
             frame.store(asm, *dest, Reg::Rax);
             asm.label(done);
         }
@@ -1852,9 +1861,10 @@ fn emit_set_index(
             emit_runtime_failure(asm, strings, strs, "index out of bounds");
             asm.label(ok);
             asm.shl_ri(Reg::R10, 3);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 16);
             asm.add_rr(Reg::Rax, Reg::R10);
             frame.load(asm, *value, Reg::R10);
-            asm.mov_mr(Reg::Rax, 16, Reg::R10);
+            asm.mov_mr(Reg::Rax, 0, Reg::R10);
             asm.label(done);
         }
     }
