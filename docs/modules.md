@@ -1,9 +1,8 @@
 # Modules and multi-file projects
 
-Flake treats every `.flk` file as one module. v0.5 milestone 4 adds
-project-rooted dotted imports, canonical module identities, strict visibility,
-and deterministic name resolution across the interpreter, VM, and native
-backend.
+Flake treats every `.flk` file as one module. It features project-rooted
+dotted imports, canonical module identities, strict visibility, and deterministic
+name resolution across the interpreter, VM, and native backend.
 
 ## Project layout
 
@@ -89,9 +88,8 @@ pub fn total(subtotal: Int) -> Int {      // visible to importers
 }
 ```
 
-`pub` is supported on functions, structs, enums, and type aliases. There is no
-legacy “export everything when no `pub` appears” fallback in v0.5. Private
-helpers remain visible throughout their own module and cannot leak through a
+`pub` is supported on functions, structs, enums, traits, constants, and type aliases.
+Private helpers remain visible throughout their own module and cannot leak through a
 namespace or bare import.
 
 A public signature cannot expose a private local type. The checker points at
@@ -118,7 +116,7 @@ names suggest explicit qualified alternatives.
 
 ## Packages and Local Dependencies
 
-In Flake v0.5.6, projects can define package manifests with `flake.toml` and depend on other local packages:
+Projects can define package manifests with `flake.toml` and depend on other local packages:
 
 ```toml
 [package]

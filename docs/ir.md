@@ -48,7 +48,7 @@ A **local** is `%id` with an optional source name and an IR type (`Int`,
 `Bool`, `String`, `Map[K, V]`, `Task[T]`, `fn -> R`, `dyn`, …). Function values retain
 their return type so an indirect call produces a correctly typed result.
 
-In v0.5.6, structured task handles are represented directly in the IR via `IrType::Task`,
+Structured task handles are represented directly in the IR via `IrType::Task`,
 `Inst::Spawn`, and `Inst::Await`. On the native x86-64 backend, tasks lower to structured
 heap descriptors with explicit lifecycle tracking (`Pending`, `Joined`, `Running`, `Cancelled`)
 and strict single-await runtime verification.

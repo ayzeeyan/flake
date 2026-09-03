@@ -6,7 +6,7 @@ Modules are imported using `import <module_name>`.
 
 ---
 
-## 1. Systems Programming Modules (v0.8+)
+## 1. Systems Programming Modules
 
 ### `import fs`
 Filesystem manipulation and I/O.
@@ -110,7 +110,7 @@ Typed concurrent communication channels.
 
 ---
 
-Generic list helpers (v0.9): `sort_items[T: Ord]`, `find_eq[T: Eq]`,
+Generic list helpers: `sort_items[T: Ord]`, `find_eq[T: Eq]`,
 `contains_eq[T: Eq]`, `max_ord[T: Ord]`, `min_ord[T: Ord]` live in
 `import list`.
 

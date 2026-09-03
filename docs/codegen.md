@@ -95,12 +95,12 @@ On AArch64 (`aarch64-linux`), the compiler produces valid 64-bit ELF executables
 - Advanced systems tooling APIs (`fs`, `process.run`) are implemented as explicit stubs.
 - Compilation is verified on all host systems; execution tests run where ARM64 or QEMU runners are present and skip cleanly otherwise.
 
-## What compiles natively in v0.13
+## What compiles natively in v1.0
 
 Integers, bools, floats (SSE2), strings, `if`/`while`/`for`/`match`, enums
 (as tagged lists), functions (including more than four arguments and indirect
-`call r64`), structs, lists, maps, interpolation, `print`, modules, and the
-built-in helpers listed above.
+`call r64`), structs, lists, maps, interpolation, `print`, modules, constants,
+`const fn`, and the built-in helpers listed above.
 
 Result `?` lowers to a tag comparison and an early native return. Scalar
 literal patterns lower to ordinary comparisons, without assuming an enum
@@ -131,7 +131,7 @@ Output files are written atomically and validated before persisting to disk.
 
 ## Task Runtime & Concurrency
 
-In v0.5.6, native x86-64 code generation represents `Task[T]` values as heap-allocated
+Native x86-64 code generation represents `Task[T]` values as heap-allocated
 task structures with explicit state tracking (`Pending = 0`, `Joined = 1`, `Running = 2`, `Cancelled = 3`).
 The native execution path enforces the strict single-join runtime contract: attempting to
 `await` an already-joined task triggers the runtime diagnostic `"task was already awaited"`,

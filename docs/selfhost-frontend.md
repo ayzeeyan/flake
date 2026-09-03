@@ -1,6 +1,6 @@
-# Self-Hosted Flake Frontend (Phase 2 of 6 toward v1.0)
+# Self-Hosted Flake Frontend
 
-Flake v0.11.0 introduces a complete self-hosted frontend written **purely in Flake** under `selfhost/frontend/`.
+Flake includes a complete self-hosted frontend written **purely in Flake** under `selfhost/frontend/`.
 
 The frontend is executed by the Rust-hosted `flake` compiler across all runtime backends (Tree-walking Interpreter, Bytecode VM, and Native x86-64 executable).
 

@@ -1,12 +1,12 @@
 # Flake Bootstrap Architecture & Policy
 
-This document defines the bootstrap model, verification loop, and operational policies for **Flake v0.14.0 (Phase 5 of 6 toward v1.0)**.
+This document defines the bootstrap model, verification loop, and operational policies for **Flake v1.0**.
 
 ---
 
 ## 1. What Bootstrap Means in Flake
 
-In Flake v0.14, "bootstrap" is defined as a closed, automated verification loop where the self-hosted frontend and type/effect/ownership checker (`selfhost/frontend/`) is compiled natively, verifies its own sources and test suite, rebuilds cleanly, and confirms behavioral and bitwise identity.
+In Flake v1.0, "bootstrap" is defined as a closed, automated verification loop where the self-hosted frontend and type/effect/ownership checker (`selfhost/frontend/`) is compiled natively, verifies its own sources and test suite, rebuilds cleanly, and confirms behavioral and bitwise identity.
 
 The bootstrap process consists of four automated stages:
 
@@ -42,7 +42,7 @@ The bootstrap runner writes comprehensive audit summaries to `target/bootstrap/r
 To preserve architectural clarity and stability, the following boundaries are strictly enforced:
 
 1. **Rust Host Remains the Compiler of Record**:
-   `flake check` and `flake build` continue to use the pure Rust compiler pipeline (`flake-parser`, `flake-types`, `flake-ir`, `flake-codegen`). The self-hosted checker is an independent validation artifact and does not replace the host pipeline in v0.14.
+   `flake check` and `flake build` continue to use the pure Rust compiler pipeline (`flake-parser`, `flake-types`, `flake-ir`, `flake-codegen`). The self-hosted checker is an independent validation artifact and does not replace the host pipeline in 1.x.
 2. **No Flake-Written Machine Code Emitter**:
    Bootstrap does **not** rewrite `flake-codegen` or `flake-ir` in Flake. Native PE/ELF generation is handled by the pure Rust backend.
 3. **No Macro System**:

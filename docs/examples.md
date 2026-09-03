@@ -61,7 +61,7 @@ inside their modules.
 ### Release gate
 
 [`projects/release/main.flk`](../examples/projects/release/main.flk) combines
-the v0.5 surface in one native-ready project:
+structured concurrency, Result propagation, and modular architecture in one native-ready project:
 
 ```text
 release/
@@ -162,7 +162,7 @@ examples/projects/pkg_workspace/
 - `app/main.flk` imports `core_lib` and `core_lib.service`.
 - Runs identically on Interpreter, Bytecode VM, and Native x86-64 executable.
 
-### v0.9 flk scan (`examples/projects/v09_flk_scan/`)
+### Source Scanner Project (`examples/projects/v09_flk_scan/`)
 
 A parser-shaped tooling pipeline: source units, a scanner counting `fn` /
 `struct` occurrences, generic `Ord` helpers, and a report. Runs with matching

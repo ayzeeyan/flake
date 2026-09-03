@@ -1,6 +1,6 @@
 # Compile-Time Function Evaluation (CTFE Lite)
 
-Flake v0.13 introduces **CTFE lite**: compile-time evaluation of constant declarations and pure constant functions.
+Flake includes **CTFE lite** as part of its frozen v1.0 specification: compile-time evaluation of constant declarations and pure constant functions.
 
 CTFE lite provides deterministic compile-time evaluation without introducing macro systems, procedural expansion, or arbitrary compile-time execution.
 

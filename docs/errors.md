@@ -52,9 +52,8 @@ match load() {
 ```
 
 The standard `result` module provides `is_ok`, `is_err`, `unwrap_or`,
-`error_or`, and panic-effectful `unwrap`. Its payload is `dyn` so the module is
-useful before generic enum parameters land; user-defined Result-like enums keep
-fully concrete payload types.
+`error_or`, and panic-effectful `unwrap`. User-defined Result-like enums
+and generic `Result[T, E]` enums keep fully concrete payload types.
 
 The multi-file [release gate](../examples/projects/release/main.flk) exposes a
 public Result-like enum from a service module, propagates a failed check with

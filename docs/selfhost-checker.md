@@ -1,6 +1,6 @@
-# Self-Hosted Flake Type, Effect, and Ownership Checker (Phase 3 of 6 toward v1.0)
+# Self-Hosted Flake Type, Effect, and Ownership Checker
 
-Flake v0.12.0 introduces a complete self-hosted type, effect, and ownership checker written **purely in Flake** under `selfhost/frontend/`.
+Flake includes a complete self-hosted type, effect, and ownership checker written **purely in Flake** under `selfhost/frontend/`.
 
 The self-hosted checker consumes the AST produced by the self-hosted parser, performs full semantic analysis conforming to the [Flake Stable Subset](stable-subset.md), reports diagnostics with exact file, line, and column source spans, and runs consistently across all three Flake backends: **Tree-walking Interpreter**, **Bytecode VM**, and **Native x86-64**.
 
