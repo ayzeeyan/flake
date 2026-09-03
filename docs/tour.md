@@ -1,13 +1,15 @@
-# Flake language tour
+# Flake language tour (v1.0)
 
 **Clarity, crystallized.**
 
-This tour describes the implemented v0.9 language surface. Flake is a braced,
-immutable-by-default language with local type inference, an explicit `dyn`
-escape hatch, effect annotations, opt-in ownership, enums and `match`,
-generics with marker-trait bounds, multi-file imports, and a standard library
-that runs on the interpreter, VM, and native x86-64 backend. The v0.9
-[stable subset](stable-subset.md) is what a self-hosted frontend may rely on.
+This tour describes the frozen Flake v1.0 language surface. Flake is a braced,
+immutable-by-default systems language with local type inference, an explicit `dyn`
+escape hatch, first-class algebraic effect annotations, opt-in gradual ownership,
+algebraic enums and `match`, parametric generics with trait bounds, trait method dispatch,
+compile-time function evaluation (CTFE lite), multi-file packages with deterministic
+lockfiles, and structured concurrency running with semantic parity across the
+tree-walking interpreter, bytecode VM, and native x86-64 backend. The
+[stable subset contract](stable-subset.md) defines the 1.x compatibility promise.
 
 ## Hello
 
@@ -29,7 +31,7 @@ flake repl
 Statements are separated by newlines (semicolons are optional). `let` is
 immutable; `var` is mutable.
 
-## Functions
+## Functions, Generics, and Traits
 
 ```flake
 fn add(a: Int, b: Int) -> Int {
@@ -39,22 +41,46 @@ fn add(a: Int, b: Int) -> Int {
 
 Parameter and return types may be omitted. The checker infers them locally;
 unconstrained bindings become `dyn`. Generic parameters use square brackets
-and optional bounds:
+and optional trait bounds:
 
 ```flake
 fn max[T: Ord](a: T, b: T) -> T {
     if a > b { a } else { b }
 }
 
-trait Show {}
-impl Show for Int {}
+trait Show {
+    fn show(self) -> String
+}
+
+impl Show for Int {
+    fn show(self) -> String {
+        str(self)
+    }
+}
+
+fn print_it[T: Show](item: T) / io {
+    print(item.show())
+}
 ```
 
-`Eq`, `Ord`, and `Hash` are builtin marker bounds. Missing or unsatisfied
-bounds produce diagnostics. Trait bodies are empty in v0.9.
+`Eq`, `Ord`, and `Hash` are builtin marker bounds. User-defined traits support
+method declarations, implementations, and concrete or generic bound dispatch.
 
 The last expression in a block is the function's value. Use `return` to leave
 early.
+
+## Constants and CTFE Lite
+
+Flake v1.0 supports pure compile-time evaluation for constants and constant functions:
+
+```flake
+const BASE: Int = 100
+const fn scale(x: Int) -> Int { x * 2 }
+const MAX_LIMIT: Int = scale(BASE) + 50
+```
+
+`const fn` functions must be pure (no `/ io` or `/ conc` effects). Constant expressions
+are evaluated and folded at check and IR lowering time with bounded fuel (`CTFE_FUEL = 10_000`).
 
 ## Types
 

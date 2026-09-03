@@ -51,22 +51,17 @@ between:
 
 ## Status
 
-**Flake v0.9.0 is complete.** Theme: **Self-hosting preparation**.
+**Flake v1.0.0 is frozen and shipped.** Theme: **Freeze and ship (Phase 6 of 6 complete)**.
 
-- **Generic bounds / marker traits**: `fn max[T: Ord](a: T, b: T) -> T`, `trait Show {}`, `impl Show for Int {}`.
-- **Stdlib depth for tools**: directory listing and `walk`, program `args()`, process `run`, file line helpers.
-- **Native quality**: generic `Eq`/`Ord` comparisons match Interpreter and VM, including string sort helpers.
-- **Documented [v0.9 stable subset](docs/stable-subset.md)** for a future self-hosted frontend.
-- **Flagship** [v09_flk_scan](examples/projects/v09_flk_scan/main.flk): a parser-shaped scan over `.flk` sources.
-- **100% pure Rust owned pipeline**: no LLVM, no Cranelift, no C transpilation.
+- **Frozen Language Specification**: Normative [v1.0 stable subset contract](docs/stable-subset.md) with guaranteed 1.x backward compatibility.
+- **Spec Index**: [docs/spec.md](docs/spec.md) provides authoritative normative pointers across all language subsystems.
+- **Pure-Rust Compiler Pipeline**: Direct machine code generation for Windows PE (`x86_64-windows`) and standalone Linux ELF (`x86_64-linux` with direct syscall runtime, zero libc dependency). AArch64 Linux ELF partial target. Zero LLVM, Cranelift, or C transpilation.
+- **CTFE Lite**: `const NAME: T = <expr>` and pure `const fn` evaluated at compile time with bounded fuel and recursion limits.
+- **Self-Hosted Frontend & Checker**: Full semantic analysis written purely in Flake under `selfhost/frontend/`.
+- **Automated Bootstrap Loop**: `flake bootstrap` executes Stage 0 build -> Stage 1 self-check -> Stage 2 rebuild, verifying 100% bitwise and behavioral identity.
+- **Tri-Backend Consistency**: Tree-walking Interpreter, Bytecode VM, and Native machine code agree 100% on the entire frozen subset.
 
-See [ROADMAP.md](ROADMAP.md) for milestone status, [docs/packages.md](docs/packages.md) for package manifests, and [docs/tour.md](docs/tour.md)
-for a language tour. Backend consistency policy and test commands live in
-[docs/testing.md](docs/testing.md); [docs/examples.md](docs/examples.md) is the
-guided example index.
-
-See the [v0.9.0 release notes](docs/release-notes-v0.9.0.md) for the complete
-feature and compatibility summary.
+See [ROADMAP.md](ROADMAP.md) for roadmap history, [docs/spec.md](docs/spec.md) for the specification index, and [docs/release-notes-v1.0.0.md](docs/release-notes-v1.0.0.md) for the complete 1.0.0 release notes.
 
 ## Build and run
 
@@ -75,24 +70,17 @@ cargo build
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 
+# Run the complete automated bootstrap verification cycle
+flake bootstrap
+flake bootstrap -v --keep
+
+# Interpret, VM execute, or natively compile Flake programs
 flake run examples/hello.flk
 flake run --vm examples/hello.flk
 flake run --native examples/hello.flk
 flake run examples/traits.flk
+flake run examples/const_fold.flk
 flake run examples/projects/v09_flk_scan/main.flk
-flake run examples/hello.flk -- extra args here
-flake run examples/enum.flk
-flake run examples/data.flk
-flake run examples/projects/analytics/main.flk
-flake run --native examples/projects/analytics/main.flk
-flake run examples/projects/pipeline/main.flk
-flake run --native examples/projects/pipeline/main.flk
-flake run examples/projects/inventory/main.flk
-flake run --native examples/projects/telemetry/main.flk
-flake run --vm examples/concurrency.flk
-flake run --native examples/task_pipeline.flk
-flake run --native examples/app.flk
-flake run --native examples/projects/release/main.flk
 flake build examples/hello.flk -o hello.exe
 flake build examples/hello.flk -o hello.exe --emit-asm
 flake check examples/hello.flk
@@ -186,9 +174,14 @@ fn add_two(result: Result) -> Result {
 
 ## Docs
 
+- [Normative specification index](docs/spec.md)
+- [Frozen v1.0 stable subset contract](docs/stable-subset.md)
 - [Language tour](docs/tour.md)
+- [Bootstrap architecture & policy](docs/bootstrap.md)
+- [CTFE lite reference](docs/ctfe.md)
+- [Self-hosted checker](docs/selfhost-checker.md)
 - [Standard library reference](docs/stdlib.md)
-- [Ownership](docs/ownership.md)
+- [Ownership & borrowing](docs/ownership.md)
 - [Structured concurrency](docs/concurrency.md)
 - [Packages and manifests](docs/packages.md)
 - [Errors and Result propagation](docs/errors.md)

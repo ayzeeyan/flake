@@ -1,6 +1,6 @@
 # Structured concurrency
 
-Flake v0.6 makes concurrency part of the language contract without pretending
+Flake makes structured concurrency a first-class part of the v1.0 language contract without pretending
 that a complex external async runtime is needed. The foundation is robust and clean:
 typed tasks, explicit joins, lexical task nurseries (`nursery { ... }`), cancellation primitives,
 lexical ownership, deterministic failure propagation, heap-backed task states on native execution,
