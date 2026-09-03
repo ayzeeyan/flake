@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**Flake v0.12.0 is complete.** Theme: **Self-hosted checker (types, effects, ownership) (Phase 3 of 6 toward v1.0)**.
+**Flake v0.13.0 is complete.** Theme: **Native completeness + CTFE lite (Phase 4 of 6 toward v1.0)**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
 
@@ -9,9 +9,45 @@ There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire wor
 1. v0.10 Trait methods                         done
 2. v0.11 Self-hosted lexer + parser            done
 3. v0.12 Self-hosted checker                   done
-4. v0.13 Native completeness + CTFE lite       ← next
-5. v0.14 Bootstrap
+4. v0.13 Native completeness + CTFE lite       done
+5. v0.14 Bootstrap                             ← next
 6. v1.0  Freeze and ship
+
+## v0.13.0 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Native systems API completeness | **done** |
+| 2 | Native selfhost frontend+checker binary | **done** |
+| 3 | Const items and host CTFE lite | **done** |
+| 4 | Const fn and selfhost const checking | **done** |
+| 5 | Target matrix, const tests, and docs | **done** |
+| 6 | Flake v0.13.0 complete – native completeness and CTFE lite | **done** |
+
+## What v0.13.0 delivers
+
+- **Native Systems API Completeness**:
+  - Direct Linux syscall runtime (`flake-codegen/src/runtime_linux.rs`) for standalone x86-64 ELF execution without libc or Win32 dependencies.
+  - Native Windows PE process execution, arguments, directory inspection, and file operations.
+  - AArch64 Linux ELF partial target with pure Rust instruction encodings and explicit systems API stubs.
+  - Example: `examples/systems_native.flk`.
+- **Standalone Native Self-Hosted Frontend & Checker Binary**:
+  - `flake build selfhost/frontend/main.flk -o flake-check-selfhost.exe` produces an independent native binary.
+  - Stable list memory header `{len, cap, data*}` preserving lists across heap growth and aliasing (resolving native `fs.walk`).
+  - Tested across all 62 repository examples and full selfhost tree walk.
+- **CTFE Lite & Constant Evaluation**:
+  - `const NAME: T = <expr>` evaluated and folded at check/IR time across all backends.
+  - Pure `const fn` evaluated at compile time with bounded fuel (`CTFE_FUEL = 10_000`) and recursion depth (`MAX_CALL_DEPTH = 256`).
+  - Constant folding for arithmetic, comparisons, logic, conditionals, string concatenation, and string interpolation.
+  - Purity guarantees: compile-time I/O, process execution, concurrency, and statements in const are strictly rejected with accurate spans.
+  - Example: `examples/const_fold.flk`.
+- **Self-Hosted Const Checking**:
+  - Self-hosted lexer, parser, and checker understand `const` items and `const fn`.
+  - Selfhost checker verifies purity of `const fn` and validates constant expressions.
+  - Negative and positive reject/accept corpus agreement between host and selfhost checkers.
+- **Target Matrix & Golden Consistency**:
+  - Verified compilation and binary formatting across Windows PE (`x86_64-windows`), Linux ELF (`x86_64-linux`), and AArch64 ELF (`aarch64-linux`).
+  - Identical folded values across Tree-walking Interpreter, Bytecode VM, and Native execution.
 
 ## v0.12.0 milestones
 
