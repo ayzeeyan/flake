@@ -289,4 +289,108 @@ fn selfhost_walk_reports_check_errors() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn selfhost_golden_corpus_agreement() {
+    let accept_corpus = [
+        "examples/hello.flk",
+        "examples/enum.flk",
+        "examples/traits.flk",
+        "examples/effects.flk",
+        "examples/ownership.flk",
+        "examples/borrow.flk",
+        "examples/modules.flk",
+        "examples/projects/v09_flk_scan/main.flk",
+        "examples/visible.flk",
+        "examples/nursery.flk",
+        "examples/concurrency.flk",
+        "examples/math.flk",
+        "examples/lists.flk",
+        "examples/fizzbuzz.flk",
+        "examples/fibonacci.flk",
+    ];
+
+    for file in &accept_corpus {
+        // 1. Rust host checker accepts
+        let mut host = flake_bin();
+        host.current_dir(repo_root());
+        host.arg("check").arg(file);
+        let host_out = host.output().expect("run flake check");
+        assert!(
+            host_out.status.success(),
+            "host check failed on {file}: {}",
+            String::from_utf8_lossy(&host_out.stderr)
+        );
+
+        // 2. Selfhost checker on Interpreter and VM accepts
+        for vm in [false, true] {
+            let (ok, out) = run_selfhost(&["--check", file], vm);
+            assert!(
+                ok && out.contains(&format!("ok: {file}")),
+                "selfhost check failed on {file} (vm={vm}): {out}"
+            );
+        }
+    }
+
+    // 3. Native selfhost checker accepts the whole corpus
+    let mut cmd = flake_bin();
+    cmd.current_dir(repo_root());
+    cmd.arg("run").arg("--native").arg(selfhost_main()).arg("--").arg("--check");
+    for file in &accept_corpus {
+        cmd.arg(file);
+    }
+    let native_out = cmd.output().expect("run native check");
+    let native_str = String::from_utf8_lossy(&native_out.stdout);
+    assert!(native_out.status.success(), "native selfhost check failed on corpus");
+    for file in &accept_corpus {
+        assert!(
+            native_str.contains(&format!("ok: {file}")),
+            "native selfhost missing ok for {file}"
+        );
+    }
+}
+
+#[test]
+fn selfhost_golden_reject_corpus_agreement() {
+    let dir = std::env::temp_dir().join(format!("flake_reject_corpus_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+
+    // Defined negative corpus: comparing Rust host flake check and selfhost --check
+    let cases = [
+        ("bad_effects.flk", "fn shout() / pure { print(\"hi\") }\nfn main() { shout() }"),
+        ("bad_move.flk", "strict fn consume(s: String) {}\nstrict fn test(s: String) { consume(s); consume(s) }\nfn main() {}"),
+        ("bad_escape.flk", "strict fn leak() { let x = 42; return &x }\nfn main() {}"),
+        ("bad_spawn_ref.flk", "fn worker(r: &Int) / conc {}\nfn main() / conc { let x = 42; spawn worker(&x) }"),
+        ("bad_type.flk", "fn main() { let x: Int = \"hello\" }"),
+        ("bad_name.flk", "fn main() { unknown_var_12345() }"),
+        ("bad_bound.flk", "trait Describable { fn describe(self) -> String }\nfn show[T](x: T) { x.describe() }\nfn main() {}"),
+    ];
+
+    for (filename, source) in &cases {
+        let path = dir.join(filename);
+        std::fs::write(&path, source).unwrap();
+
+        // 1. Rust host checker rejects
+        let mut host = flake_bin();
+        host.current_dir(repo_root());
+        host.arg("check").arg(&path);
+        let host_out = host.output().expect("run flake check");
+        assert!(
+            !host_out.status.success(),
+            "host check unexpectedly accepted {filename}"
+        );
+
+        // 2. Selfhost checker rejects on Interpreter and VM
+        for vm in [false, true] {
+            let (_ok, out) = run_selfhost(&["--check", path.to_str().unwrap()], vm);
+            assert!(
+                out.contains("error:"),
+                "selfhost check unexpectedly accepted {filename} on vm={vm}: {out}"
+            );
+        }
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+
 
