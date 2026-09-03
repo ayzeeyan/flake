@@ -1,28 +1,60 @@
 # Flake Roadmap
 
-**Flake v0.14.0 is complete.** Theme: **Bootstrap (selfhost checks and rebuilds itself) (Phase 5 of 6 toward v1.0)**.
+**Flake v1.0.0 is frozen and shipped.** Theme: **Freeze and ship (Phase 6 of 6 complete)**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
 
-## Road to v1.0
+## Road to v1.0 (All Phases Completed)
 
 1. v0.10 Trait methods                         done
 2. v0.11 Self-hosted lexer + parser            done
 3. v0.12 Self-hosted checker                   done
 4. v0.13 Native completeness + CTFE lite       done
 5. v0.14 Bootstrap                             done
-6. v1.0  Freeze and ship                       ← next
+6. v1.0  Freeze and ship                       done
 
-## v0.14.0 milestones
+## v1.0.0 milestones
 
 | # | Milestone | Status |
 | --- | --- | --- |
-| 1 | Selfhost stable-subset lock | **done** |
-| 2 | Mandatory self-check of selfhost and corpus | **done** |
-| 3 | flake bootstrap command | **done** |
-| 4 | Bootstrap report and rebuild comparison | **done** |
-| 5 | Bootstrap documentation and policy | **done** |
-| 6 | Flake v0.14.0 complete – bootstrap | **done** |
+| 1 | Freeze the v1.0 stable subset | **done** |
+| 2 | v1.0 documentation and spec index | **done** |
+| 3 | CLI polish and freeze-blocking fixes | **done** |
+| 4 | v1.0 quality gate | **done** |
+| 5 | Version 1.0.0 and release notes | **done** |
+| 6 | Flake v1.0.0 – freeze and ship | **done** |
+
+## What v1.0.0 delivers
+
+- **Frozen Language Specification**:
+  - The language subset is frozen and covered by the 1.x backward compatibility promise in [docs/stable-subset.md](docs/stable-subset.md). Breaking changes require Flake 2.0.
+  - Spec index [docs/spec.md](docs/spec.md) provides normative pointers across all language subsystems.
+  - Automated AST subset lock audits all 11 files in `selfhost/` and all 62 repository examples.
+- **Pure-Rust Compiler Pipeline**:
+  - End-to-end compilation: source -> AST -> types -> IR -> native machine code (x86-64 Windows PE32+ and Linux ELF64).
+  - Standalone Linux ELF uses direct syscalls without libc or dynamic linkers.
+  - Partial AArch64 Linux target documented with clear boundaries.
+- **First-Class Algebraic Effects & Gradual Ownership**:
+  - Functions declare effect sets (`/ io`, `/ alloc`, `/ conc`, `/ panic`, `/ pure`).
+  - Gradual ownership with `strict`/`owned` functions, move tracking, borrowing (`&`, `&mut`), and non-escaping references.
+- **Structured Concurrency**:
+  - `spawn`, `await`, `nursery { ... }`, `Task[T]`, and scope-bound cancellation primitives.
+  - Thread safety enforced by rejecting borrowed references across task spawn boundaries.
+- **CTFE Lite**:
+  - Compile-time evaluation of `const` items and pure `const fn` with bounded fuel (`CTFE_FUEL = 10_000`) and recursion depth limits.
+- **Automated Self-Rebuilding Bootstrap**:
+  - `flake bootstrap` builds the self-hosted frontend natively, executes the full self-check suite, rebuilds, and verifies 100% bitwise & behavioral identity.
+  - Audit reports written to `target/bootstrap/report.md` and `target/bootstrap/report.json`.
+- **Quality Gate**:
+  - Exhaustive 5-tier verification checklist in [docs/testing.md](docs/testing.md). 100% test pass rate and zero clippy warnings.
+
+## Post-1.0 Roadmap (1.x Series)
+
+Post-1.0 development is governed by the 1.x backwards compatibility promise: all point releases (1.1.0, 1.2.0, etc.) will remain strictly backwards compatible with the frozen 1.0 specification. Future 1.x work includes:
+1. **AArch64 Systems Completeness**: Implementing the native systems API runtime (filesystem, process execution, environment) on AArch64 Linux to elevate it to Tier 1.
+2. **Backend Optimizations**: Peephole optimizations, register allocation heuristics, and binary size reductions in `flake-codegen`.
+3. **Tooling & IDE Support**: Language Server Protocol (LSP) enhancements, code formatting, and extended diagnostics.
+4. **Standard Library Additions**: Additional utility modules within the existing syntax and effect rules.
 
 ## What v0.14.0 delivers
 

@@ -11,7 +11,7 @@ import list
 import result
 
 fn print_usage() {
-    print("Flake Self-Hosted Frontend & Checker v0.14.0")
+    print("Flake Self-Hosted Frontend & Checker v1.0.0")
     print("Usage: flake run selfhost/frontend/main.flk -- [OPTIONS] <FILE...>")
     print("")
     print("Options:")
