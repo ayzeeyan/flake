@@ -49,15 +49,13 @@ Program arguments are the builtin `args()` / `process.program_args()`, passed af
 5. **v0.14**: Bootstrap
 6. **v1.0**: Freeze and ship
 
-## Explicitly out of scope (macros are OUT)
+## Stable-Subset Lock for `selfhost/`
 
-- **Macro systems**: Macro expansion, token trees, hygiene, and procedural AST manipulation are explicitly out of scope.
-- **Compile-time I/O**: CTFE cannot perform disk I/O, network requests, or process execution.
-- **Arbitrary compile-time execution**: Only pure functions and constant expressions can be evaluated at compile time.
-- Trait default method bodies
-- Associated types
-- Specialization or overlapping impls
-- Work-stealing / production async runtime
-- Public package registry
-- New CPU targets beyond x86_64 and AArch64
+Every file in `selfhost/` is audited by an automated AST visitor (`flake-cli/tests/selfhost_subset_lock.rs`) to ensure it remains strictly within the locked stable subset:
+- **Approved Modules**: Only sibling selfhost modules (`span`, `tokens`, `lexer`, `ast`, `parser`, `check`, `scope`, `types`, `effects`, `ownership`, `main`) and approved stdlib modules (`std/fs`, `std/path`, `std/list`, `std/string`, `std/option`, `std/result`, `std/math`, `std/map`, `std/bytes`, `std/channel`, `std/process`) may be imported.
+- **Approved Effects**: Only `io`, `alloc`, `conc`, `panic`, and `pure` are permitted. Any `const fn` must be pure.
+- **Approved Builtins**: Restricted to the approved standard runtime built-in functions.
+- **Banned**: Macros, host-only features, unapproved builtins, foreign calling conventions, and experimental constructs.
+- **Dual-Checker Verification**: Both host `flake check` and the selfhost checker (`--walk selfhost`) must pass with zero errors.
+
 
