@@ -101,11 +101,19 @@ flake build selfhost/frontend/main.flk --target aarch64-linux -o flake-check-sel
 flake run selfhost/frontend/main.flk -- --walk examples
 ```
 
+### 4. Automated Bootstrap Verification (`flake bootstrap`)
+Flake provides an automated bootstrap cycle that compiles the selfhost frontend natively, executes the full self-check suite, and confirms 100% bitwise and behavioral identity:
+```bash
+flake bootstrap
+flake bootstrap -v --keep
+```
+See [docs/bootstrap.md](file:///c:/Users/Izyan/General/.flake/docs/bootstrap.md) for complete architecture, policy, and recovery workflows.
+
 ---
 
 ## Comparison with Rust Host Checker (`flake check`)
 
-The Rust host compiler (`flake-types`) remains the authoritative compiler of record during Phase 3 and Phase 4. The self-hosted checker is tested against a defined golden corpus to guarantee semantic parity:
+The Rust host compiler (`flake-types`) remains the authoritative compiler of record during Phase 3, Phase 4, and Phase 5. The self-hosted checker is tested against a defined golden corpus to guarantee semantic parity:
 
 | Feature | Rust Host (`flake check`) | Self-Hosted (`--check`) | Parity Status |
 | :--- | :--- | :--- | :--- |

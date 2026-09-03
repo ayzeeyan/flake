@@ -1,6 +1,6 @@
 # Flake Roadmap
 
-**Flake v0.13.0 is complete.** Theme: **Native completeness + CTFE lite (Phase 4 of 6 toward v1.0)**.
+**Flake v0.14.0 is complete.** Theme: **Bootstrap (selfhost checks and rebuilds itself) (Phase 5 of 6 toward v1.0)**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
 
@@ -10,8 +10,38 @@ There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire wor
 2. v0.11 Self-hosted lexer + parser            done
 3. v0.12 Self-hosted checker                   done
 4. v0.13 Native completeness + CTFE lite       done
-5. v0.14 Bootstrap                             ← next
-6. v1.0  Freeze and ship
+5. v0.14 Bootstrap                             done
+6. v1.0  Freeze and ship                       ← next
+
+## v0.14.0 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Selfhost stable-subset lock | **done** |
+| 2 | Mandatory self-check of selfhost and corpus | **done** |
+| 3 | flake bootstrap command | **done** |
+| 4 | Bootstrap report and rebuild comparison | **done** |
+| 5 | Bootstrap documentation and policy | **done** |
+| 6 | Flake v0.14.0 complete – bootstrap | **done** |
+
+## What v0.14.0 delivers
+
+- **Stable-Subset Lock for `selfhost/`**:
+  - Closed language subset enforced on all 11 files under `selfhost/frontend/`.
+  - Automated AST-level visitor test (`flake-cli/tests/selfhost_subset_lock.rs`) guarantees no experimental, host-only, or forbidden constructs exist.
+  - Dual-checker verification: both host `flake check` and self-hosted checker accept all selfhost sources.
+- **Stage 1 Mandatory Self-Check**:
+  - The native Stage 0 binary executes `--walk selfhost` (11 files), `--walk examples` (62 files), golden accept corpus (16 files), and golden reject corpus (9 cases).
+  - Clean error reporting with accurate source lines and column spans.
+- **`flake bootstrap` Command**:
+  - One CLI invocation automates the entire Stage 0 -> Stage 1 -> Stage 2 cycle.
+  - Supports `--target`, `--keep`, and `-v` flags.
+- **Reproducible Bootstrap & Deterministic Rebuild**:
+  - Host rebuild of the self-hosted binary produces 100% bitwise identical executables with matching SHA-256 hashes.
+  - Zero compiler drift verified.
+  - Formatted audit reports emitted to `target/bootstrap/report.md` and `target/bootstrap/report.json`.
+- **Comprehensive Bootstrap Documentation**:
+  - `docs/bootstrap.md` details the bootstrap model, non-goals, determinism guarantees, and recovery workflows.
 
 ## v0.13.0 milestones
 
