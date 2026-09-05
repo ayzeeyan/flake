@@ -3,7 +3,7 @@
 use flake_ir::{BinOp, Callee, Const, Function, Inst, IrType, LocalId, Module, UnOp};
 
 use crate::error::CodegenError;
-use crate::regalloc::{Frame, allocate};
+use crate::regalloc::{Frame, Loc, allocate};
 use crate::target::TargetOs;
 use crate::x86::{Asm, Cc, Reg};
 
@@ -323,71 +323,94 @@ fn emit_inst(
                 frame.store(asm, *dest, Reg::Rax);
                 return Ok(());
             }
-            frame.load(asm, *lhs, Reg::Rax);
-            frame.load(asm, *rhs, Reg::R10);
             let floaty = matches!(local_ty(func, *lhs), IrType::Float)
                 || matches!(local_ty(func, *rhs), IrType::Float);
             if floaty {
-                if matches!(local_ty(func, *lhs), IrType::Float) {
-                    asm.movq_xmm_r(0, Reg::Rax);
+                let lhs_is_float = matches!(local_ty(func, *lhs), IrType::Float);
+                let rhs_is_float = matches!(local_ty(func, *rhs), IrType::Float);
+                if lhs_is_float {
+                    frame.load_xmm(asm, *lhs, 0);
                 } else {
+                    frame.load(asm, *lhs, Reg::Rax);
                     asm.cvtsi2sd_xmm(0, Reg::Rax);
                 }
-                if matches!(local_ty(func, *rhs), IrType::Float) {
-                    asm.movq_xmm_r(1, Reg::R10);
-                } else {
-                    asm.cvtsi2sd_xmm(1, Reg::R10);
-                }
                 match op {
-                    BinOp::Add => asm.addsd_xmm0_xmm1(),
-                    BinOp::Sub => asm.subsd_xmm0_xmm1(),
-                    BinOp::Mul => asm.mulsd_xmm0_xmm1(),
-                    BinOp::Div => asm.divsd_xmm0_xmm1(),
-                    BinOp::Rem => {
-                        asm.movq_r_xmm(Reg::R9, 0);
-                        asm.divsd_xmm0_xmm1();
-                        asm.cvttsd2si_r_xmm0(Reg::R11);
-                        asm.cvtsi2sd_xmm0(Reg::R11);
-                        asm.mulsd_xmm0_xmm1();
-                        asm.movq_r_xmm(Reg::R11, 0);
-                        asm.movq_xmm_r(0, Reg::R9);
-                        asm.movq_xmm_r(1, Reg::R11);
-                        asm.subsd_xmm0_xmm1();
+                    BinOp::Add if rhs_is_float && matches!(frame.loc(*rhs), Loc::Slot(_)) => {
+                        let Loc::Slot(d) = frame.loc(*rhs) else { unreachable!() };
+                        asm.addsd_xmm0_rbp(d);
                     }
-                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                        asm.ucomisd_xmm0_xmm1();
-                        let id = next_id(uniq);
-                        let unordered = format!(".fcmp_unordered{id}");
-                        let done = format!(".fcmp_done{id}");
-                        asm.jcc_label(Cc::P, &unordered);
-                        let cc = match op {
-                            BinOp::Eq => Cc::E,
-                            BinOp::Ne => Cc::Ne,
-                            BinOp::Lt => Cc::B,
-                            BinOp::Le => Cc::Be,
-                            BinOp::Gt => Cc::A,
-                            BinOp::Ge => Cc::Ae,
-                            _ => unreachable!(),
-                        };
-                        asm.setcc(cc, Reg::Rax);
-                        asm.movzx_rax_al();
-                        asm.jmp_label(&done);
-                        asm.label(unordered);
-                        if matches!(op, BinOp::Eq | BinOp::Ne) {
-                            asm.mov_ri(Reg::Rax, i64::from(matches!(op, BinOp::Ne)));
+                    BinOp::Sub if rhs_is_float && matches!(frame.loc(*rhs), Loc::Slot(_)) => {
+                        let Loc::Slot(d) = frame.loc(*rhs) else { unreachable!() };
+                        asm.subsd_xmm0_rbp(d);
+                    }
+                    BinOp::Mul if rhs_is_float && matches!(frame.loc(*rhs), Loc::Slot(_)) => {
+                        let Loc::Slot(d) = frame.loc(*rhs) else { unreachable!() };
+                        asm.mulsd_xmm0_rbp(d);
+                    }
+                    BinOp::Div if rhs_is_float && matches!(frame.loc(*rhs), Loc::Slot(_)) => {
+                        let Loc::Slot(d) = frame.loc(*rhs) else { unreachable!() };
+                        asm.divsd_xmm0_rbp(d);
+                    }
+                    _ => {
+                        if rhs_is_float {
+                            frame.load_xmm(asm, *rhs, 1);
                         } else {
-                            emit_runtime_failure(asm, strings, strs, "cannot compare NaN");
+                            frame.load(asm, *rhs, Reg::R10);
+                            asm.cvtsi2sd_xmm(1, Reg::R10);
                         }
-                        asm.label(done);
-                        frame.store(asm, *dest, Reg::Rax);
-                        return Ok(());
+                        match op {
+                            BinOp::Add => asm.addsd_xmm0_xmm1(),
+                            BinOp::Sub => asm.subsd_xmm0_xmm1(),
+                            BinOp::Mul => asm.mulsd_xmm0_xmm1(),
+                            BinOp::Div => asm.divsd_xmm0_xmm1(),
+                            BinOp::Rem => {
+                                asm.movq_r_xmm(Reg::R9, 0);
+                                asm.divsd_xmm0_xmm1();
+                                asm.cvttsd2si_r_xmm0(Reg::R11);
+                                asm.cvtsi2sd_xmm0(Reg::R11);
+                                asm.mulsd_xmm0_xmm1();
+                                asm.movq_r_xmm(Reg::R11, 0);
+                                asm.movq_xmm_r(0, Reg::R9);
+                                asm.movq_xmm_r(1, Reg::R11);
+                                asm.subsd_xmm0_xmm1();
+                            }
+                            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                                asm.ucomisd_xmm0_xmm1();
+                                let id = next_id(uniq);
+                                let unordered = format!(".fcmp_unordered{id}");
+                                let done = format!(".fcmp_done{id}");
+                                asm.jcc_label(Cc::P, &unordered);
+                                let cc = match op {
+                                    BinOp::Eq => Cc::E,
+                                    BinOp::Ne => Cc::Ne,
+                                    BinOp::Lt => Cc::B,
+                                    BinOp::Le => Cc::Be,
+                                    BinOp::Gt => Cc::A,
+                                    BinOp::Ge => Cc::Ae,
+                                    _ => unreachable!(),
+                                };
+                                asm.setcc(cc, Reg::Rax);
+                                asm.movzx_rax_al();
+                                asm.jmp_label(&done);
+                                asm.label(unordered);
+                                if matches!(op, BinOp::Eq | BinOp::Ne) {
+                                    asm.mov_ri(Reg::Rax, i64::from(matches!(op, BinOp::Ne)));
+                                } else {
+                                    emit_runtime_failure(asm, strings, strs, "cannot compare NaN");
+                                }
+                                asm.label(done);
+                                frame.store(asm, *dest, Reg::Rax);
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
                     }
-                    _ => {}
                 }
-                asm.movq_r_xmm(Reg::Rax, 0);
-                frame.store(asm, *dest, Reg::Rax);
+                frame.store_xmm(asm, *dest, 0);
                 return Ok(());
             }
+            frame.load(asm, *lhs, Reg::Rax);
+            frame.load(asm, *rhs, Reg::R10);
             let lhs_ty = local_ty(func, *lhs);
             let rhs_ty = local_ty(func, *rhs);
             if matches!(op, BinOp::Add) {
@@ -940,6 +963,9 @@ fn emit_call(
         Callee::Static(name) if name == "abs" => {
             emit_native_abs(func, frame, dest, args, asm, strings, strs, uniq)
         }
+        Callee::Static(name) if name == "sqrt" => {
+            emit_native_sqrt(func, frame, dest, args, asm)
+        }
         Callee::Static(name) if name == "min" => {
             emit_native_minmax(func, frame, dest, args, asm, strings, strs, uniq, true)
         }
@@ -1405,25 +1431,57 @@ fn emit_native_abs(
     if args.len() != 1 {
         return Err(CodegenError::new("abs() expected 1 argument"));
     }
-    frame.load(asm, args[0], Reg::Rax);
     if matches!(local_ty(func, args[0]), IrType::Float) {
-        // IEEE-754 absolute value is the input with its sign bit cleared.
-        asm.mov_ri(Reg::R10, i64::MAX);
-        asm.and_rr(Reg::Rax, Reg::R10);
-    } else {
-        let id = next_id(uniq);
-        let overflow = format!(".abs_overflow{id}");
-        let done = format!(".abs_done{id}");
-        asm.test_rr(Reg::Rax, Reg::Rax);
-        asm.jcc_label(Cc::Ge, &done);
-        asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]);
-        asm.jcc_label(Cc::O, &overflow);
-        asm.jmp_label(&done);
-        asm.label(overflow);
-        emit_runtime_failure(asm, strings, strs, "integer overflow");
-        asm.label(done);
+        frame.load_xmm(asm, args[0], 0);
+        asm.pcmpeqd_xmm1_xmm1();
+        asm.psrlq_xmm1_imm8(1);
+        asm.andpd_xmm0_xmm1();
+        if let Some(d) = dest {
+            frame.store_xmm(asm, *d, 0);
+        }
+        return Ok(());
     }
+    frame.load(asm, args[0], Reg::Rax);
+    let id = next_id(uniq);
+    let overflow = format!(".abs_overflow{id}");
+    let done = format!(".abs_done{id}");
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Ge, &done);
+    asm.bytes.extend_from_slice(&[0x48, 0xF7, 0xD8]);
+    asm.jcc_label(Cc::O, &overflow);
+    asm.jmp_label(&done);
+    asm.label(overflow);
+    emit_runtime_failure(asm, strings, strs, "integer overflow");
+    asm.label(done);
     store_rax(frame, dest, asm);
+    Ok(())
+}
+
+fn emit_native_sqrt(
+    func: &Function,
+    frame: &Frame,
+    dest: Option<&LocalId>,
+    args: &[LocalId],
+    asm: &mut Asm,
+) -> Result<(), CodegenError> {
+    if args.len() != 1 {
+        return Err(CodegenError::new("sqrt() expected 1 argument"));
+    }
+    if matches!(local_ty(func, args[0]), IrType::Float) {
+        if let Loc::Slot(d) = frame.loc(args[0]) {
+            asm.sqrtsd_xmm0_rbp(d);
+        } else {
+            frame.load_xmm(asm, args[0], 0);
+            asm.sqrtsd_xmm0_xmm0();
+        }
+    } else {
+        frame.load(asm, args[0], Reg::Rax);
+        asm.cvtsi2sd_xmm(0, Reg::Rax);
+        asm.sqrtsd_xmm0_xmm0();
+    }
+    if let Some(d) = dest {
+        frame.store_xmm(asm, *d, 0);
+    }
     Ok(())
 }
 
@@ -1445,27 +1503,35 @@ fn emit_native_minmax(
     let floaty = args
         .iter()
         .all(|arg| matches!(local_ty(func, *arg), IrType::Float));
+    if floaty {
+        frame.load_xmm(asm, args[0], 0);
+        for a in &args[1..] {
+            let id = next_id(uniq);
+            frame.load_xmm(asm, *a, 1);
+            let keep = format!(".mm{id}");
+            asm.ucomisd_xmm0_xmm1();
+            let unordered = format!(".mm_nan{id}");
+            asm.jcc_label(Cc::P, &unordered);
+            asm.jcc_label(if is_min { Cc::Be } else { Cc::Ae }, &keep);
+            asm.movsd_xmm0_xmm1();
+            asm.jmp_label(&keep);
+            asm.label(unordered);
+            emit_runtime_failure(asm, strings, strs, "cannot compare NaN");
+            asm.label(keep);
+        }
+        if let Some(d) = dest {
+            frame.store_xmm(asm, *d, 0);
+        }
+        return Ok(());
+    }
     frame.load(asm, args[0], Reg::Rax);
     for a in &args[1..] {
         let id = next_id(uniq);
         frame.load(asm, *a, Reg::R10);
         let keep = format!(".mm{id}");
-        if floaty {
-            asm.movq_xmm_r(0, Reg::Rax);
-            asm.movq_xmm_r(1, Reg::R10);
-            asm.ucomisd_xmm0_xmm1();
-            let unordered = format!(".mm_nan{id}");
-            asm.jcc_label(Cc::P, &unordered);
-            asm.jcc_label(if is_min { Cc::Be } else { Cc::Ae }, &keep);
-            asm.mov_rr(Reg::Rax, Reg::R10);
-            asm.jmp_label(&keep);
-            asm.label(unordered);
-            emit_runtime_failure(asm, strings, strs, "cannot compare NaN");
-        } else {
-            asm.cmp_rr(Reg::Rax, Reg::R10);
-            asm.jcc_label(if is_min { Cc::Le } else { Cc::Ge }, &keep);
-            asm.mov_rr(Reg::Rax, Reg::R10);
-        }
+        asm.cmp_rr(Reg::Rax, Reg::R10);
+        asm.jcc_label(if is_min { Cc::Le } else { Cc::Ge }, &keep);
+        asm.mov_rr(Reg::Rax, Reg::R10);
         asm.label(keep);
     }
     store_rax(frame, dest, asm);

@@ -55,6 +55,20 @@ impl Frame {
             Loc::Slot(d) => asm.mov_mr_rbp(d, src),
         }
     }
+
+    pub fn load_xmm(&self, asm: &mut crate::x86::Asm, id: LocalId, xmm: u8) {
+        match self.loc(id) {
+            Loc::Reg(r) => asm.movq_xmm_r(xmm, r),
+            Loc::Slot(d) => asm.movsd_xmm_rbp(xmm, d),
+        }
+    }
+
+    pub fn store_xmm(&self, asm: &mut crate::x86::Asm, id: LocalId, xmm: u8) {
+        match self.loc(id) {
+            Loc::Reg(r) => asm.movq_r_xmm(r, xmm),
+            Loc::Slot(d) => asm.movsd_rbp_xmm(d, xmm),
+        }
+    }
 }
 
 /// Assign profitable, non-interfering locals to callee-saved registers.

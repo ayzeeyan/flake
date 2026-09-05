@@ -274,6 +274,8 @@ fn emit_alloc(
     asm.label("rt_alloc");
     prologue(asm, 48);
     asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.mov_mr_rbp(-16, Reg::Rax);
     asm.cmp_ri(Reg::Rcx, 16);
     asm.jcc_label(Cc::Le, ".al_b0");
     asm.cmp_ri(Reg::Rcx, 24);
@@ -971,11 +973,6 @@ fn emit_list_push(asm: &mut Asm) {
     asm.shl_ri(Reg::Rcx, 3);
     asm.mov_rm_rbp(Reg::Rax, -32);
     copy_bytes(asm, ".lpcp");
-    asm.mov_rm_rbp(Reg::Rdx, -8);
-    asm.mov_rm(Reg::Rcx, Reg::Rdx, 16);
-    asm.mov_rm(Reg::Rdx, Reg::Rdx, 8);
-    asm.shl_ri(Reg::Rdx, 3);
-    asm.call_label("rt_free");
     asm.mov_rm_rbp(Reg::Rcx, -8);
     asm.mov_rm_rbp(Reg::Rax, -32);
     asm.mov_mr(Reg::Rcx, 16, Reg::Rax);

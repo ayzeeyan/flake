@@ -2,16 +2,7 @@
 // Models the orbits of the Jovian planets using a symplectic integrator.
 
 fn sqrt_approx(val: Float) -> Float {
-    if val <= 0.0 {
-        return 0.0
-    }
-    var x = val
-    var i = 0
-    while i < 20 {
-        x = 0.5 * (x + val / x)
-        i = i + 1
-    }
-    x
+    sqrt(val)
 }
 
 fn offset_momentum(vx: [Float], vy: [Float], vz: [Float], mass: [Float], solar_mass: Float) {

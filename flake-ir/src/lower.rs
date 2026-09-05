@@ -2433,6 +2433,7 @@ fn is_native_name(name: &str) -> bool {
             | "read_file"
             | "write_file"
             | "abs"
+            | "sqrt"
             | "min"
             | "max"
             | "range"
@@ -2490,6 +2491,9 @@ fn native_result_ty(name: &str) -> IrType {
 }
 
 fn native_call_result_ty(b: &Builder, name: &str, args: &[LocalId]) -> IrType {
+    if name == "sqrt" {
+        return IrType::Float;
+    }
     if matches!(name, "abs" | "min" | "max") {
         return args
             .first()

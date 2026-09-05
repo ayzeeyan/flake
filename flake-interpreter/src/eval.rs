@@ -198,6 +198,7 @@ fn install_builtins(env: &Env) {
         NativeFn::Assert,
         NativeFn::ReadFile,
         NativeFn::Abs,
+        NativeFn::Sqrt,
         NativeFn::Min,
         NativeFn::Max,
         NativeFn::Range,
@@ -1219,6 +1220,18 @@ impl<'io> Interpreter<'io> {
                     other => Err(RuntimeError::new(
                         span,
                         format!("abs() expected Int or Float, found {}", other.type_name()),
+                    )
+                    .into()),
+                }
+            }
+            NativeFn::Sqrt => {
+                expect_arity("sqrt", args, 1, span)?;
+                match &args[0] {
+                    Value::Float(f) => Ok(Value::Float(f.sqrt())),
+                    Value::Int(n) => Ok(Value::Float((*n as f64).sqrt())),
+                    other => Err(RuntimeError::new(
+                        span,
+                        format!("sqrt() expected Float or Int, found {}", other.type_name()),
                     )
                     .into()),
                 }

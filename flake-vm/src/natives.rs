@@ -136,6 +136,17 @@ pub fn call_native(
                 )),
             }
         }
+        Native::Sqrt => {
+            expect_arity("sqrt", args, 1)?;
+            match &args[0] {
+                Value::Float(f) => Ok(Value::Float(f.sqrt())),
+                Value::Int(n) => Ok(Value::Float((*n as f64).sqrt())),
+                other => Err(VmError::new(
+                    span,
+                    format!("sqrt() expected Float or Int, found {}", other.type_name()),
+                )),
+            }
+        }
         Native::Min | Native::Max => {
             if args.len() < 2 {
                 return Err(VmError::new(

@@ -41,16 +41,7 @@ fn eval_ata_v(v: [Float], out: [Float], tmp: [Float], n: Int) {
 }
 
 fn sqrt_approx(val: Float) -> Float {
-    if val <= 0.0 {
-        return 0.0
-    }
-    var x = val
-    var i = 0
-    while i < 40 {
-        x = 0.5 * (x + val / x)
-        i = i + 1
-    }
-    x
+    sqrt(val)
 }
 
 fn main() / io + alloc {

@@ -122,6 +122,7 @@ pub enum Native {
     Assert,
     ReadFile,
     Abs,
+    Sqrt,
     Min,
     Max,
     Range,
@@ -159,7 +160,7 @@ pub enum Native {
 }
 
 impl Native {
-    pub fn all() -> [Native; 45] {
+    pub fn all() -> [Native; 46] {
         [
             Native::Print,
             Native::Len,
@@ -172,6 +173,7 @@ impl Native {
             Native::Assert,
             Native::ReadFile,
             Native::Abs,
+            Native::Sqrt,
             Native::Min,
             Native::Max,
             Native::Range,
@@ -223,6 +225,7 @@ impl Native {
             Self::Assert => "assert",
             Self::ReadFile => "read_file",
             Self::Abs => "abs",
+            Self::Sqrt => "sqrt",
             Self::Min => "min",
             Self::Max => "max",
             Self::Range => "range",

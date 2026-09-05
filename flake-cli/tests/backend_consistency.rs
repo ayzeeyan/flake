@@ -134,6 +134,8 @@ fn main() {
             r#"
 fn main() {
     print(abs(-1.25))
+    print(sqrt(16.0))
+    print(sqrt(2.25))
     print(min(4.5, -2.25, 3.0))
     print(max(-4.5, -2.25, -3.0))
     print(1 + 2.5)
@@ -145,7 +147,7 @@ fn main() {
     print(int(9.75))
 }
 "#,
-            "1.25\n-2.25\n-2.25\n3.5\n1.5\ntrue\nfalse true\n3.5\n9\n",
+            "1.25\n4\n1.5\n-2.25\n-2.25\n3.5\n1.5\ntrue\nfalse true\n3.5\n9\n",
         ),
         (
             "strings-and-prelude",

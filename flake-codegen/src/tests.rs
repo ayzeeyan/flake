@@ -262,10 +262,12 @@ fn main() {
     print(abs(-1.25))
     print(min(4.5, -2.25, 3.0))
     print(max(-4.5, -2.25, -3.0))
+    print(sqrt(16.0))
+    print(sqrt(2.25))
 }
 "#))
     .expect("abs min max");
-    assert_eq!(out, "7\n1\n4\n1.25\n-2.25\n-2.25\n");
+    assert_eq!(out, "7\n1\n4\n1.25\n-2.25\n-2.25\n4\n1.5\n");
 }
 
 #[test]

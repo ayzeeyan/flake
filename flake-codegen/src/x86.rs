@@ -405,6 +405,102 @@ impl Asm {
         self.bytes.push(0b11_000_000 | ((dst.id() & 7) << 3));
     }
 
+    /// `movsd xmm{k}, [rbp+disp]`
+    pub fn movsd_xmm_rbp(&mut self, xmm: u8, disp: i32) {
+        self.bytes.push(0xF2);
+        if xmm >= 8 {
+            self.bytes.push(0x44);
+        }
+        self.bytes.push(0x0F);
+        self.bytes.push(0x10);
+        self.modrm_disp_xmm(xmm, Reg::Rbp, disp);
+    }
+
+    /// `movsd [rbp+disp], xmm{k}`
+    pub fn movsd_rbp_xmm(&mut self, disp: i32, xmm: u8) {
+        self.bytes.push(0xF2);
+        if xmm >= 8 {
+            self.bytes.push(0x44);
+        }
+        self.bytes.push(0x0F);
+        self.bytes.push(0x11);
+        self.modrm_disp_xmm(xmm, Reg::Rbp, disp);
+    }
+
+    /// `movsd xmm0, xmm1`
+    pub fn movsd_xmm0_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x10, 0xC1]);
+    }
+
+    /// `addsd xmm0, [rbp+disp]`
+    pub fn addsd_xmm0_rbp(&mut self, disp: i32) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x58]);
+        self.modrm_disp_xmm(0, Reg::Rbp, disp);
+    }
+
+    /// `subsd xmm0, [rbp+disp]`
+    pub fn subsd_xmm0_rbp(&mut self, disp: i32) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x5C]);
+        self.modrm_disp_xmm(0, Reg::Rbp, disp);
+    }
+
+    /// `mulsd xmm0, [rbp+disp]`
+    pub fn mulsd_xmm0_rbp(&mut self, disp: i32) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x59]);
+        self.modrm_disp_xmm(0, Reg::Rbp, disp);
+    }
+
+    /// `divsd xmm0, [rbp+disp]`
+    pub fn divsd_xmm0_rbp(&mut self, disp: i32) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x5E]);
+        self.modrm_disp_xmm(0, Reg::Rbp, disp);
+    }
+
+    /// `ucomisd xmm0, [rbp+disp]`
+    #[allow(dead_code)]
+    pub fn ucomisd_xmm0_rbp(&mut self, disp: i32) {
+        self.bytes.extend_from_slice(&[0x66, 0x0F, 0x2E]);
+        self.modrm_disp_xmm(0, Reg::Rbp, disp);
+    }
+
+    /// `sqrtsd xmm0, xmm0`
+    pub fn sqrtsd_xmm0_xmm0(&mut self) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x51, 0xC0]);
+    }
+
+    /// `sqrtsd xmm0, [rbp+disp]`
+    pub fn sqrtsd_xmm0_rbp(&mut self, disp: i32) {
+        self.bytes.extend_from_slice(&[0xF2, 0x0F, 0x51]);
+        self.modrm_disp_xmm(0, Reg::Rbp, disp);
+    }
+
+    /// `pcmpeqd xmm1, xmm1`
+    pub fn pcmpeqd_xmm1_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0x66, 0x0F, 0x76, 0xC9]);
+    }
+
+    /// `psrlq xmm1, imm8`
+    pub fn psrlq_xmm1_imm8(&mut self, imm: u8) {
+        self.bytes.extend_from_slice(&[0x66, 0x0F, 0x73, 0xD1, imm]);
+    }
+
+    /// `andpd xmm0, xmm1`
+    pub fn andpd_xmm0_xmm1(&mut self) {
+        self.bytes.extend_from_slice(&[0x66, 0x0F, 0x54, 0xC1]);
+    }
+
+    fn modrm_disp_xmm(&mut self, xmm: u8, rm: Reg, disp: i32) {
+        if (-128..=127).contains(&disp) {
+            let byte = 0b01_000_000 | ((xmm & 7) << 3) | (rm.id() & 7);
+            self.bytes.push(byte);
+            self.bytes.push(disp as i8 as u8);
+        } else {
+            let byte = 0b10_000_000 | ((xmm & 7) << 3) | (rm.id() & 7);
+            self.bytes.push(byte);
+            self.bytes.extend_from_slice(&disp.to_le_bytes());
+        }
+    }
+
     /// `call qword ptr [rip+rel32]` — IAT import. `disp` is patched later as absolute RVA diff.
     pub fn call_indirect_rip(&mut self) -> usize {
         self.bytes.extend_from_slice(&[0xFF, 0x15]);

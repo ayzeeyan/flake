@@ -384,6 +384,8 @@ impl Checker {
         self.functions
             .insert("abs".into(), mk(vec![Type::Dyn], Type::Dyn, &[]));
         self.functions
+            .insert("sqrt".into(), mk(vec![Type::Dyn], Type::Float, &[]));
+        self.functions
             .insert("min".into(), mk(vec![Type::Dyn, Type::Dyn], Type::Dyn, &[]));
         self.functions
             .insert("max".into(), mk(vec![Type::Dyn, Type::Dyn], Type::Dyn, &[]));
@@ -530,6 +532,7 @@ impl Checker {
                 "print",
                 "assert",
                 "abs",
+                "sqrt",
                 "min",
                 "max",
                 "range",
@@ -3151,6 +3154,11 @@ impl Checker {
             "abs" => {
                 self.check_arity_range(name, args.len(), 1, Some(1), span)?;
                 self.check_numeric_arg(name, &args[0])
+            }
+            "sqrt" => {
+                self.check_arity_range(name, args.len(), 1, Some(1), span)?;
+                self.check_numeric_arg(name, &args[0])?;
+                Ok(Type::Float)
             }
             "min" | "max" => {
                 self.check_arity_range(name, args.len(), 2, None, span)?;
