@@ -586,7 +586,7 @@ fn emit_inst(
         }
         Inst::MakeList { dest, items } => {
             let n = items.len() as i64;
-            let cap = n.max(16);
+            let cap = n.max(4);
             asm.mov_ri(Reg::Rcx, 24);
             asm.call_label("rt_alloc");
             let spill = frame.spill;
@@ -1735,6 +1735,37 @@ fn emit_get_index(
             asm.call_label("rt_str_index");
             frame.store(asm, *dest, Reg::Rax);
         }
+        IrType::List(_) => {
+            let id = next_id(uniq);
+            let idxpos = format!(".lidxpos{id}");
+            let oob = format!(".lidx_oob{id}");
+            let ok = format!(".lidx_ok{id}");
+
+            frame.load(asm, *obj, Reg::Rax);
+            frame.load(asm, *index, Reg::R10);
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::Ge, &idxpos);
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.add_rr(Reg::R10, Reg::R11);
+            asm.label(&idxpos);
+
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::L, &oob);
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::Ge, &oob);
+            asm.jmp_label(&ok);
+
+            asm.label(&oob);
+            emit_runtime_failure(asm, strings, strs, "index out of bounds");
+
+            asm.label(&ok);
+            asm.shl_ri(Reg::R10, 3);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 16);
+            asm.add_rr(Reg::Rax, Reg::R10);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 0);
+            frame.store(asm, *dest, Reg::Rax);
+        }
         IrType::Dyn | IrType::Unknown if is_string_ty(&idx_ty) => {
             frame.load(asm, *obj, Reg::Rcx);
             frame.load(asm, *index, Reg::Rdx);
@@ -1820,6 +1851,37 @@ fn emit_set_index(
             asm.mov_ri(Reg::R9, 1);
             asm.call_label("rt_map_set");
             frame.store(asm, *obj, Reg::Rax);
+        }
+        IrType::List(_) => {
+            let id = next_id(uniq);
+            let idxpos = format!(".lsidxpos{id}");
+            let oob = format!(".lsidx_oob{id}");
+            let ok = format!(".lsidx_ok{id}");
+
+            frame.load(asm, *obj, Reg::Rax);
+            frame.load(asm, *index, Reg::R10);
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::Ge, &idxpos);
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.add_rr(Reg::R10, Reg::R11);
+            asm.label(&idxpos);
+
+            asm.test_rr(Reg::R10, Reg::R10);
+            asm.jcc_label(Cc::L, &oob);
+            asm.mov_rm(Reg::R11, Reg::Rax, 0);
+            asm.cmp_rr(Reg::R10, Reg::R11);
+            asm.jcc_label(Cc::Ge, &oob);
+            asm.jmp_label(&ok);
+
+            asm.label(&oob);
+            emit_runtime_failure(asm, strings, strs, "index out of bounds");
+
+            asm.label(&ok);
+            asm.shl_ri(Reg::R10, 3);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 16);
+            asm.add_rr(Reg::Rax, Reg::R10);
+            frame.load(asm, *value, Reg::R11);
+            asm.mov_mr(Reg::Rax, 0, Reg::R11);
         }
         _ => {
             let id = next_id(uniq);
