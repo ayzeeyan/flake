@@ -218,6 +218,13 @@ impl Asm {
         self.bytes.push(imm);
     }
 
+    pub fn sar_ri(&mut self, dst: Reg, imm: u8) {
+        self.rex_wb(dst);
+        self.bytes.push(0xC1);
+        self.modrm_rr_op(7, dst);
+        self.bytes.push(imm);
+    }
+
     pub fn add_rr(&mut self, dst: Reg, src: Reg) {
         self.rex_wr(src, dst);
         self.bytes.push(0x01);

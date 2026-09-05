@@ -661,6 +661,57 @@ fn emit_inst(
             }
             frame.store(asm, *dest, Reg::Rax);
         }
+        Inst::MakeEnum {
+            dest,
+            tag,
+            fields,
+            ..
+        } => {
+            if fields.is_empty() {
+                // Immediate sentinel: (tag << 1) | 1
+                let sentinel = (tag << 1) | 1;
+                asm.mov_ri(Reg::Rax, sentinel);
+                frame.store(asm, *dest, Reg::Rax);
+            } else {
+                // Contiguous struct layout: { tag, fields... }
+                let total_words = (1 + fields.len()) as i64;
+                asm.mov_ri(Reg::Rcx, 8 * total_words);
+                asm.call_label("rt_alloc");
+                let spill = frame.spill;
+                asm.mov_mr_rbp(spill, Reg::Rax);
+                asm.mov_ri(Reg::R10, *tag);
+                asm.mov_mr(Reg::Rax, 0, Reg::R10);
+                for (i, field_id) in fields.iter().enumerate() {
+                    frame.load(asm, *field_id, Reg::R10);
+                    asm.mov_rm_rbp(Reg::Rax, spill);
+                    asm.mov_mr(Reg::Rax, 8 * (i as i32 + 1), Reg::R10);
+                }
+                asm.mov_rm_rbp(Reg::Rax, spill);
+                frame.store(asm, *dest, Reg::Rax);
+            }
+        }
+        Inst::GetEnumTag { dest, obj } => {
+            let id = next_id(uniq);
+            let heap = format!(".etag_heap{id}");
+            let done = format!(".etag_done{id}");
+            frame.load(asm, *obj, Reg::Rax);
+            asm.mov_ri(Reg::R10, 1);
+            asm.test_rr(Reg::Rax, Reg::R10);
+            asm.jcc_label(Cc::Z, &heap);
+            // Immediate sentinel: tag = rax >> 1
+            asm.sar_ri(Reg::Rax, 1);
+            asm.jmp_label(&done);
+            asm.label(heap);
+            // Contiguous payload block: tag is at [rax + 0]
+            asm.mov_rm(Reg::Rax, Reg::Rax, 0);
+            asm.label(done);
+            frame.store(asm, *dest, Reg::Rax);
+        }
+        Inst::GetEnumField { dest, obj, index } => {
+            frame.load(asm, *obj, Reg::Rax);
+            asm.mov_rm(Reg::Rax, Reg::Rax, 8 * (*index as i32 + 1));
+            frame.store(asm, *dest, Reg::Rax);
+        }
         Inst::GetField { dest, obj, field } => {
             let off = field_offset(module, func, *obj, field)?;
             frame.load(asm, *obj, Reg::Rax);

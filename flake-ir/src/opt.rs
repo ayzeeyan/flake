@@ -68,6 +68,9 @@ fn count_defs(func: &Function) -> HashMap<LocalId, usize> {
                 | Inst::MakeList { dest, .. }
                 | Inst::MakeMap { dest, .. }
                 | Inst::MakeStruct { dest, .. }
+                | Inst::MakeEnum { dest, .. }
+                | Inst::GetEnumTag { dest, .. }
+                | Inst::GetEnumField { dest, .. }
                 | Inst::MakeRange { dest, .. }
                 | Inst::MakeIter { dest, .. }
                 | Inst::Concat { dest, .. }
@@ -641,6 +644,14 @@ fn replace_uses(inst: &mut Inst, copies: &HashMap<LocalId, LocalId>) -> bool {
                 resolve(v);
             }
         }
+        Inst::MakeEnum { fields, .. } => {
+            for v in fields {
+                resolve(v);
+            }
+        }
+        Inst::GetEnumTag { obj, .. } | Inst::GetEnumField { obj, .. } => {
+            resolve(obj);
+        }
         Inst::MakeRange { start, end, .. } => {
             resolve(start);
             resolve(end);
@@ -701,6 +712,9 @@ fn pure_dest(inst: &Inst) -> Option<LocalId> {
         | Inst::Binary { dest, .. }
         | Inst::Unary { dest, .. }
         | Inst::MakeStruct { dest, .. }
+        | Inst::MakeEnum { dest, .. }
+        | Inst::GetEnumTag { dest, .. }
+        | Inst::GetEnumField { dest, .. }
         | Inst::MakeList { dest, .. }
         | Inst::GetField { dest, .. }
         | Inst::GetIndex { dest, .. }
@@ -762,6 +776,14 @@ fn collect_uses(inst: &Inst, uses: &mut HashSet<LocalId>) {
             for (_, v) in fields {
                 uses.insert(*v);
             }
+        }
+        Inst::MakeEnum { fields, .. } => {
+            for v in fields {
+                uses.insert(*v);
+            }
+        }
+        Inst::GetEnumTag { obj, .. } | Inst::GetEnumField { obj, .. } => {
+            uses.insert(*obj);
         }
         Inst::MakeRange { start, end, .. } => {
             uses.insert(*start);
@@ -871,6 +893,20 @@ fn remap_inst_locals(inst: &mut Inst, map: &HashMap<LocalId, LocalId>) {
             for (_, f) in fields {
                 remap_local(f, map);
             }
+        }
+        Inst::MakeEnum { dest, fields, .. } => {
+            remap_local(dest, map);
+            for f in fields {
+                remap_local(f, map);
+            }
+        }
+        Inst::GetEnumTag { dest, obj } => {
+            remap_local(dest, map);
+            remap_local(obj, map);
+        }
+        Inst::GetEnumField { dest, obj, .. } => {
+            remap_local(dest, map);
+            remap_local(obj, map);
         }
         Inst::MakeRange { dest, start, end } => {
             remap_local(dest, map);

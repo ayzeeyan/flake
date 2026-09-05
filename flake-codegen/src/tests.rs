@@ -546,6 +546,35 @@ fn native_enums_and_match() {
 }
 
 #[test]
+fn native_compact_enums_and_tree_layout() {
+    let out = run_native(&src(r#"
+enum Tree {
+    Empty,
+    Node(Tree, Tree, Int),
+}
+fn make(d: Int) -> Tree {
+    if d <= 0 {
+        Tree.Node(Tree.Empty, Tree.Empty, 1)
+    } else {
+        Tree.Node(make(d - 1), make(d - 1), d)
+    }
+}
+fn count(t: Tree) -> Int {
+    match t {
+        Tree.Empty => 0,
+        Tree.Node(l, r, v) => v + count(l) + count(r),
+    }
+}
+fn main() {
+    let t = make(3)
+    print(count(t))
+}
+"#))
+    .expect("compact enums native");
+    assert_eq!(out, "19\n");
+}
+
+#[test]
 fn native_result_try_and_literal_patterns() {
     let out = run_native(&src(r#"
 enum Result { Ok(Int) Err(String) }

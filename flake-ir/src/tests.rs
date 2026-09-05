@@ -113,7 +113,7 @@ fn f(c: Color) -> Int {
     }
 }
 "#);
-    assert!(dump.contains("[%"), "{dump}");
+    assert!(dump.contains("enum_tag %"), "{dump}");
     assert!(dump.contains("br %"), "{dump}");
 }
 

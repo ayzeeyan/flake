@@ -415,6 +415,18 @@ pub fn defs_uses(inst: &Inst) -> (Vec<LocalId>, Vec<LocalId>) {
             defs.push(*dest);
             uses.extend(fields.iter().map(|(_, id)| *id));
         }
+        Inst::MakeEnum { dest, fields, .. } => {
+            defs.push(*dest);
+            uses.extend(fields.iter().copied());
+        }
+        Inst::GetEnumTag { dest, obj } => {
+            defs.push(*dest);
+            uses.push(*obj);
+        }
+        Inst::GetEnumField { dest, obj, .. } => {
+            defs.push(*dest);
+            uses.push(*obj);
+        }
         Inst::MakeRange { dest, start, end } => {
             defs.push(*dest);
             uses.push(*start);

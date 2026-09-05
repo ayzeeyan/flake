@@ -1532,10 +1532,14 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                         .map(|tag| (ename, tag))
                 });
                 if let Some((ename, tag)) = found {
-                    let mut items = vec![b.const_val(Const::Int(tag as i64), IrType::Int)];
-                    items.extend(arg_ids);
-                    let dest = b.alloc(None, IrType::Struct(ename));
-                    b.emit(Inst::MakeList { dest, items });
+                    let dest = b.alloc(None, IrType::Struct(ename.clone()));
+                    b.emit(Inst::MakeEnum {
+                        dest,
+                        enum_name: ename,
+                        variant_name: field.name.clone(),
+                        tag: tag as i64,
+                        fields: arg_ids,
+                    });
                     return dest;
                 }
                 if let Expr::Ident(id) = target.as_ref() {
@@ -1647,12 +1651,13 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                             .map(|tag| (ename, tag))
                     });
                     if let Some((ename, tag)) = found {
-                        let mut items = vec![b.const_val(Const::Int(tag as i64), IrType::Int)];
-                        items.extend(arg_ids);
                         let val_dest = b.alloc(None, IrType::Struct(ename.clone()));
-                        b.emit(Inst::MakeList {
+                        b.emit(Inst::MakeEnum {
                             dest: val_dest,
-                            items,
+                            enum_name: ename.clone(),
+                            variant_name: field.name.clone(),
+                            tag: tag as i64,
+                            fields: arg_ids,
                         });
                         let dest = b.alloc(None, IrType::Task(Box::new(IrType::Struct(ename))));
                         b.emit(Inst::Spawn {
@@ -1816,11 +1821,13 @@ fn lower_expr(b: &mut Builder, expr: &Expr) -> LocalId {
                     .map(|tag| (ename, tag))
             });
             if let Some((ename, tag)) = found {
-                let t = b.const_val(Const::Int(tag as i64), IrType::Int);
-                let dest = b.alloc(None, IrType::Struct(ename));
-                b.emit(Inst::MakeList {
+                let dest = b.alloc(None, IrType::Struct(ename.clone()));
+                b.emit(Inst::MakeEnum {
                     dest,
-                    items: vec![t],
+                    enum_name: ename,
+                    variant_name: field.name.clone(),
+                    tag: tag as i64,
+                    fields: vec![],
                 });
                 return dest;
             }
@@ -1917,12 +1924,10 @@ fn lower_pattern_test(
                     .values()
                     .find_map(|vs| vs.iter().position(|(n, _)| n == &id.name))
                     .unwrap_or(0) as i64;
-                let zero = b.const_val(Const::Int(0), IrType::Int);
                 let tag = b.alloc(None, IrType::Int);
-                b.emit(Inst::GetIndex {
+                b.emit(Inst::GetEnumTag {
                     dest: tag,
                     obj: val,
-                    index: zero,
                 });
                 let want = b.const_val(Const::Int(tag_val), IrType::Int);
                 let cmp = b.alloc(None, IrType::Bool);
@@ -2011,12 +2016,10 @@ fn lower_pattern_test(
             ty,
             ..
         } => {
-            let zero = b.const_val(Const::Int(0), IrType::Int);
             let tag = b.alloc(None, IrType::Int);
-            b.emit(Inst::GetIndex {
+            b.emit(Inst::GetEnumTag {
                 dest: tag,
                 obj: val,
-                index: zero,
             });
             let (tag_val, field_types) = if let Some(t) = ty {
                 b.enums
@@ -2059,12 +2062,11 @@ fn lower_pattern_test(
 
             for (fi, field_pat) in fields.iter().enumerate() {
                 let field_ty = field_types.get(fi).cloned().unwrap_or(IrType::Dyn);
-                let idx = b.const_val(Const::Int((fi + 1) as i64), IrType::Int);
                 let f_val = b.alloc(None, field_ty);
-                b.emit(Inst::GetIndex {
+                b.emit(Inst::GetEnumField {
                     dest: f_val,
                     obj: val,
-                    index: idx,
+                    index: fi,
                 });
                 lower_pattern_test(b, f_val, field_pat, fail_block);
             }
@@ -2087,12 +2089,10 @@ fn lower_try(b: &mut Builder, expr: &Expr) -> LocalId {
         .cloned()
         .unwrap_or(IrType::Dyn);
     let dest = b.alloc(None, dest_ty);
-    let tag_index = b.const_val(Const::Int(0), IrType::Int);
     let tag = b.alloc(None, IrType::Int);
-    b.emit(Inst::GetIndex {
+    b.emit(Inst::GetEnumTag {
         dest: tag,
         obj: src,
-        index: tag_index,
     });
     let ok_tag = b.const_val(Const::Int(0), IrType::Int);
     let is_ok = b.alloc(None, IrType::Bool);
@@ -2112,11 +2112,10 @@ fn lower_try(b: &mut Builder, expr: &Expr) -> LocalId {
     });
 
     b.switch(ok_block);
-    let value_index = b.const_val(Const::Int(1), IrType::Int);
-    b.emit(Inst::GetIndex {
+    b.emit(Inst::GetEnumField {
         dest,
         obj: src,
-        index: value_index,
+        index: 0,
     });
     b.emit(Inst::Jump { target: exit });
 

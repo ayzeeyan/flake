@@ -166,6 +166,22 @@ pub enum Inst {
         name: String,
         fields: Vec<(String, LocalId)>,
     },
+    MakeEnum {
+        dest: LocalId,
+        enum_name: String,
+        variant_name: String,
+        tag: i64,
+        fields: Vec<LocalId>,
+    },
+    GetEnumTag {
+        dest: LocalId,
+        obj: LocalId,
+    },
+    GetEnumField {
+        dest: LocalId,
+        obj: LocalId,
+        index: usize,
+    },
     MakeRange {
         dest: LocalId,
         start: LocalId,

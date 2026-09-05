@@ -145,6 +145,16 @@ fn format_inst(inst: &Inst) -> String {
                 .collect();
             format!("%{} = struct {name} {{ {} }}", dest.0, fields.join(", "))
         }
+        Inst::MakeEnum { dest, enum_name, variant_name, tag, fields } => {
+            let inner = fields.iter().map(|f| format!("%{}", f.0)).collect::<Vec<_>>().join(", ");
+            format!("%{} = enum {}.{}#{} [{}]", dest.0, enum_name, variant_name, tag, inner)
+        }
+        Inst::GetEnumTag { dest, obj } => {
+            format!("%{} = enum_tag %{}", dest.0, obj.0)
+        }
+        Inst::GetEnumField { dest, obj, index } => {
+            format!("%{} = enum_field %{}.{}", dest.0, obj.0, index)
+        }
         Inst::MakeRange { dest, start, end } => {
             format!("%{} = range %{} .. %{}", dest.0, start.0, end.0)
         }
