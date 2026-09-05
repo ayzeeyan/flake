@@ -51,8 +51,9 @@ between:
 
 ## Status
 
-**Flake v1.0.0 is frozen and shipped.** Theme: **Freeze and ship (Phase 6 of 6 complete)**.
+**Flake v1.1.0 is released.** Theme: **Native speed and memory — make the 1.0 language competitive**.
 
+- **Competitive Native Performance & Memory**: >44× lower peak memory in tree allocations, up to 3.6× speedups in numerical loops, segregated free-list recycling, unboxed nullary enum sentinels, direct SSE2 float math, and dense list indexing.
 - **Frozen Language Specification**: Normative [v1.0 stable subset contract](docs/stable-subset.md) with guaranteed 1.x backward compatibility.
 - **Spec Index**: [docs/spec.md](docs/spec.md) provides authoritative normative pointers across all language subsystems.
 - **Pure-Rust Compiler Pipeline**: Direct machine code generation for Windows PE (`x86_64-windows`) and standalone Linux ELF (`x86_64-linux` with direct syscall runtime, zero libc dependency). AArch64 Linux ELF partial target. Zero LLVM, Cranelift, or C transpilation.
@@ -61,7 +62,7 @@ between:
 - **Automated Bootstrap Loop**: `flake bootstrap` executes Stage 0 build -> Stage 1 self-check -> Stage 2 rebuild, verifying 100% bitwise and behavioral identity.
 - **Tri-Backend Consistency**: Tree-walking Interpreter, Bytecode VM, and Native machine code agree 100% on the entire frozen subset.
 
-See [ROADMAP.md](ROADMAP.md) for roadmap history, [docs/spec.md](docs/spec.md) for the specification index, and [docs/release-notes-v1.0.0.md](docs/release-notes-v1.0.0.md) for the complete 1.0.0 release notes.
+See [ROADMAP.md](ROADMAP.md) for roadmap history, [docs/spec.md](docs/spec.md) for the specification index, and [docs/release-notes-v1.1.0.md](docs/release-notes-v1.1.0.md) for the complete 1.1.0 release notes.
 
 ## Build and run
 

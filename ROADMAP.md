@@ -1,8 +1,27 @@
 # Flake Roadmap
 
-**Flake v1.0.0 is frozen and shipped.** Theme: **Freeze and ship (Phase 6 of 6 complete)**.
+**Flake v1.1.0 is complete.** Theme: **Native speed and memory — make the 1.0 language competitive**.
 
 There is no LLVM, Cranelift, or C transpilation. Pure Rust across the entire workspace.
+
+## v1.1.0 milestones
+
+| # | Milestone | Status |
+| --- | --- | --- |
+| 1 | Benchmark reproduction suite and `--stats` runtime instrumentation | **done** |
+| 2 | List indexing specialization and reduced capacity padding | **done** |
+| 3 | Segregated free-list / slab allocator recycling | **done** |
+| 4 | Native in-line float operations and SSE2 math | **done** |
+| 5 | Compact enum representations (unboxed sentinels & flat structs) | **done** |
+| 6 | Flake v1.1.0 – release notes, verification, and ship | **done** |
+
+## What v1.1.0 delivers
+
+- **>44× Memory Footprint Reduction**: Peak RSS in `binarytrees` dropped from **924.58 MB** down to **20.59 MB** via segregated free-list bucket recycling and unboxed nullary enum sentinels.
+- **Up to 3.6× Speedups**: `nbody` reduced from 2.088s to 0.570s via specialized list indexing and in-line SSE2 float math (`sqrtsd`, `andpd`).
+- **Unboxed Nullary Enums & Flat Struct Layout**: Nullary variants (`Tree.Empty`) use immediate tagged sentinels (0 heap allocations). Payload variants (`Tree.Node`) use contiguous `{tag, fields...}` structs.
+- **Builtin Float Math**: Added `sqrt` and inlined `abs` across AST, types, IR, interpreter, VM, and native codegen.
+- **Zero Breaking Changes**: 100% checksum parity across Interpreter, VM, and Native x86-64 backends; v1.0.0 language freeze strictly preserved.
 
 ## Road to v1.0 (All Phases Completed)
 
