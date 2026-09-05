@@ -46,6 +46,9 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
         rdata.extend_from_slice(s);
     }
 
+    let globals_off = rdata.len() as u32;
+    rdata.extend(std::iter::repeat_n(0u8, 144));
+
     let text_rva = SECT_ALIGN;
     let text_raw = FILE_ALIGN * 2; // 0x400
     let text_vsize = compiled.code.len() as u32;
@@ -86,6 +89,12 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
         let insn_end_rva = text_rva + at as u32 + 4;
         let s_rva = rdata_rva + str_offs[sidx];
         let rel = s_rva as i32 - insn_end_rva as i32;
+        code[at..at + 4].copy_from_slice(&rel.to_le_bytes());
+    }
+    for &(at, offset) in &compiled.global_patches {
+        let insn_end_rva = text_rva + at as u32 + 4;
+        let target_rva = rdata_rva + globals_off + offset as u32;
+        let rel = target_rva as i32 - insn_end_rva as i32;
         code[at..at + 4].copy_from_slice(&rel.to_le_bytes());
     }
 
@@ -150,7 +159,7 @@ pub fn write_pe(compiled: &Compiled) -> Vec<u8> {
         rdata_rva,
         rdata_raw_size,
         rdata_raw,
-        0x4000_0040,
+        0xC000_0040,
     );
 
     buf[text_raw as usize..text_raw as usize + compiled.code.len()].copy_from_slice(&code);
@@ -191,6 +200,7 @@ mod tests {
             entry: 7,
             iat_patches: Vec::new(),
             str_patches: Vec::new(),
+            global_patches: Vec::new(),
             gas: String::new(),
         };
         let pe = write_pe(&compiled);

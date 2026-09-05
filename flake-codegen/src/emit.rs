@@ -13,6 +13,7 @@ pub struct Compiled {
     pub entry: usize,
     pub iat_patches: Vec<(usize, usize)>,
     pub str_patches: Vec<(usize, usize)>,
+    pub global_patches: Vec<(usize, usize)>,
     pub gas: String,
 }
 
@@ -41,6 +42,7 @@ pub enum Import {
     GetExitCodeProcess = 20,
     CreatePipe = 21,
     SetHandleInformation = 22,
+    HeapFree = 23,
 }
 
 pub const IMPORTS: &[&str] = &[
@@ -67,6 +69,7 @@ pub const IMPORTS: &[&str] = &[
     "GetExitCodeProcess",
     "CreatePipe",
     "SetHandleInformation",
+    "HeapFree",
 ];
 
 pub fn compile_module(module: &Module) -> Result<Compiled, CodegenError> {
@@ -78,6 +81,7 @@ pub fn compile_module_for(module: &Module, os: TargetOs) -> Result<Compiled, Cod
     let mut strings: Vec<Vec<u8>> = Vec::new();
     let mut iat_patches = Vec::new();
     let mut str_patches = Vec::new();
+    let mut global_patches = Vec::new();
     let mut gas = String::new();
     match os {
         TargetOs::Windows => {
@@ -96,7 +100,7 @@ pub fn compile_module_for(module: &Module, os: TargetOs) -> Result<Compiled, Cod
     intern_str(&mut strings, b" ");
 
     emit_start(&mut asm, &mut iat_patches, &mut gas, os);
-    crate::runtime::emit_runtime(&mut asm, &mut iat_patches, os);
+    crate::runtime::emit_runtime(&mut asm, &mut iat_patches, &mut global_patches, os);
 
     let mut uniq = 0u32;
     for func in &module.functions {
@@ -119,6 +123,7 @@ pub fn compile_module_for(module: &Module, os: TargetOs) -> Result<Compiled, Cod
         entry: 0,
         iat_patches,
         str_patches,
+        global_patches,
         gas,
     })
 }

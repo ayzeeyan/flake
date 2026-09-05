@@ -37,6 +37,9 @@ pub fn write_elf(compiled: &Compiled, arch: TargetArch) -> Vec<u8> {
         rdata.extend_from_slice(s);
     }
 
+    let globals_off = rdata.len() as u64;
+    rdata.extend(std::iter::repeat_n(0u8, 144));
+
     let data_filesz = rdata.len() as u64;
     let data_memsz = data_filesz;
 
@@ -66,6 +69,13 @@ pub fn write_elf(compiled: &Compiled, arch: TargetArch) -> Vec<u8> {
             let rel32 = rel as i32;
             code[at..at + 4].copy_from_slice(&rel32.to_le_bytes());
         }
+    }
+    for &(at, offset) in &compiled.global_patches {
+        let target_vaddr = data_vaddr + globals_off + offset as u64;
+        let insn_next_ip = code_vaddr + at as u64 + 4;
+        let rel = (target_vaddr as i64) - (insn_next_ip as i64);
+        let rel32 = rel as i32;
+        code[at..at + 4].copy_from_slice(&rel32.to_le_bytes());
     }
 
     let total_file_size = if data_filesz > 0 {

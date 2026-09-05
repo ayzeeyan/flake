@@ -383,6 +383,7 @@ pub fn compile_module_aarch64(module: &Module) -> Result<Compiled, CodegenError>
         entry: 0,
         iat_patches,
         str_patches,
+        global_patches: Vec::new(),
         gas,
     })
 }

@@ -343,7 +343,25 @@ pub fn run_native_with_args_stats(
         .map_err(|e| CodegenError::new(format!("failed to run native binary: {e}")))?;
     let duration = start.elapsed();
 
-    let peak_rss_bytes = {
+    let mut stderr_str = String::from_utf8_lossy(&output.stderr).into_owned();
+    let mut peak_from_stats = 0usize;
+    if let Some(pos) = stderr_str.find("__FLAKE_STATS__: peak=") {
+        let after = &stderr_str[pos + "__FLAKE_STATS__: peak=".len()..];
+        if let Some(end) = after.find(' ') {
+            if let Ok(peak) = after[..end].parse::<usize>() {
+                peak_from_stats = peak;
+            }
+        }
+        if let Some(line_end) = stderr_str[pos..].find('\n') {
+            stderr_str.replace_range(pos..=pos + line_end, "");
+        } else {
+            stderr_str.truncate(pos);
+        }
+    }
+
+    let peak_rss_bytes = if peak_from_stats > 0 {
+        peak_from_stats
+    } else {
         #[cfg(not(windows))]
         {
             unix_mem::current_process_peak_rss()
@@ -360,15 +378,15 @@ pub fn run_native_with_args_stats(
             message.push_str("\nstdout:\n");
             message.push_str(&String::from_utf8_lossy(&output.stdout));
         }
-        if !output.stderr.is_empty() {
+        if !stderr_str.is_empty() {
             message.push_str("\nstderr:\n");
-            message.push_str(&String::from_utf8_lossy(&output.stderr));
+            message.push_str(&stderr_str);
         }
         return Err(CodegenError::new(message));
     }
     Ok(NativeRunStats {
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        stderr: stderr_str,
         duration,
         peak_rss_bytes,
     })

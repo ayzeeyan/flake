@@ -273,6 +273,13 @@ impl Asm {
         self.modrm_rr(b, a);
     }
 
+    pub fn cmp_ri(&mut self, dst: Reg, imm: i32) {
+        self.rex_wb(dst);
+        self.bytes.push(0x81);
+        self.modrm_rr_op(7, dst);
+        self.bytes.extend_from_slice(&imm.to_le_bytes());
+    }
+
     pub fn test_rr(&mut self, a: Reg, b: Reg) {
         self.rex_wr(b, a);
         self.bytes.push(0x85);

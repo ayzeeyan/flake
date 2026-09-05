@@ -17,6 +17,11 @@ const G_ARGV: i32 = 8;
 const G_ENVP: i32 = 16;
 const G_HEAP: i32 = 24;
 const G_HEAP_END: i32 = 32;
+const G_LIVE_BYTES: i32 = 40;
+const G_PEAK_BYTES: i32 = 48;
+const G_ALLOC_COUNT: i32 = 56;
+const G_FREE_COUNT: i32 = 64;
+const G_FREE_LISTS: i32 = 72;
 
 const SYS_READ: i64 = 0;
 const SYS_WRITE: i64 = 1;
@@ -96,6 +101,7 @@ pub fn emit_linux_start(asm: &mut Asm, gas: &mut String) {
 pub fn emit_linux_os_runtime(asm: &mut Asm) {
     emit_print_cstr(asm);
     emit_alloc(asm);
+    emit_free(asm);
     emit_exit(asm);
     emit_read_file(asm);
     emit_write_file(asm);
@@ -175,10 +181,114 @@ fn emit_print_cstr(asm: &mut Asm) {
 }
 
 fn emit_alloc(asm: &mut Asm) {
-    // rcx = size → rax = pointer. Bump allocator over anonymous mmap chunks.
+    // rcx = size → rax = pointer. Free list buckets or bump allocator.
     asm.label("rt_alloc");
     prologue(asm, 48);
     asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_ri(Reg::R8, -1);
+    asm.xor_rr(Reg::Rax, Reg::Rax);
+    asm.mov_mr_rbp(-16, Reg::Rax);
+
+    asm.cmp_ri(Reg::Rcx, 16);
+    asm.jcc_label(Cc::Le, ".lx_al_b0");
+    asm.cmp_ri(Reg::Rcx, 24);
+    asm.jcc_label(Cc::Le, ".lx_al_b1");
+    asm.cmp_ri(Reg::Rcx, 32);
+    asm.jcc_label(Cc::Le, ".lx_al_b2");
+    asm.cmp_ri(Reg::Rcx, 48);
+    asm.jcc_label(Cc::Le, ".lx_al_b3");
+    asm.cmp_ri(Reg::Rcx, 64);
+    asm.jcc_label(Cc::Le, ".lx_al_b4");
+    asm.cmp_ri(Reg::Rcx, 128);
+    asm.jcc_label(Cc::Le, ".lx_al_b5");
+    asm.cmp_ri(Reg::Rcx, 256);
+    asm.jcc_label(Cc::Le, ".lx_al_b6");
+    asm.cmp_ri(Reg::Rcx, 512);
+    asm.jcc_label(Cc::Le, ".lx_al_b7");
+    asm.cmp_ri(Reg::Rcx, 1024);
+    asm.jcc_label(Cc::Le, ".lx_al_b8");
+    asm.cmp_ri(Reg::Rcx, 2048);
+    asm.jcc_label(Cc::Le, ".lx_al_b9");
+    asm.cmp_ri(Reg::Rcx, 4096);
+    asm.jcc_label(Cc::Le, ".lx_al_b10");
+    asm.jmp_label(".lx_al_os");
+
+    asm.label(".lx_al_b0");
+    asm.mov_ri(Reg::R8, 0);
+    asm.mov_ri(Reg::Rcx, 16);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b1");
+    asm.mov_ri(Reg::R8, 1);
+    asm.mov_ri(Reg::Rcx, 24);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b2");
+    asm.mov_ri(Reg::R8, 2);
+    asm.mov_ri(Reg::Rcx, 32);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b3");
+    asm.mov_ri(Reg::R8, 3);
+    asm.mov_ri(Reg::Rcx, 48);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b4");
+    asm.mov_ri(Reg::R8, 4);
+    asm.mov_ri(Reg::Rcx, 64);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b5");
+    asm.mov_ri(Reg::R8, 5);
+    asm.mov_ri(Reg::Rcx, 128);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b6");
+    asm.mov_ri(Reg::R8, 6);
+    asm.mov_ri(Reg::Rcx, 256);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b7");
+    asm.mov_ri(Reg::R8, 7);
+    asm.mov_ri(Reg::Rcx, 512);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b8");
+    asm.mov_ri(Reg::R8, 8);
+    asm.mov_ri(Reg::Rcx, 1024);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b9");
+    asm.mov_ri(Reg::R8, 9);
+    asm.mov_ri(Reg::Rcx, 2048);
+    asm.jmp_label(".lx_al_lookup");
+    asm.label(".lx_al_b10");
+    asm.mov_ri(Reg::R8, 10);
+    asm.mov_ri(Reg::Rcx, 4096);
+
+    asm.label(".lx_al_lookup");
+    asm.mov_mr_rbp(-16, Reg::Rcx); // normalized size
+    load_globals(asm, Reg::R9);
+    asm.shl_ri(Reg::R8, 3);
+    asm.add_ri(Reg::R8, G_FREE_LISTS);
+    asm.add_rr(Reg::R8, Reg::R9);
+    asm.mov_rm(Reg::Rax, Reg::R8, 0);
+    asm.test_rr(Reg::Rax, Reg::Rax);
+    asm.jcc_label(Cc::Z, ".lx_al_os");
+
+    // Hit in free list!
+    asm.mov_rm(Reg::R10, Reg::Rax, 0);
+    asm.mov_mr(Reg::R8, 0, Reg::R10);
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.mov_rm(Reg::R10, Reg::R9, G_LIVE_BYTES);
+    asm.add_rr(Reg::R10, Reg::Rcx);
+    asm.mov_mr(Reg::R9, G_LIVE_BYTES, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::R9, G_PEAK_BYTES);
+    asm.cmp_rr(Reg::R10, Reg::R11);
+    asm.jcc_label(Cc::Be, ".lx_al_hit_stats");
+    asm.mov_mr(Reg::R9, G_PEAK_BYTES, Reg::R10);
+    asm.label(".lx_al_hit_stats");
+    asm.mov_rm(Reg::R10, Reg::R9, G_ALLOC_COUNT);
+    asm.add_ri(Reg::R10, 1);
+    asm.mov_mr(Reg::R9, G_ALLOC_COUNT, Reg::R10);
+    epilogue(asm);
+
+    asm.label(".lx_al_os");
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.test_rr(Reg::Rcx, Reg::Rcx);
+    asm.jcc_label(Cc::NZ, ".lx_al_align");
+    asm.mov_rm_rbp(Reg::Rcx, -8);
     asm.mov_ri(Reg::R11, 8);
     asm.cmp_rr(Reg::Rcx, Reg::R11);
     asm.jcc_label(Cc::Ae, ".lx_al_align");
@@ -187,7 +297,7 @@ fn emit_alloc(asm: &mut Asm) {
     asm.add_ri(Reg::Rcx, 7);
     asm.mov_ri(Reg::R11, -8);
     asm.and_rr(Reg::Rcx, Reg::R11);
-    asm.mov_mr_rbp(-8, Reg::Rcx);
+    asm.mov_mr_rbp(-16, Reg::Rcx);
 
     load_globals(asm, Reg::R9);
     asm.mov_rm(Reg::Rax, Reg::R9, G_HEAP);
@@ -200,7 +310,7 @@ fn emit_alloc(asm: &mut Asm) {
     asm.jcc_label(Cc::Be, ".lx_al_have");
 
     asm.label(".lx_al_chunk");
-    asm.mov_rm_rbp(Reg::Rsi, -8);
+    asm.mov_rm_rbp(Reg::Rsi, -16);
     asm.mov_ri(Reg::R11, 65536);
     asm.cmp_rr(Reg::Rsi, Reg::R11);
     asm.jcc_label(Cc::Ae, ".lx_al_pages");
@@ -209,7 +319,7 @@ fn emit_alloc(asm: &mut Asm) {
     asm.add_ri(Reg::Rsi, 4095);
     asm.mov_ri(Reg::R11, -4096);
     asm.and_rr(Reg::Rsi, Reg::R11);
-    asm.mov_mr_rbp(-16, Reg::Rsi);
+    asm.mov_mr_rbp(-24, Reg::Rsi);
     asm.xor_rr(Reg::Rdi, Reg::Rdi);
     asm.mov_ri(Reg::Rdx, PROT_READ_WRITE);
     asm.mov_ri(Reg::R10, MAP_PRIVATE_ANON);
@@ -219,21 +329,140 @@ fn emit_alloc(asm: &mut Asm) {
     j_syscall_err(asm, ".lx_al_fail");
     load_globals(asm, Reg::R9);
     asm.mov_mr(Reg::R9, G_HEAP, Reg::Rax);
-    asm.mov_rm_rbp(Reg::Rdx, -16);
+    asm.mov_rm_rbp(Reg::Rdx, -24);
     asm.add_rr(Reg::Rdx, Reg::Rax);
     asm.mov_mr(Reg::R9, G_HEAP_END, Reg::Rdx);
 
     asm.label(".lx_al_have");
     load_globals(asm, Reg::R9);
     asm.mov_rm(Reg::Rax, Reg::R9, G_HEAP);
-    asm.mov_rm_rbp(Reg::Rcx, -8);
+    asm.mov_rm_rbp(Reg::Rcx, -16);
     asm.add_rr(Reg::Rcx, Reg::Rax);
     asm.mov_mr(Reg::R9, G_HEAP, Reg::Rcx);
+
+    asm.mov_rm_rbp(Reg::Rcx, -16);
+    asm.mov_rm(Reg::R10, Reg::R9, G_LIVE_BYTES);
+    asm.add_rr(Reg::R10, Reg::Rcx);
+    asm.mov_mr(Reg::R9, G_LIVE_BYTES, Reg::R10);
+    asm.mov_rm(Reg::R11, Reg::R9, G_PEAK_BYTES);
+    asm.cmp_rr(Reg::R10, Reg::R11);
+    asm.jcc_label(Cc::Be, ".lx_al_bump_stats");
+    asm.mov_mr(Reg::R9, G_PEAK_BYTES, Reg::R10);
+    asm.label(".lx_al_bump_stats");
+    asm.mov_rm(Reg::R10, Reg::R9, G_ALLOC_COUNT);
+    asm.add_ri(Reg::R10, 1);
+    asm.mov_mr(Reg::R9, G_ALLOC_COUNT, Reg::R10);
     epilogue(asm);
 
     asm.label(".lx_al_fail");
     asm.xor_rr(Reg::Rax, Reg::Rax);
     epilogue(asm);
+}
+
+fn emit_free(asm: &mut Asm) {
+    // rcx = ptr, rdx = size
+    asm.label("rt_free");
+    asm.test_rr(Reg::Rcx, Reg::Rcx);
+    asm.jcc_label(Cc::Z, ".lx_fr_ret");
+    asm.test_rr(Reg::Rdx, Reg::Rdx);
+    asm.jcc_label(Cc::Le, ".lx_fr_ret");
+
+    asm.cmp_ri(Reg::Rdx, 16);
+    asm.jcc_label(Cc::Le, ".lx_fr_b0");
+    asm.cmp_ri(Reg::Rdx, 24);
+    asm.jcc_label(Cc::Le, ".lx_fr_b1");
+    asm.cmp_ri(Reg::Rdx, 32);
+    asm.jcc_label(Cc::Le, ".lx_fr_b2");
+    asm.cmp_ri(Reg::Rdx, 48);
+    asm.jcc_label(Cc::Le, ".lx_fr_b3");
+    asm.cmp_ri(Reg::Rdx, 64);
+    asm.jcc_label(Cc::Le, ".lx_fr_b4");
+    asm.cmp_ri(Reg::Rdx, 128);
+    asm.jcc_label(Cc::Le, ".lx_fr_b5");
+    asm.cmp_ri(Reg::Rdx, 256);
+    asm.jcc_label(Cc::Le, ".lx_fr_b6");
+    asm.cmp_ri(Reg::Rdx, 512);
+    asm.jcc_label(Cc::Le, ".lx_fr_b7");
+    asm.cmp_ri(Reg::Rdx, 1024);
+    asm.jcc_label(Cc::Le, ".lx_fr_b8");
+    asm.cmp_ri(Reg::Rdx, 2048);
+    asm.jcc_label(Cc::Le, ".lx_fr_b9");
+    asm.cmp_ri(Reg::Rdx, 4096);
+    asm.jcc_label(Cc::Le, ".lx_fr_b10");
+    asm.jmp_label(".lx_fr_large");
+
+    asm.label(".lx_fr_b0");
+    asm.mov_ri(Reg::R8, 0);
+    asm.mov_ri(Reg::Rdx, 16);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b1");
+    asm.mov_ri(Reg::R8, 1);
+    asm.mov_ri(Reg::Rdx, 24);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b2");
+    asm.mov_ri(Reg::R8, 2);
+    asm.mov_ri(Reg::Rdx, 32);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b3");
+    asm.mov_ri(Reg::R8, 3);
+    asm.mov_ri(Reg::Rdx, 48);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b4");
+    asm.mov_ri(Reg::R8, 4);
+    asm.mov_ri(Reg::Rdx, 64);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b5");
+    asm.mov_ri(Reg::R8, 5);
+    asm.mov_ri(Reg::Rdx, 128);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b6");
+    asm.mov_ri(Reg::R8, 6);
+    asm.mov_ri(Reg::Rdx, 256);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b7");
+    asm.mov_ri(Reg::R8, 7);
+    asm.mov_ri(Reg::Rdx, 512);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b8");
+    asm.mov_ri(Reg::R8, 8);
+    asm.mov_ri(Reg::Rdx, 1024);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b9");
+    asm.mov_ri(Reg::R8, 9);
+    asm.mov_ri(Reg::Rdx, 2048);
+    asm.jmp_label(".lx_fr_put");
+    asm.label(".lx_fr_b10");
+    asm.mov_ri(Reg::R8, 10);
+    asm.mov_ri(Reg::Rdx, 4096);
+
+    asm.label(".lx_fr_put");
+    load_globals(asm, Reg::R9);
+    asm.shl_ri(Reg::R8, 3);
+    asm.add_ri(Reg::R8, G_FREE_LISTS);
+    asm.add_rr(Reg::R8, Reg::R9);
+    asm.mov_rm(Reg::Rax, Reg::R8, 0);
+    asm.mov_mr(Reg::Rcx, 0, Reg::Rax);
+    asm.mov_mr(Reg::R8, 0, Reg::Rcx);
+
+    asm.mov_rm(Reg::R10, Reg::R9, G_LIVE_BYTES);
+    asm.sub_rr(Reg::R10, Reg::Rdx);
+    asm.mov_mr(Reg::R9, G_LIVE_BYTES, Reg::R10);
+    asm.mov_rm(Reg::R10, Reg::R9, G_FREE_COUNT);
+    asm.add_ri(Reg::R10, 1);
+    asm.mov_mr(Reg::R9, G_FREE_COUNT, Reg::R10);
+    asm.ret();
+
+    asm.label(".lx_fr_large");
+    load_globals(asm, Reg::R9);
+    asm.mov_rm(Reg::R10, Reg::R9, G_LIVE_BYTES);
+    asm.sub_rr(Reg::R10, Reg::Rdx);
+    asm.mov_mr(Reg::R9, G_LIVE_BYTES, Reg::R10);
+    asm.mov_rm(Reg::R10, Reg::R9, G_FREE_COUNT);
+    asm.add_ri(Reg::R10, 1);
+    asm.mov_mr(Reg::R9, G_FREE_COUNT, Reg::R10);
+
+    asm.label(".lx_fr_ret");
+    asm.ret();
 }
 
 fn emit_exit(asm: &mut Asm) {

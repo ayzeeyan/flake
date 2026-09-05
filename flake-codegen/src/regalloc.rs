@@ -169,7 +169,8 @@ fn color_candidates(
     }
 }
 
-fn build_interference(func: &Function, n: usize) -> Vec<HashSet<usize>> {
+pub fn compute_liveness(func: &Function) -> (Vec<HashSet<usize>>, Vec<HashSet<usize>>) {
+    let n = func.locals.len();
     let block_indices: HashMap<BlockId, usize> = func
         .blocks
         .iter()
@@ -239,6 +240,17 @@ fn build_interference(func: &Function, n: usize) -> Vec<HashSet<usize>> {
             break;
         }
     }
+    (live_in, live_out)
+}
+
+fn build_interference(func: &Function, n: usize) -> Vec<HashSet<usize>> {
+    let block_indices: HashMap<BlockId, usize> = func
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| (block.id, index))
+        .collect();
+    let (live_in, live_out) = compute_liveness(func);
 
     let mut graph = vec![HashSet::new(); n];
     if let Some(entry) = block_indices.get(&func.entry).copied() {
@@ -320,7 +332,7 @@ fn build_interference(func: &Function, n: usize) -> Vec<HashSet<usize>> {
     graph
 }
 
-fn defs_uses(inst: &Inst) -> (Vec<LocalId>, Vec<LocalId>) {
+pub fn defs_uses(inst: &Inst) -> (Vec<LocalId>, Vec<LocalId>) {
     let mut defs = Vec::new();
     let mut uses = Vec::new();
     match inst {
