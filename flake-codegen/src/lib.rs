@@ -311,17 +311,49 @@ pub fn run_native(source: &Source) -> Result<String, CodegenError> {
     run_native_with_args(source, &[])
 }
 
-/// Compile and run a native executable, forwarding `args` to the program.
+#[derive(Debug, Clone)]
+pub struct NativeRunStats {
+    pub stdout: String,
+    pub stderr: String,
+    pub duration: std::time::Duration,
+    pub peak_rss_bytes: usize,
+}
+
 pub fn run_native_with_args(source: &Source, args: &[String]) -> Result<String, CodegenError> {
+    let stats = run_native_with_args_stats(source, args)?;
+    Ok(stats.stdout)
+}
+
+/// Compile and run a native executable with timing and memory statistics.
+pub fn run_native_with_args_stats(
+    source: &Source,
+    args: &[String],
+) -> Result<NativeRunStats, CodegenError> {
     let dir = std::env::temp_dir();
     let n = UNIQUE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let exe = dir.join(format!("flake-native-{}-{n}.exe", std::process::id()));
     write_executable(source, &exe)?;
     let _remove_exe = RemoveOnDrop(exe.clone());
+
+    let start = std::time::Instant::now();
     let output = Command::new(&exe)
         .args(args)
+        .env("FLAKE_STATS", "1")
         .output()
         .map_err(|e| CodegenError::new(format!("failed to run native binary: {e}")))?;
+    let duration = start.elapsed();
+
+    let peak_rss_bytes = {
+        #[cfg(not(windows))]
+        {
+            unix_mem::current_process_peak_rss()
+        }
+        #[cfg(windows)]
+        {
+            0usize
+        }
+    };
+
     if !output.status.success() {
         let mut message = format!("native process exited with {:?}", output.status.code());
         if !output.stdout.is_empty() {
@@ -334,7 +366,30 @@ pub fn run_native_with_args(source: &Source, args: &[String]) -> Result<String, 
         }
         return Err(CodegenError::new(message));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(NativeRunStats {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        duration,
+        peak_rss_bytes,
+    })
+}
+
+#[cfg(not(windows))]
+pub mod unix_mem {
+    pub fn current_process_peak_rss() -> usize {
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            for line in status.lines() {
+                if line.starts_with("VmHWM:") {
+                    let mut parts = line.split_whitespace();
+                    let _ = parts.next();
+                    if let Some(kb) = parts.next().and_then(|k| k.parse::<usize>().ok()) {
+                        return kb * 1024;
+                    }
+                }
+            }
+        }
+        0
+    }
 }
 
 /// Current crate version.
@@ -344,3 +399,4 @@ pub fn version() -> &'static str {
 
 #[cfg(test)]
 mod tests;
+

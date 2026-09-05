@@ -356,7 +356,7 @@ fn run_test_corpus(
     // 2. Walk examples
     let walk_ex = run(&["--walk", "examples"])
         .map_err(|e| format!("examples walk failed: {e}"))?;
-    if !walk_ex.contains("Scanned 62 files: all parsed successfully") {
+    if !walk_ex.contains("Scanned 67 files: all parsed successfully") {
         return Err(format!("unexpected examples walk output: {walk_ex}"));
     }
 
@@ -451,7 +451,7 @@ fn run_test_corpus(
 
     Ok(CorpusResults {
         selfhost_walk_count: 11,
-        examples_walk_count: 62,
+        examples_walk_count: 67,
         accept_corpus_count: accept_corpus.len(),
         accept_corpus_passed: accept_passed,
         reject_corpus_count: reject_cases.len(),

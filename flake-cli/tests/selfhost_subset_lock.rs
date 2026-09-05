@@ -392,7 +392,7 @@ fn examples_sources_satisfy_stable_subset_lock() {
             files.push(entry);
         }
     }
-    assert_eq!(files.len(), 62, "expected exactly 62 example .flk files");
+    assert_eq!(files.len(), 67, "expected exactly 67 example .flk files");
 
     for file in &files {
         let content = std::fs::read_to_string(file).expect("read file");

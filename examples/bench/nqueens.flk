@@ -1,0 +1,53 @@
+// Benchmark: nqueens
+// Tests integer recursion, list indexing, and backtracking.
+
+fn is_safe(queens: [Int], row: Int, col: Int) -> Bool {
+    var r = 0
+    while r < row {
+        let c = queens[r]
+        if c == col {
+            return false
+        }
+        let dc = abs(c - col)
+        let dr = row - r
+        if dc == dr {
+            return false
+        }
+        r = r + 1
+    }
+    true
+}
+
+fn solve(queens: [Int], row: Int, n: Int) -> Int {
+    if row == n {
+        return 1
+    }
+    var count = 0
+    var col = 0
+    while col < n {
+        if is_safe(queens, row, col) {
+            queens[row] = col
+            count = count + solve(queens, row + 1, n)
+        }
+        col = col + 1
+    }
+    count
+}
+
+fn main() / io + alloc {
+    var n = 10
+    let p_args = args()
+    if len(p_args) > 0 {
+        n = int(p_args[0])
+    }
+
+    var queens: [Int] = []
+    var i = 0
+    while i < n {
+        push(queens, 0)
+        i = i + 1
+    }
+
+    let solutions = solve(queens, 0, n)
+    print("nqueens(N={n}) solutions: {solutions}")
+}

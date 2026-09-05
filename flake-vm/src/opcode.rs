@@ -39,11 +39,13 @@ impl Chunk {
     }
 
     pub fn add_constant(&mut self, value: Value) -> u16 {
-        if let Some(i) = self.constants.iter().position(|c| {
-            matches!(
-                c,
-                Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::String(_)
-            ) && c == &value
+        if let Some(i) = self.constants.iter().position(|c| match (c, &value) {
+            (Value::Nil, Value::Nil) => true,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
+            (Value::String(a), Value::String(b)) => a == b,
+            _ => false,
         }) {
             return i as u16;
         }

@@ -1,0 +1,44 @@
+// Benchmark: mandelbrot
+// Tests tight floating-point arithmetic loops and conditionals.
+
+fn main() / io + alloc {
+    var n = 200
+    let p_args = args()
+    if len(p_args) > 0 {
+        n = int(p_args[0])
+    }
+
+    var count = 0
+    let max_iter = 50
+    let fn_n = float(n)
+    var y = 0
+    while y < n {
+        let ci = (2.0 * float(y)) / fn_n - 1.0
+        var x = 0
+        while x < n {
+            let cr = (2.0 * float(x)) / fn_n - 1.5
+            var zr = 0.0
+            var zi = 0.0
+            var iter = 0
+            var escaped = false
+            while iter < max_iter {
+                let zr2 = zr * zr
+                let zi2 = zi * zi
+                if zr2 + zi2 > 4.0 {
+                    escaped = true
+                    break
+                }
+                let new_zi = 2.0 * zr * zi + ci
+                zr = zr2 - zi2 + cr
+                zi = new_zi
+                iter = iter + 1
+            }
+            if !escaped {
+                count = count + 1
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    print("mandelbrot(N={n}) in-set count: {count}")
+}

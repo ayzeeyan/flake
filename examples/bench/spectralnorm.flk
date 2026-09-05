@@ -1,0 +1,92 @@
+// Benchmark: spectralnorm
+// Tests floating-point vector and matrix mathematics.
+
+fn eval_a(i: Int, j: Int) -> Float {
+    let ij = i + j
+    let denom = (ij * (ij + 1)) / 2 + i + 1
+    1.0 / float(denom)
+}
+
+fn eval_av(v: [Float], out: [Float], n: Int) {
+    var i = 0
+    while i < n {
+        var sum = 0.0
+        var j = 0
+        while j < n {
+            sum = sum + eval_a(i, j) * v[j]
+            j = j + 1
+        }
+        out[i] = sum
+        i = i + 1
+    }
+}
+
+fn eval_atv(v: [Float], out: [Float], n: Int) {
+    var i = 0
+    while i < n {
+        var sum = 0.0
+        var j = 0
+        while j < n {
+            sum = sum + eval_a(j, i) * v[j]
+            j = j + 1
+        }
+        out[i] = sum
+        i = i + 1
+    }
+}
+
+fn eval_ata_v(v: [Float], out: [Float], tmp: [Float], n: Int) {
+    eval_av(v, tmp, n)
+    eval_atv(tmp, out, n)
+}
+
+fn sqrt_approx(val: Float) -> Float {
+    if val <= 0.0 {
+        return 0.0
+    }
+    var x = val
+    var i = 0
+    while i < 40 {
+        x = 0.5 * (x + val / x)
+        i = i + 1
+    }
+    x
+}
+
+fn main() / io + alloc {
+    var n = 100
+    let p_args = args()
+    if len(p_args) > 0 {
+        n = int(p_args[0])
+    }
+
+    var u: [Float] = []
+    var v: [Float] = []
+    var tmp: [Float] = []
+    var i = 0
+    while i < n {
+        push(u, 1.0)
+        push(v, 0.0)
+        push(tmp, 0.0)
+        i = i + 1
+    }
+
+    var it = 0
+    while it < 10 {
+        eval_ata_v(u, v, tmp, n)
+        eval_ata_v(v, u, tmp, n)
+        it = it + 1
+    }
+
+    var vbv = 0.0
+    var vv = 0.0
+    var k = 0
+    while k < n {
+        vbv = vbv + u[k] * v[k]
+        vv = vv + v[k] * v[k]
+        k = k + 1
+    }
+
+    let norm = sqrt_approx(vbv / vv)
+    print("spectralnorm(N={n}): {norm}")
+}

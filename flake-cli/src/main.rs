@@ -18,7 +18,7 @@ use flake_types::check;
 #[derive(Debug, Parser)]
 #[command(
     name = "flake",
-    version = "1.0.0",
+    version,
     about = "Flake — Clarity, crystallized.",
     long_about = "Flake is a safe, modern systems language with gradual ownership \
 and a first-class effect system that makes side effects visible and controllable.\n\n\
@@ -46,6 +46,9 @@ enum Commands {
         /// Compile to native x86-64 and run the executable
         #[arg(long, conflicts_with = "vm")]
         native: bool,
+        /// Print execution statistics (time, peak RSS) to stderr on exit
+        #[arg(long)]
+        stats: bool,
         /// Arguments forwarded to the Flake program (`args()`). Pass after `--`.
         #[arg(last = true)]
         program_args: Vec<String>,
@@ -133,9 +136,10 @@ fn run_cli() -> ExitCode {
             skip_check,
             vm,
             native,
+            stats,
             program_args,
         } => match resolve_target_path(file.as_ref()) {
-            Ok(target) => run_file(&target, skip_check, vm, native, &program_args),
+            Ok(target) => run_file(&target, skip_check, vm, native, stats, &program_args),
             Err(code) => code,
         },
         Commands::Build {
@@ -454,6 +458,7 @@ fn run_file(
     skip_check: bool,
     use_vm: bool,
     native: bool,
+    stats: bool,
     program_args: &[String],
 ) -> ExitCode {
     if !skip_check {
@@ -474,49 +479,110 @@ fn run_file(
     flake_interpreter::set_program_args(program_args.to_vec());
     flake_vm::set_program_args(program_args.to_vec());
     if native {
-        match flake_codegen::run_native_with_args(&source, program_args) {
-            Ok(out) => {
-                print!("{out}");
-                ExitCode::SUCCESS
-            }
-            Err(err) => {
-                report::emit_message(&err.to_string());
-                ExitCode::from(1)
-            }
-        }
-    } else {
-        let mut stdout = io::stdout();
-        if use_vm {
-            match flake_vm::execute(&source, &mut stdout) {
-                Ok(_) => {
-                    let _ = stdout.flush();
+        if stats {
+            match flake_codegen::run_native_with_args_stats(&source, program_args) {
+                Ok(res) => {
+                    print!("{}", res.stdout);
+                    if !res.stderr.is_empty() {
+                        eprint!("{}", res.stderr);
+                    }
+                    eprintln!("\n=== Flake Execution Stats ===");
+                    eprintln!("Backend:  Native x86-64");
+                    eprintln!("Time:     {:.3} s", res.duration.as_secs_f64());
+                    if res.peak_rss_bytes > 0 {
+                        eprintln!("Peak RSS: {}", format_bytes(res.peak_rss_bytes));
+                    }
                     ExitCode::SUCCESS
                 }
                 Err(err) => {
-                    if let Some(span) = err.span() {
-                        report::emit(&source, span, &err.to_string());
-                    } else {
-                        report::emit_message(&err.to_string());
-                    }
+                    report::emit_message(&err.to_string());
                     ExitCode::from(1)
                 }
             }
         } else {
-            match execute(&source, &mut stdout) {
-                Ok(_) => {
-                    let _ = stdout.flush();
+            match flake_codegen::run_native_with_args(&source, program_args) {
+                Ok(out) => {
+                    print!("{out}");
                     ExitCode::SUCCESS
                 }
+                Err(err) => {
+                    report::emit_message(&err.to_string());
+                    ExitCode::from(1)
+                }
+            }
+        }
+    } else {
+        let mut stdout = io::stdout();
+        let start = std::time::Instant::now();
+        let success = if use_vm {
+            match flake_vm::execute(&source, &mut stdout) {
+                Ok(_) => true,
                 Err(err) => {
                     if let Some(span) = err.span() {
                         report::emit(&source, span, &err.to_string());
                     } else {
                         report::emit_message(&err.to_string());
                     }
-                    ExitCode::from(1)
+                    false
                 }
             }
+        } else {
+            match execute(&source, &mut stdout) {
+                Ok(_) => true,
+                Err(err) => {
+                    if let Some(span) = err.span() {
+                        report::emit(&source, span, &err.to_string());
+                    } else {
+                        report::emit_message(&err.to_string());
+                    }
+                    false
+                }
+            }
+        };
+        let duration = start.elapsed();
+        let _ = stdout.flush();
+        if success {
+            if stats {
+                let peak_rss = {
+                    #[cfg(not(windows))]
+                    {
+                        flake_codegen::unix_mem::current_process_peak_rss()
+                    }
+                    #[cfg(windows)]
+                    {
+                        0usize
+                    }
+                };
+                eprintln!("\n=== Flake Execution Stats ===");
+                eprintln!(
+                    "Backend:  {}",
+                    if use_vm {
+                        "Bytecode VM"
+                    } else {
+                        "Tree Interpreter"
+                    }
+                );
+                eprintln!("Time:     {:.3} s", duration.as_secs_f64());
+                if peak_rss > 0 {
+                    eprintln!("Peak RSS: {}", format_bytes(peak_rss));
+                }
+            }
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
         }
+    }
+}
+
+fn format_bytes(bytes: usize) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes >= 1024 * 1024 {
+        format!("{:.2} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.2} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{bytes} B")
     }
 }
 

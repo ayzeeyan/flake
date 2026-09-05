@@ -1,0 +1,67 @@
+// Benchmark: binarytrees
+// Tests deep recursion, tree allocation, traversal, and memory footprint.
+
+enum Tree {
+    Empty,
+    Node(Tree, Tree, Int),
+}
+
+fn make_tree(depth: Int) -> Tree {
+    if depth <= 0 {
+        Tree.Node(Tree.Empty, Tree.Empty, 1)
+    } else {
+        Tree.Node(make_tree(depth - 1), make_tree(depth - 1), depth)
+    }
+}
+
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Tree.Empty => 0,
+        Tree.Node(left, right, val) => {
+            val + check_tree(left) + check_tree(right)
+        },
+    }
+}
+
+fn pow2(n: Int) -> Int {
+    var res = 1
+    var i = 0
+    while i < n {
+        res = res * 2
+        i = i + 1
+    }
+    res
+}
+
+fn main() / io + alloc {
+    var max_depth = 12
+    let p_args = args()
+    if len(p_args) > 0 {
+        max_depth = int(p_args[0])
+    }
+
+    let min_depth = 4
+    let stretch_depth = max_depth + 1
+    let stretch_tree = make_tree(stretch_depth)
+    let stretch_check = check_tree(stretch_tree)
+    print("stretch tree of depth {stretch_depth}\t check: {stretch_check}")
+
+    let long_lived_tree = make_tree(max_depth)
+
+    var d = min_depth
+    while d <= max_depth {
+        let iterations = pow2(max_depth - d + min_depth)
+        var check = 0
+        var i = 0
+        while i < iterations {
+            let t = make_tree(d)
+            check = check + check_tree(t)
+            i = i + 1
+        }
+        print("{iterations}\t trees of depth {d}\t check: {check}")
+        d = d + 2
+    }
+
+    let long_check = check_tree(long_lived_tree)
+    print("long lived tree of depth {max_depth}\t check: {long_check}")
+}

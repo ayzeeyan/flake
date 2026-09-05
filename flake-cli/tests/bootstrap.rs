@@ -65,7 +65,7 @@ fn bootstrap_command_lifecycle_reports_and_rebuild_verification() {
     assert!(json_content.contains(r#""bitwise_match": true"#), "json bitwise_match not true");
     assert!(json_content.contains(r#""behavioral_match": true"#), "json behavioral_match not true");
     assert!(json_content.contains(r#""selfhost_walk_count": 11"#), "json missing selfhost count");
-    assert!(json_content.contains(r#""examples_walk_count": 62"#), "json missing examples count");
+    assert!(json_content.contains(r#""examples_walk_count": 67"#), "json missing examples count");
     assert!(json_content.contains(r#""accept_corpus_passed": 16"#), "json missing accept passed");
     assert!(json_content.contains(r#""reject_corpus_passed": 9"#), "json missing reject passed");
 

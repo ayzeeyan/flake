@@ -143,7 +143,7 @@ fn selfhost_walk_all_examples() {
         let (ok, out) = run_selfhost(&["--walk", "examples"], vm);
         assert!(ok, "failed on vm={vm}: {out}");
         assert!(
-            out.contains("Scanned 62 files: all parsed successfully"),
+            out.contains("Scanned 67 files: all parsed successfully"),
             "unexpected output on vm={vm}: {out}"
         );
     }
@@ -255,7 +255,7 @@ fn selfhost_native_binary_check_matches_interpreter() {
 
     let walk = run_bin(&["--walk", "examples"]);
     assert!(
-        walk.contains("Scanned 62 files: all parsed successfully"),
+        walk.contains("Scanned 67 files: all parsed successfully"),
         "native binary walk: {walk}"
     );
 }
@@ -628,7 +628,7 @@ fn stage1_mandatory_self_check_of_selfhost_and_corpus() {
     // 3. Stage 0 binary --walk examples
     let (ok, walk_examples) = run_stage0(&["--walk", "examples"]);
     assert!(
-        ok && walk_examples.contains("Scanned 62 files: all parsed successfully"),
+        ok && walk_examples.contains("Scanned 67 files: all parsed successfully"),
         "Stage 0 --walk examples failed:\n{walk_examples}"
     );
 
